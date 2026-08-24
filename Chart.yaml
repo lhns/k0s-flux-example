@@ -1,0 +1,8 @@
+apiVersion: v2
+name: generators
+description: >-
+  Repo-root generator chart. For each configured group it discovers component
+  directories via .Files.Glob and emits one Flux Kustomization per directory,
+  giving each its own failure domain. Rendered by the 'generators' HelmRelease.
+type: application
+version: 0.1.0

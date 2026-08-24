@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # Needs the Traefik CRDs + the subsonic plugin (infra-traefik) and the Authelia
+    # middlewares (app-authelia, which itself dependsOn infra-traefik).
+    dependsOn: app-authelia
+resources:
+- resources.yaml
+- routing.yaml

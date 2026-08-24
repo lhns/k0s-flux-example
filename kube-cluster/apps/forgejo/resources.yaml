@@ -1,0 +1,378 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: forgejo
+---
+# ===========================================================================
+# Storage — split across both Ceph tiers, which the image supports with no
+# config at all: the ROOT (non-rootless) image keeps Gitea's layout, so
+# [repository] ROOT is /data/git/repositories and APP_DATA_PATH is /data/gitea.
+# Two mounts, two classes.
+#
+# Both were originally dynamically provisioned. forgejo-git's PV is now spelled
+# out below — see the comment on it — but it is still the same CSI subvolume the
+# provisioner created; nothing here was pre-created by hand on the filesystem.
+# ===========================================================================
+# The repositories and LFS objects — the bulk, and the tier that matters. On
+# the HDD filesystem via `cephfs-appdata`, which is where Gitea's 27G already
+# lives. Sized for the migration that will land here later, not for today.
+#
+# As of 2026-08-17 `cephfs-appdata` is served by its own CSI driver
+# (cephfs-appdata.csi.ceph.com, infra/ceph-csi-cephfs-appdata) rather than the
+# shared one, so a hang on the `appdata` filesystem can no longer kill the node
+# plugin that also serves `fastappdata`. This volume is what forced that split:
+# its mount hung on PGs stuck `activating` and repeatedly tripped ceph-csi's
+# 10-minute stuck-call watchdog, unmounting unrelated apps each time.
+#
+# !!! Do NOT try to move a volume between drivers by deleting its PV. !!!
+# PV.spec.csi.driver is immutable, so that looks like the obvious route, and
+# reclaimPolicy: Retain looks like it makes deletion safe. It does not here:
+# infra/pv-reaper implements a SPLIT RECLAIM — deleting the PVC keeps the
+# volume, deleting the PV reclaims it (via a disposable Delete-policy clone).
+# Doing exactly that on 2026-08-17 destroyed this subvolume; it was rebuilt by
+# copying out of a retained CephFS snapshot into a freshly provisioned volume,
+# which is why the PVC below is plain dynamic again and carries no volumeName.
+# To actually move a volume across drivers: provision a new PVC on the target
+# driver and copy into it, or scale pv-reaper to 0 first.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: forgejo-git
+  namespace: forgejo
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: cephfs-appdata
+  resources:
+    requests:
+      storage: 80Gi
+---
+# app.ini, avatars, attachments, indexers. Small and latency-sensitive, so this
+# one stays on the SSD tier.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: forgejo-data
+  namespace: forgejo
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: cephfs
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forgejo
+  namespace: forgejo
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: forgejo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: forgejo
+        app.kubernetes.io/instance: forgejo
+        # receive from traefik; reach the CNPG primary and the mail relay. Repo
+        # mirroring and webhooks are external egress (unrestricted under the
+        # ingress-only baseline).
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.postgres.postgres: egress
+        kube-vnet/net.msmtpd.msmtpd: egress
+    spec:
+      securityContext:
+        # The root image boots s6 as root and THEN drops to `git` via
+        # USER_UID/USER_GID below — so the pod is root and the server is 1000.
+        # Not the -rootless image, which relocates /data to /var/lib/gitea:
+        # every repo's git hooks embed the absolute path to app.ini, so that
+        # choice is effectively permanent once repositories exist.
+        #
+        # No fsGroup. The s6 setup script already chowns /data/gitea and
+        # /data/git recursively on every start; fsGroup would make the kubelet
+        # do the same work again, on the HDD tier, before the container even
+        # starts (apps/gitea, docs §5.2).
+        runAsUser: 0
+        runAsGroup: 0
+      # The entire config surface is FORGEJO__*/USER_* env; service links would
+      # inject FORGEJO_PORT=tcp://... into the same namespace.
+      enableServiceLinks: false
+      containers:
+        - name: forgejo
+          # v16 is the quarterly stable line — superseded roughly every three
+          # months, so this needs a deliberate major bump to stay supported.
+          # (v15 is the LTS, patched to 2027-07, if that trade ever looks wrong.)
+          # Not on Docker Hub: codeberg.org is the project's own registry.
+          image: codeberg.org/forgejo/forgejo:16.0.2
+          env:
+            - name: TZ
+              value: Europe/Berlin
+            # Forgejo accepts both FORGEJO__ and GITEA__ (the prefix regex is
+            # literally ^(FORGEJO|GITEA)__). Never mix them for one key —
+            # precedence between the two is undefined. USER_UID/USER_GID keep
+            # their historical names and are still what pins the server user.
+            - name: USER_UID
+              value: "1000"
+            - name: USER_GID
+              value: "1000"
+
+            # --- no install wizard, and the consequences of that -------------
+            # Without INSTALL_LOCK, Forgejo serves its setup wizard on the first
+            # request and whoever reaches the URL first configures — and owns —
+            # the instance. *.example.com is a wildcard onto the public edge, so
+            # that window is open the moment the pod is ready.
+            #
+            # This works even on the very first boot because the s6 setup script
+            # writes the app.ini template only when the file is absent, and then
+            # runs environment-to-ini UNCONDITIONALLY — so env always wins over
+            # the template's INSTALL_LOCK=false. There is no init-script hook in
+            # this image to do it any other way (forgejo#1035 is still open and
+            # cites Kubernetes as the motivating case).
+            - name: FORGEJO__security__INSTALL_LOCK
+              value: "true"
+
+            # Locking the wizard also means nothing GENERATES the instance's
+            # crypto material, because that is a wizard step. Left to itself
+            # Forgejo would mint these and persist them into app.ini on the PVC
+            # — at which point losing the volume silently invalidates every
+            # session and LFS token, and decrypts nothing: SECRET_KEY is the AES
+            # key for the login_source row holding the Authelia client secret.
+            # So they are pinned, in SOPS, from the first boot onward. Changing
+            # SECRET_KEY later does not fail loudly; SSO just stops working.
+            - name: FORGEJO__security__SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: forgejo-secrets
+                  key: SECRET_KEY
+            - name: FORGEJO__security__INTERNAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: forgejo-secrets
+                  key: INTERNAL_TOKEN
+            - name: FORGEJO__oauth2__JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: forgejo-secrets
+                  key: JWT_SECRET
+            - name: FORGEJO__server__LFS_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: forgejo-secrets
+                  key: LFS_JWT_SECRET
+
+            # v16 removed the container image's implicit REVERSE_PROXY_TRUSTED
+            # _PROXIES = "*". Nothing we use breaks without it — we do not use
+            # ENABLE_REVERSE_PROXY_AUTHENTICATION — but every client address in
+            # the logs and in rate-limiting would be a Traefik pod. The pod /16,
+            # and only that: every proxy in front of this is a Traefik pod, and
+            # real clients arrive from 10.20.2.0/24.
+            - name: FORGEJO__security__REVERSE_PROXY_TRUSTED_PROXIES
+              value: 172.18.0.0/16
+
+            # --- database: the shared CNPG cluster --------------------------
+            # Created EMPTY, unlike gitea's (which was restored from a Swarm
+            # dump). Forgejo runs its xorm migrations against it on first boot.
+            - name: FORGEJO__database__DB_TYPE
+              value: postgres
+            - name: FORGEJO__database__HOST
+              value: postgres-rw.postgres.svc.cluster.local:5432
+            - name: FORGEJO__database__NAME
+              value: forgejo
+            - name: FORGEJO__database__USER
+              value: forgejo
+            - name: FORGEJO__database__PASSWD
+              valueFrom:
+                secretKeyRef:
+                  name: forgejo-db
+                  key: password
+            # CNPG's CA is self-signed and the traffic never leaves the cluster.
+            - name: FORGEJO__database__SSL_MODE
+              value: disable
+
+            # --- mail: the shared in-cluster relay, plaintext, no auth -------
+            - name: FORGEJO__mailer__ENABLED
+              value: "true"
+            - name: FORGEJO__mailer__PROTOCOL
+              value: smtp
+            - name: FORGEJO__mailer__SMTP_ADDR
+              value: msmtpd.msmtpd.svc.cluster.local
+            - name: FORGEJO__mailer__SMTP_PORT
+              value: "2500"
+            - name: FORGEJO__mailer__USER
+              value: ""
+            - name: FORGEJO__mailer__PASSWD
+              value: ""
+            # MANDATORY on a fresh install: with ENABLED=true and no FROM,
+            # Forgejo simply does not send, without saying so.
+            #
+            # A PLUS-ADDRESS ON THE RELAY'S GMAIL ACCOUNT, not forgejo@example.com.
+            # See apps/msmtpd/README.md — Gmail rewrites any From it does not
+            # own, so a vanity domain would silently lose the attribution.
+            - name: FORGEJO__mailer__FROM
+              value: Forgejo <admin+forgejo@example.com>
+
+            # --- SSH stays off ----------------------------------------------
+            # Matches gitea, which has had DISABLE_SSH=true since Swarm. There
+            # is no Service, no VIP and no port for it to land on.
+            - name: FORGEJO__server__DISABLE_SSH
+              value: "true"
+            - name: FORGEJO__server__START_SSH_SERVER
+              value: "false"
+
+            # --- HTTP / public identity -------------------------------------
+            - name: FORGEJO__server__PROTOCOL
+              value: http
+            - name: FORGEJO__server__HTTP_ADDR
+              value: 0.0.0.0
+            - name: FORGEJO__server__HTTP_PORT
+              value: "3000"
+            - name: FORGEJO__server__DOMAIN
+              value: forgejo.example.com
+            - name: FORGEJO__server__ROOT_URL
+              value: https://forgejo.example.com/
+            - name: FORGEJO__server__LFS_START_SERVER
+              value: "true"
+
+            # --- auth: Authelia is the only way in --------------------------
+            # This exact combination is what Authelia's own Forgejo integration
+            # page prescribes, and it is subtler than "DISABLE_REGISTRATION".
+            # Registration must stay ENABLED, because an SSO login for an
+            # unknown user IS a registration; ALLOW_ONLY_EXTERNAL_REGISTRATION
+            # is what stops it happening any other way, and the button is
+            # hidden because there is no local form worth showing.
+            - name: FORGEJO__service__DISABLE_REGISTRATION
+              value: "false"
+            - name: FORGEJO__service__ALLOW_ONLY_EXTERNAL_REGISTRATION
+              value: "true"
+            - name: FORGEJO__service__SHOW_REGISTRATION_BUTTON
+              value: "false"
+            - name: FORGEJO__openid__ENABLE_OPENID_SIGNIN
+              value: "false"
+            - name: FORGEJO__openid__ENABLE_OPENID_SIGNUP
+              value: "true"
+            - name: FORGEJO__openid__WHITELISTED_URIS
+              value: auth.example.com
+
+            # --- make SSO actually transparent -------------------------------
+            # Without these two, a correct OIDC round-trip still dead-ends on
+            # Forgejo's /user/link_account page ("register a new account / link
+            # to an existing one"), which looks like the integration is missing
+            # when in fact it has already succeeded.
+            #
+            # ENABLE_AUTO_REGISTRATION: create the local account from the OIDC
+            # claims instead of prompting. Distinct from
+            # ALLOW_ONLY_EXTERNAL_REGISTRATION above, which governs *who may*
+            # register, not whether it happens without a form.
+            #
+            # ACCOUNT_LINKING=auto: attach the identity to an existing account
+            # with the same email rather than demanding that account's local
+            # password. The default is `login` for a good reason — trusting an
+            # email claim means anyone who can make an IdP assert an address
+            # inherits that account. It is safe HERE and only here because
+            # Authelia is the sole identity source, is backed by lldap, and no
+            # other login source exists on this instance.
+            #
+            # This matters well beyond the first login: the users coming over
+            # from Gitea would each hit the same wall, and the accounts they
+            # land in are created by the repository migration before they ever
+            # log in.
+            - name: FORGEJO__oauth2_client__ENABLE_AUTO_REGISTRATION
+              value: "true"
+            - name: FORGEJO__oauth2_client__ACCOUNT_LINKING
+              value: auto
+
+            # --- Actions ------------------------------------------------------
+            # On by default since 1.21; asserted so it cannot drift off and
+            # leave the runner registered but permanently idle.
+            - name: FORGEJO__actions__ENABLED
+              value: "true"
+            # DIFFERS FROM GITEA, which defaults to github.com. This is what
+            # `uses: actions/checkout@v4` resolves against when a workflow does
+            # not spell out a host.
+            - name: FORGEJO__actions__DEFAULT_ACTIONS_URL
+              value: https://data.forgejo.org
+
+            # Clone timeout for repository migration, raised from the 600s default.
+            #
+            # Not speculative: migrating `Ryujinx` (189 MB) and `citra` (63 MB) from Gitea both
+            # failed with HTTP 500 and "Clone timed out. Consider increasing [git.timeout]
+            # MIGRATE", after 661s and 616s. The repositories being cloned live on the `appdata`
+            # HDD tier, which is at 92 % with 148 pgs backfill_toofull, so a clone that would be
+            # seconds on healthy storage takes ten minutes here.
+            #
+            # 3600s is chosen against the largest repository still to move (`yuzu-downloads`,
+            # 403 MB) with a wide margin for the tier getting slower rather than faster. The cost
+            # of it being too high is a migration that hangs instead of failing; the cost of too
+            # low is what already happened, which is worse because it half-creates a repository.
+            #
+            # `_0X2E_` is how environment-to-ini encodes a DOT in a section name: the section is
+            # [git.timeout], not [git]. Writing FORGEJO__git__TIMEOUT__MIGRATE would silently
+            # configure nothing at all.
+            - name: FORGEJO__git_0X2E_timeout__MIGRATE
+              value: "3600"
+
+            # Logs to stdout rather than onto the near-full CephFS.
+            - name: FORGEJO__log__MODE
+              value: console
+          ports:
+            - name: http
+              containerPort: 3000
+          volumeMounts:
+            - name: data
+              mountPath: /data/gitea
+            - name: git
+              mountPath: /data/git
+          readinessProbe:
+            httpGet:
+              path: /api/healthz
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            # /api/healthz PINGS THE DATABASE, so this timeout is a budget for a
+            # round trip to CNPG, not for Forgejo answering an HTTP request. The
+            # implicit default of 1s is far too tight for that: during the k0s
+            # upgrade on 2026-08-09 the probe timed out through a CNPG switchover
+            # and Forgejo was pulled from its Service for ~14 minutes while the
+            # pod itself was fine — hitting the endpoint inside the pod returned
+            # `"status": "pass"` throughout. The 503s were entirely self-inflicted.
+            timeoutSeconds: 5
+            # ~5 minutes. Nothing like gitea's 27G chown to wait for, but the
+            # first boot still runs the full xorm migration set against an empty
+            # database, and the pod must not be pulled out of the Service while
+            # it does.
+            failureThreshold: 20
+          # No liveness probe on purpose: a CephFS stall would restart the pod
+          # mid-chown and never converge (docs §5.2).
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 4Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: forgejo-data
+        - name: git
+          persistentVolumeClaim:
+            claimName: forgejo-git
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: forgejo
+  namespace: forgejo
+spec:
+  selector:
+    app.kubernetes.io/name: forgejo
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http

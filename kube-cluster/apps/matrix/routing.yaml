@@ -1,0 +1,157 @@
+# All Matrix HTTP ingress via Traefik (websecure, default *.example.com wildcard TLS
+# store). Federation rides on 443 via well-known delegation (no 8448 listener).
+---
+# Synapse: the homeserver API on matrix.example.com, plus the client well-known on the
+# apex example.com (Synapse serves /.well-known/matrix/client; priority beats zensical's
+# apex->blog route).
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: synapse
+  namespace: matrix
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`matrix.example.com`)
+      services:
+        - name: synapse
+          port: 8008
+    - kind: Rule
+      priority: 1000
+      match: Host(`example.com`) && Path(`/.well-known/matrix/client`)
+      services:
+        - name: synapse
+          port: 8008
+  tls: {}
+---
+# MAS: its own host mas.example.com, and it intercepts the login/logout/refresh
+# client endpoints on matrix.example.com (MSC3861). Higher priority than the Synapse
+# matrix.example.com catch-all so those paths route to MAS.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: mas
+  namespace: matrix
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`mas.example.com`)
+      services:
+        - name: mas
+          port: 8080
+    - kind: Rule
+      priority: 1000
+      match: Host(`matrix.example.com`) && PathRegexp(`^/_matrix/client/(.*)/(login|logout|refresh)`)
+      services:
+        - name: mas
+          port: 8080
+  tls: {}
+---
+# Element Call RTC: lk-jwt token service + LiveKit signaling, both under
+# matrix-rtc.example.com. The Swarm stripped the first two path segments
+# (removeFirstPathSegment x2); a single stripPrefix on the full 2-segment path
+# is equivalent.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: matrix-rtc
+  namespace: matrix
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`matrix-rtc.example.com`) && PathPrefix(`/livekit/jwt`)
+      services:
+        - name: lk-jwt
+          port: 8080
+      middlewares:
+        - name: strip-livekit-jwt
+    - kind: Rule
+      match: Host(`matrix-rtc.example.com`) && PathPrefix(`/livekit/sfu`)
+      services:
+        - name: livekit
+          port: 7880
+      middlewares:
+        - name: strip-livekit-sfu
+  tls: {}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-livekit-jwt
+  namespace: matrix
+spec:
+  stripPrefix:
+    prefixes:
+      - /livekit/jwt
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-livekit-sfu
+  namespace: matrix
+spec:
+  stripPrefix:
+    prefixes:
+      - /livekit/sfu
+---
+# Server-side well-known delegation for federation. High priority so it wins over
+# the Synapse matrix.example.com route and zensical's apex example.com route.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: well-known
+  namespace: matrix
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      priority: 2000
+      match: (Host(`example.com`) || Host(`matrix.example.com`)) && Path(`/.well-known/matrix/server`)
+      services:
+        - name: well-known
+          port: 80
+      middlewares:
+        - name: well-known-replacepath
+  tls: {}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: well-known-replacepath
+  namespace: matrix
+spec:
+  replacePath:
+    path: /
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: element-web
+  namespace: matrix
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`element.example.com`)
+      services:
+        - name: element-web
+          port: 80
+  tls: {}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: synapse-admin
+  namespace: matrix
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`synapse-admin.example.com`)
+      services:
+        - name: synapse-admin
+          port: 80
+  tls: {}

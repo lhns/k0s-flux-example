@@ -1,0 +1,60 @@
+# Public HTTPS for the self-hosted web app + the three backends the clients talk
+# to (sync/auth/sse). NO Authelia — Notesnook owns its accounts (zero-knowledge
+# E2E; the account password derives the encryption key, so auth cannot be
+# delegated). TLS via the *.example.com wildcard default store.
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: notesnook-web
+  namespace: notesnook
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`notes.example.com`)
+      services:
+        - {name: notesnook-web, port: 80}
+  tls: {}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: notesnook-sync
+  namespace: notesnook
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`notes-sync.example.com`)
+      services:
+        - {name: notesnook-server, port: 5264}
+  tls: {}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: notesnook-auth
+  namespace: notesnook
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`notes-auth.example.com`)
+      services:
+        - {name: identity-server, port: 8264}
+  tls: {}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: notesnook-events
+  namespace: notesnook
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`notes-events.example.com`)
+      services:
+        - {name: sse-server, port: 7264}
+  tls: {}

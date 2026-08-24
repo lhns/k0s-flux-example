@@ -1,0 +1,15 @@
+# Under pod-level kube-vnet isolation, intra-namespace ingress is denied by
+# default. The exporter writes traces to the VictoriaTraces DB (:10428) inside
+# this namespace, so give the DB a private same-namespace channel. Bare net.<name>
+# = same-ns; the DB carries net.victoriatraces: ingress, the exporter egress.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: victoriatraces
+  namespace: victoriatraces
+spec:
+  description: "victoriatraces-exporter -> victoriatraces (:10428), intra-namespace."
+  allowedNamespaces:
+    names:
+      # Grafana (grafana ns) queries the DB :10428 as a datasource.
+      - grafana

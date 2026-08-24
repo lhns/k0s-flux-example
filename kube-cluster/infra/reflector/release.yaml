@@ -1,0 +1,28 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: emberstack
+  namespace: reflector
+spec:
+  interval: 1h0m0s
+  url: https://emberstack.github.io/helm-charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: reflector
+  namespace: reflector
+spec:
+  interval: 10m0s
+  chart:
+    spec:
+      chart: reflector
+      version: "10.0.65"
+      interval: 1h0m0s
+      sourceRef:
+        kind: HelmRepository
+        name: emberstack
+  # Chart defaults are what we want: cluster-wide watch, creates its own RBAC +
+  # ServiceAccount. It only mirrors Secrets/ConfigMaps that opt in via the
+  # reflector.v1.k8s.emberstack.com/* annotations (default: nothing is copied).

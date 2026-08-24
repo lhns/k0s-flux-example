@@ -1,0 +1,33 @@
+---
+# Home Assistant's login role in the shared CNPG cluster (mealie/homebox precedent).
+# Password from secret/homeassistant-db (postgres ns). retain: never drop on delete.
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: homeassistant
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: homeassistant
+  ensure: present
+  login: true
+  passwordSecret:
+    name: homeassistant-db
+  databaseRoleReclaimPolicy: retain
+---
+# The recorder database. Home Assistant defaults to SQLite in /config; pointing the
+# recorder here instead keeps a constant write stream off the RWO Ceph RBD volume and
+# puts history inside the cluster's existing Postgres backups. /config is then left
+# holding only small JSON state (.storage), custom_components and blueprints.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: homeassistant
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: homeassistant
+  owner: homeassistant
+  databaseReclaimPolicy: retain

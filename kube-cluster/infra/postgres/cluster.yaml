@@ -1,0 +1,96 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: postgres
+  namespace: postgres
+spec:
+  # 3 instances = 1 primary + 2 hot standbys. CNPG failover is operator/API driven
+  # (no quorum), so 2 would be enough for automatic HA -- the third exists for the
+  # SYNCHRONOUS setting below, not for failover.
+  #
+  # With `dataDurability: required`, writes PAUSE whenever fewer than `number`
+  # standbys are available. At 2 instances that means every replica restart -- a
+  # node drain, a CNPG minor upgrade, a Ceph hiccup -- stops writes for all ~27
+  # databases. The third instance is what makes the guarantee affordable: one
+  # standby can go away with no effect at all.
+  instances: 3
+  storage:
+    # Block storage (Ceph RBD, pool rbd.kube) — proper for a database (block I/O,
+    # reattachable volumes) rather than the shared CephFS.
+    storageClass: ceph-rbd
+    # In-place expansion: ceph-rbd has allowVolumeExpansion=true, so CNPG grows each
+    # PVC + the filesystem online (no recreate, no data loss). Growing only — shrinking
+    # is not supported.
+    size: 20Gi
+  # Connection ceiling. Postgres forks a backend *process* per connection, so this is
+  # deliberately a ceiling, not a target — most apps go through the pgbouncer Pooler
+  # (pooler.yaml), which serves ~1000 clients on a few dozen real backends. 500 leaves
+  # room for the pooler's backends + direct-connect apps + CNPG's own reserved conns.
+  # Both params require a restart; CNPG detects that and does a rolling restart.
+  postgresql:
+    parameters:
+      max_connections: "500"
+      shared_buffers: "512MB"   # ~25% of the 2Gi limit below
+    # Synchronous replication: a commit is not acknowledged until at least one
+    # standby has the WAL. RPO=0.
+    #
+    # Why this exists: replication was asynchronous, and this cluster promotes a
+    # lot -- pg_control_checkpoint reported timeline 28, i.e. 27 promotions since
+    # 2026-07-08, driven by the Ceph instability underneath ceph-rbd. Every async
+    # promotion silently discards the commits the new primary had not received yet.
+    #
+    # That is not theoretical here. On 2026-08-21 synapse would not start:
+    #
+    #   Postgres sequence 'device_inbox_sequence' is inconsistent with associated
+    #   stream position of 'to_device' in the 'stream_positions' table
+    #
+    # Four sequences had moved BACKWARDS relative to the positions Synapse had
+    # recorded (device_inbox 2170<2185, un_partial_stated_room_stream 19<50,
+    # pushers 2278<2301, events_backfill 53315<53331). A rollback also took
+    # device_inbox rows with it -- that table carries Megolm session keys -- which
+    # is why messages from two unrelated homeservers could not be decrypted: the
+    # senders had been told delivery succeeded.
+    #
+    # NOTE this is NOT the documented "sequences may skip values after a crash"
+    # behaviour (SEQ_LOG_VALS pre-logs ~32 ahead, so a crash moves a sequence
+    # FORWARD, never back). Going backwards requires losing committed
+    # transactions, which is exactly what an async promotion does.
+    #
+    # number: 1, not 2. Both give RPO=0 -- the data is on >=2 nodes before commit
+    # either way. Requiring 2 would only mean a third copy, at the cost of blocking
+    # writes whenever ANY single standby is unavailable, which with a rolling
+    # update or one bad Ceph node is a routine event.
+    #
+    # method: any (quorum) rather than first (priority): any healthy standby can
+    # satisfy the requirement, so the two are interchangeable and losing either is
+    # a non-event.
+    synchronous:
+      method: any
+      number: 1
+      dataDurability: required
+  # Guaranteed RAM behind the raised connection ceiling. No CPU limit (avoids CFS
+  # throttling); the memory limit bounds the blast radius of a connection spike.
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "1Gi"
+    limits:
+      memory: "2Gi"
+  # Backups (see objectstore.yaml + scheduledbackup.yaml): base backups are cheap Ceph
+  # volume snapshots; WAL is continuously archived to S3 (Ceph RGW) by the Barman Cloud
+  # Plugin, giving point-in-time recovery.
+  backup:
+    volumeSnapshot:
+      className: ceph-rbd-snapshotclass
+  plugins:
+  - name: barman-cloud.cloudnative-pg.io
+    isWALArchiver: true
+    parameters:
+      barmanObjectName: postgres-store
+  bootstrap:
+    initdb:
+      database: app
+      owner: app
+      # No `secret` -> CNPG generates `postgres-app` (user app + random password)
+      # in-cluster. Nothing plaintext in git; fetch it with `kubectl -n postgres
+      # get secret postgres-app`. (Provide a SOPS secret here for declarative creds.)

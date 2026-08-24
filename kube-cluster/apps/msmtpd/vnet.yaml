@@ -1,0 +1,23 @@
+---
+# Only in-cluster senders relay through msmtpd (:2500). Under pod-level isolation,
+# expose a vnet that sender namespaces may join. Authelia joins as egress
+# (kube-vnet/net.msmtpd.msmtpd); msmtpd carries kube-vnet/net.msmtpd: ingress.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: msmtpd
+  namespace: msmtpd
+spec:
+  description: "In-cluster mail senders (Authelia) -> msmtpd :2500."
+  allowedNamespaces:
+    names:
+      - authelia
+      - notesnook
+      # Gitea sends notification mail. Replaces the per-stack mwader/postfix-relay
+      # the Swarm compose carried — see apps/gitea.
+      - gitea
+      # Forgejo, likewise. Coexists with gitea until the repositories move.
+      - forgejo
+      # spliit-cloud. Mail is not a nicety there: it carries the sign-in links and the group
+      # invitations that are the only way anyone past the first account gets an account at all.
+      - spliit

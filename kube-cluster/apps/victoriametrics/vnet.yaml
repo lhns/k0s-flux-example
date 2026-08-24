@@ -1,0 +1,19 @@
+# Under pod-level kube-vnet isolation, intra-namespace ingress is denied by
+# default. The exporters write metrics to the VictoriaMetrics DB (:8428) inside
+# this namespace; same-namespace membership is implicit (the vnet lives here), so
+# allowedNamespaces only lists the cross-ns consumer. Bare net.<name> = same-ns;
+# the DB carries net.victoriametrics: ingress, the exporters net.victoriametrics: egress.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: victoriametrics
+  namespace: victoriametrics
+spec:
+  description: "victoriametrics exporters -> victoriametrics (:8428) intra-ns; grafana queries :8428."
+  allowedNamespaces:
+    names:
+      # Grafana (grafana ns) queries the DB :8428 as its metrics datasource.
+      - grafana
+      # TEMPORARY: lets a vmctl vm-native pod in victoriametrics-cluster read the
+      # single-node here to backfill the cluster. Remove after the migration.
+      - victoriametrics-cluster

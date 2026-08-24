@@ -1,0 +1,31 @@
+---
+# Vaultwarden's login role in the shared CNPG cluster (mealie/homebox precedent).
+# Password from secret/vaultwarden-db (postgres ns). retain: never drop on delete.
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: vaultwarden
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: vaultwarden
+  ensure: present
+  login: true
+  passwordSecret:
+    name: vaultwarden-db
+  databaseRoleReclaimPolicy: retain
+---
+# The vaultwarden database, owned by that role. A pg_dump of the old Swarm Postgres
+# (10.20.2.10:5436) is restored into it once (same major, PG 18 -> PG 18, clean restore).
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: vaultwarden
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: vaultwarden
+  owner: vaultwarden
+  databaseReclaimPolicy: retain

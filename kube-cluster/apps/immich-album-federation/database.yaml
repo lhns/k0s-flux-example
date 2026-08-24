@@ -1,0 +1,32 @@
+---
+# The sync worker's login role in the shared CNPG cluster (grafana/guacamole
+# precedent). Password from secret/immich-album-federation-db (postgres ns).
+# retain: never drop the role on delete.
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: immich-album-federation
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: immich-album-federation
+  ensure: present
+  login: true
+  passwordSecret:
+    name: immich-album-federation-db
+  databaseRoleReclaimPolicy: retain
+---
+# The database, owned by that role. Empty on creation; the worker migrates its
+# own schema in on first run (nothing to import — no prior sync state).
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: immich-album-federation
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: immich-album-federation
+  owner: immich-album-federation
+  databaseReclaimPolicy: retain

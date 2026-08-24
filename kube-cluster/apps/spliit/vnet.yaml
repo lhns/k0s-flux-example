@@ -1,0 +1,15 @@
+---
+# Under pod-level kube-vnet isolation, intra-namespace ingress is denied by default, so the
+# web -> api hop needs its own same-namespace VirtualNetwork. Same-ns membership is implicit
+# (no own-ns self-entry). The server carries `net.api: ingress`, the client `net.api: egress`.
+#
+# Symptom if this is missing: nginx returns 502 for /trpc and /auth while the SPA itself loads
+# fine, because only the proxied paths cross the pod boundary. The same-ns edge is easy to
+# overlook — spliit was a single container until now and had no vnet.yaml at all.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: api
+  namespace: spliit
+spec:
+  description: "spliit web (nginx) -> spliit api (:3001), intra-namespace."

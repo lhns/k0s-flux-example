@@ -1,0 +1,91 @@
+---
+# syncthing web UI — public, its own GUI login (no Authelia; the Swarm forward-auth
+# was commented out). TLS via the default *.example.com wildcard.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: syncthing
+  namespace: syncthing
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`syncthing.example.com`)
+      services:
+        - name: syncthing
+          port: 8384
+  tls: {}
+---
+# Per-host cert for syncthing.example.net (not covered by the *.example.com wildcard) —
+# issued via IONOS DNS-01. The secret lands in this namespace.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: syncthing-lolhens-de
+  namespace: syncthing
+spec:
+  secretName: syncthing-lolhens-de
+  issuerRef:
+    name: letsencrypt-ionos-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - syncthing.example.net
+---
+# syncthing.example.net 301-redirects to the canonical syncthing.example.com.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: syncthing-lolhens-redirect
+  namespace: syncthing
+spec:
+  redirectRegex:
+    regex: "^https://syncthing.example.net/(.*)"
+    replacement: "https://syncthing.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: syncthing-lolhens
+  namespace: syncthing
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`syncthing.example.net`)
+      services:
+        - name: syncthing
+          port: 8384
+      middlewares:
+        - name: syncthing-lolhens-redirect
+  tls:
+    secretName: syncthing-lolhens-de
+---
+# syncthing.kube.example.com -> canonical syncthing.example.com (default *.example.com wildcard).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: syncthing-kube-redirect
+  namespace: syncthing
+spec:
+  redirectRegex:
+    regex: "^https://syncthing.kube.example.com/(.*)"
+    replacement: "https://syncthing.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: syncthing-kube-redirect
+  namespace: syncthing
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`syncthing.kube.example.com`)
+      services:
+        - name: syncthing
+          port: 8384
+      middlewares:
+        - name: syncthing-kube-redirect
+  tls: {}

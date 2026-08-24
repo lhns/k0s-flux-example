@@ -1,0 +1,8 @@
+creation_rules:
+  # kube-cluster's secrets encrypt for kube-cluster's age key (its private half
+  # lives in the cluster's flux-system/sops-age secret). A second cluster is
+  # another rule with its own path_regex + key. sops discovers this config from
+  # the CWD, so run sops from the repo root.
+  - path_regex: kube-cluster/.*\.yaml$
+    encrypted_regex: ^(data|stringData)$
+    age: age1f6skv3ec96vjelz9nvg9jyply7rp88xef6mf6wmc8f3ljgty2vdqhkms26

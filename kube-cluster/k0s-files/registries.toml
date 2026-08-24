@@ -1,0 +1,19 @@
+# containerd registry config, uploaded to each worker's
+# /etc/k0s/containerd.d/registries.toml by k0sctl. Needs a worker restart.
+version = 3
+
+[plugins."io.containerd.cri.v1.images"]
+  discard_unpacked_layers = false   # Spegel: peers can serve layer blobs
+
+  # Required for the config_path list below. Default (false) routes CRI pulls
+  # through the transfer service, which resolves config_path with
+  # HostDirFromRoot -- one directory, no list support -- so "a:b" is stat'd
+  # literally and nothing matches. spegel-org/spegel#1272.
+  use_local_image_pull = true
+
+[plugins."io.containerd.cri.v1.images".registry]
+  # Searched left to right. Spegel wipes its own root on every pod start, so
+  # hand-written config gets a root it cannot touch. Ours stays FIRST and must
+  # never contain `_default` -- that matches every registry and would shadow
+  # Spegel's root.
+  config_path = "/etc/k0s/registries/oci-composer:/etc/k0s/registries/spegel"

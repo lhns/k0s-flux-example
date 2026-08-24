@@ -1,0 +1,51 @@
+---
+# Gated by the external Authelia forwardAuth (the `authelia` middleware is
+# reflected into every namespace by traefik-reflector). Uptime Kuma's own auth is
+# disabled (disableAuth=true in its DB), so Authelia is the sole gate. TLS via the
+# default *.kube.example.com wildcard.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: uptime-kuma
+  namespace: uptime-kuma
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`uptimekuma.example.com`)
+      services:
+        - name: uptime-kuma
+          port: 3001
+      middlewares:
+        - name: authelia
+  tls: {}
+---
+# uptimekuma.kube.example.com redirects to the canonical uptimekuma.example.com (default
+# *.example.com wildcard cert). No authelia on the redirect route — it 301s first.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: uptime-kuma-kube-redirect
+  namespace: uptime-kuma
+spec:
+  redirectRegex:
+    regex: "^https://uptimekuma.kube.example.com/(.*)"
+    replacement: "https://uptimekuma.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: uptime-kuma-kube-redirect
+  namespace: uptime-kuma
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`uptimekuma.kube.example.com`)
+      services:
+        - name: uptime-kuma
+          port: 3001
+      middlewares:
+        - name: uptime-kuma-kube-redirect
+  tls: {}

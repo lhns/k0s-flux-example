@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # Needs the CNPG cluster + Database/DatabaseRole CRDs (infra-postgres) and
+    # Reflector (infra-reflector) to mirror the db secret into this namespace.
+    # Read by the root generator; inert to kustomize.
+    dependsOn: infra-postgres,infra-reflector
+resources:
+- resources.yaml
+- routing.yaml
+- database.yaml
+- db-role-secret.yaml
+- ssh-ffmpeg-key-secret.yaml
+configMapGenerator:
+- name: jellyfin-ffmpeg-wrapper
+  namespace: jellyfin
+  files:
+  # One script, three names. The wrapper branches on $(basename $0), so ffprobe must be a real
+  # entry rather than the symlink the old initContainer created — a ConfigMap volume cannot hold
+  # symlinks, and mounting it read-only means nothing can create one at runtime either.
+  - ffmpeg=ffmpeg-wrapper
+  - ffprobe=ffmpeg-wrapper
+  # Runs the ssh out of the image volume. Replaces the apt-get install that used to happen on
+  # every pod start.
+  - ssh=ssh-launcher
+# Web-client config (was fastappdata .../config/web/config.json). Small + static,
+# so materialized as a ConfigMap (declarative in git) instead of copied.
+- name: jellyfin-web-config
+  namespace: jellyfin
+  files:
+  - config.json=jellyfin-web-config.json

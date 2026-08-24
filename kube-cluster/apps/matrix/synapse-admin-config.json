@@ -1,0 +1,12 @@
+{
+  "restrictBaseUrl": [
+    "https://matrix.example.com"
+  ],
+  "asManagedUsers": [
+    "^@baibot:lhns\\.de$",
+    "^@whatsappbot:lhns\\.de$",
+    "^@whatsapp_[a-zA-Z0-9\\-]+:lhns\\.de$",
+    "^@telegrambot:lhns\\.de$",
+    "^@telegram_[a-zA-Z0-9]+:lhns\\.de$"
+  ]
+}

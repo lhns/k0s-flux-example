@@ -1,0 +1,35 @@
+---
+# Catch-all HTTP->HTTPS redirect implemented as a low-priority router RULE (not
+# the entrypoint-level redirect) so it can be OVERRIDDEN: any IngressRoute bound
+# to the `web` entrypoint with priority > 1 takes precedence and is served over
+# plain HTTP. `web` is not a default entrypoint (see release.yaml), so ordinary
+# Ingresses bind to `websecure` only and port 80 carries just this redirect.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: https-redirect
+  namespace: traefik
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: redirect-to-https
+  namespace: traefik
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: HostRegexp(`^.+$`)
+      kind: Rule
+      priority: 1
+      middlewares:
+        - name: https-redirect
+      services:
+        # noop internal service — the redirect middleware answers before any
+        # backend is hit (same as the file-provider `noop@internal`).
+        - name: noop@internal
+          kind: TraefikService

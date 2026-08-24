@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # ceph-csi-rbd: the 1Gi PVC holding the .runner registration identity. No
+    # postgres, no traefik, no reflector — the runner talks to Gitea over the
+    # public URL and owns nothing else. Read by the root generator; inert to
+    # kustomize.
+    dependsOn: infra-ceph-csi-rbd
+resources:
+- resources.yaml
+- secret.yaml
+- networkpolicy.yaml
+configMapGenerator:
+# act_runner reads its config only at startup, so the generator's content hash
+# is what makes an edit actually take effect.
+- name: gitea-runner-config
+  namespace: gitea-runner
+  files:
+  - config.yaml

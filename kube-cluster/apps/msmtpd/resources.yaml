@@ -1,0 +1,89 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: msmtpd
+---
+# Outbound SMTP relay (msmtpd) — accepts plaintext SMTP on :2500 from in-cluster
+# senders and relays to Gmail over STARTTLS. Keeps the Gmail app-password in one
+# place (the msmtpd-secrets Secret) so app configs (Authelia) carry no SMTP secret.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: msmtpd
+  namespace: msmtpd
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: msmtpd
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: msmtpd
+        app.kubernetes.io/instance: msmtpd
+        # accept relay from members of the msmtpd vnet (authelia). Egress to Gmail
+        # is external (unrestricted under the ingress-only baseline).
+        kube-vnet/net.msmtpd: ingress
+    spec:
+      containers:
+        - name: msmtpd
+          image: crazymax/msmtpd:1.8.34
+          env:
+            - name: TZ
+              value: Europe/Berlin
+            # Upstream relay (Gmail). Non-secret settings inline; password in the secret.
+            - name: SMTP_HOST
+              value: smtp.gmail.com
+            - name: SMTP_PORT
+              value: "587"
+            - name: SMTP_TLS
+              value: "on"
+            - name: SMTP_STARTTLS
+              value: "on"
+            # WITHOUT THIS NOTHING SENDS. msmtp's default is `auth off`, and the
+            # image only writes an `auth` line to msmtprc when SMTP_AUTH is set
+            # — so supplying SMTP_USER and SMTP_PASSWORD is not enough on its
+            # own. The daemon connects, negotiates STARTTLS, never authenticates,
+            # and Gmail rejects every message with
+            #   530 5.7.0 Authentication Required
+            # which msmtp surfaces as "envelope from address <x> not accepted by
+            # the server". That wording points at the From address and sends you
+            # looking for a sender-domain problem; the address is irrelevant, the
+            # session is simply unauthenticated. Confirmed by `auth=off` in the
+            # msmtpd log line and by the gmail account's OWN address failing too.
+            - name: SMTP_AUTH
+              value: "on"
+            - name: SMTP_USER
+              value: admin@example.com
+            - name: SMTP_FROM
+              value: admin+auth@example.com
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: msmtpd-secrets
+                  key: smtp-password
+          ports:
+            - name: smtp
+              containerPort: 2500
+          readinessProbe:
+            tcpSocket:
+              port: smtp
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: msmtpd
+  namespace: msmtpd
+spec:
+  selector:
+    app.kubernetes.io/name: msmtpd
+  ports:
+    - name: smtp
+      port: 2500
+      targetPort: smtp

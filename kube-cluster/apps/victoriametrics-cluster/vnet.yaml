@@ -1,0 +1,36 @@
+# Under pod-level kube-vnet isolation, intra-namespace ingress is denied by
+# default, so each internal edge of the VM cluster gets a same-namespace vnet.
+# Same-ns membership is implicit (each vnet lives in this ns), so allowedNamespaces
+# is omitted except for the cross-ns Grafana consumer on vmselect. Bare net.<name>
+# = same-ns; the server carries net.<name>: ingress, the client net.<name>: egress.
+---
+# vminsert + vmselect RPC (8400/8401) and the exporter scrape (8482) -> vmstorage.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: vmstorage
+  namespace: victoriametrics-cluster
+spec:
+  description: "vminsert/vmselect/exporter -> vmstorage (:8400/:8401/:8482), intra-ns."
+---
+# exporter -> vminsert (write :8480 + scrape).
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: vminsert
+  namespace: victoriametrics-cluster
+spec:
+  description: "exporter -> vminsert (:8480), intra-ns."
+---
+# exporter scrape (in-ns) + Grafana queries (cross-ns) -> vmselect (:8481).
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: vmselect
+  namespace: victoriametrics-cluster
+spec:
+  description: "exporter (in-ns) + grafana (cross-ns) -> vmselect (:8481)."
+  allowedNamespaces:
+    names:
+      # Grafana (grafana ns) queries vmselect :8481 as its cluster metrics datasource.
+      - grafana

@@ -1,0 +1,20 @@
+---
+# GitHub push webhook -> pokes the flux-system GitRepository for instant sync.
+# notification-controller populates .status.webhookPath (/hook/<hmac>); that
+# path + the webhook-token secret are configured on the GitHub repo webhook.
+apiVersion: notification.toolkit.fluxcd.io/v1
+kind: Receiver
+metadata:
+  name: github
+  namespace: flux-system
+spec:
+  type: github
+  events:
+    - ping
+    - push
+  secretRef:
+    name: webhook-token
+  resources:
+    - apiVersion: source.toolkit.fluxcd.io/v1
+      kind: GitRepository
+      name: flux-system

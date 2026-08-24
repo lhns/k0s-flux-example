@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # multus: the NetworkAttachmentDefinition CRD must exist and the DaemonSet must be
+    # running before a pod requesting `lan` can be created — without it the pod stays
+    # ContainerCreating. ceph-csi-cephfs: the /var/lib/thread PVC holding the operational
+    # dataset. kube-vnet: vnet.yaml uses its CRDs. Read by the root generator; inert to
+    # kustomize.
+    dependsOn: infra-multus,infra-ceph-csi-cephfs,infra-kube-vnet
+resources:
+- resources.yaml
+- vnet.yaml
+configMapGenerator:
+# The launcher OTBR_RADIO_URL forkpty's into. Keyed socat.sh because that is the filename the
+# URL names; the old initContainer wrote the identical script into an emptyDir at every start.
+- name: otbr-socat-launcher
+  namespace: otbr
+  files:
+  - socat.sh=socat-launcher

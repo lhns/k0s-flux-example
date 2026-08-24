@@ -1,0 +1,33 @@
+# Under pod-level kube-vnet isolation, intra-namespace ingress is denied by
+# default, so each internal edge gets a bare same-namespace VirtualNetwork.
+# Same-ns membership is implicit (no own-ns self-entry). Backends carry
+# net.<name>: ingress, the monolith net.<name>: egress. Traefik reaches the
+# api-gateway/files/web via net.traefik.traefik. No cross-ns edges (local file
+# storage, no S3, no SMTP).
+---
+# monolith -> MySQL (:3306)
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: standardnotes-db
+  namespace: standardnotes
+spec:
+  description: "server -> MySQL (:3306), intra-namespace."
+---
+# monolith -> Redis (:6379)
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: standardnotes-cache
+  namespace: standardnotes
+spec:
+  description: "server -> Redis (:6379), intra-namespace."
+---
+# monolith -> LocalStack SNS/SQS (:4566)
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: localstack
+  namespace: standardnotes
+spec:
+  description: "server -> LocalStack SNS/SQS (:4566), intra-namespace."

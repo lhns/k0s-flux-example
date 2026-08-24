@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # MariaDB + files store on ceph-rbd (infra-ceph-csi-rbd); the services route
+    # through Traefik (infra-traefik). Read by the root generator; inert to
+    # kustomize. No `namespace:` transformer — every object sets its own
+    # metadata.namespace.
+    dependsOn: infra-traefik,infra-ceph-csi-rbd
+resources:
+- resources.yaml
+- vnet.yaml
+- routing.yaml
+- secret.yaml
+configMapGenerator:
+- name: localstack-bootstrap
+  namespace: standardnotes
+  files:
+  - localstack_bootstrap.sh

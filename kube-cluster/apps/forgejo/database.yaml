@@ -1,0 +1,35 @@
+---
+# Forgejo's login role in the shared CNPG cluster (miniflux/outline/gitea
+# precedent). Password from secret/forgejo-db (postgres ns). retain: never drop.
+#
+# Unlike gitea's, this database IS created empty — there is no dump to restore,
+# because there is no supported database-level path from Gitea 1.27 to Forgejo
+# (the transparent-upgrade ceiling is Gitea v1.22 -> Forgejo v10). Forgejo runs
+# its own xorm migrations against the empty database on first boot; repositories
+# come across later over the API. See README.
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: forgejo
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: forgejo
+  ensure: present
+  login: true
+  passwordSecret:
+    name: forgejo-db
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: forgejo
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: forgejo
+  owner: forgejo
+  databaseReclaimPolicy: retain

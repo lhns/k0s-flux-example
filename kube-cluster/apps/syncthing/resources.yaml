@@ -1,0 +1,167 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: syncthing
+---
+# ===========================================================================
+# Syncthing's entire home (/var/syncthing) — device identity (cert.pem/key.pem),
+# config.xml, the live SQLite index-v2, AND the 249G of synced folders — MOUNTED
+# in place from the existing CephFS `appdata` fs, NOT copied. Static CephFS PV
+# (sftpgo/immich pattern). Single-writer -> Recreate. The old LevelDB
+# index-v0.14.0.db bind-mount is dropped (syncthing v2 uses index-v2).
+# ===========================================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: syncthing-data
+spec:
+  accessModes: [ReadWriteMany]
+  capacity:
+    storage: 1Gi
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: syncthing-data
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: appdata
+      staticVolume: "true"
+      rootPath: /docker/syncthing
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: syncthing-data
+  namespace: syncthing
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: syncthing-data
+  resources:
+    requests:
+      storage: 1Gi
+---
+# The SQLite index (index-v2) on a ceph-rbd (block) volume — overlays the CephFS
+# home at /var/syncthing/config/index-v2. SQLite's fsync-heavy access (esp. the
+# v2.0->v2.1 migration) is pathologically slow on CephFS; block storage fixes it.
+# This mirrors how the index was kept on fast local disk on Swarm. Seeded once
+# from the CephFS copy (see README).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: syncthing-index
+  namespace: syncthing
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: syncthing
+  namespace: syncthing
+spec:
+  # Live. (Was 0 while the index-v2 SQLite DB was seeded onto the RBD volume.)
+  replicas: 1
+  # Single-writer (config.xml + index-v2) -> Recreate, never two.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: syncthing
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: syncthing
+        app.kubernetes.io/instance: syncthing
+        # web UI :8384 arrives from traefik. The raw sync ports arrive via the
+        # syncthing-lb LoadBalancer (kube-vnet auto-allows, ext.svc). Global
+        # discovery, relays, and peer connections are external egress (unrestricted).
+        kube-vnet/net.traefik.traefik: ingress
+    spec:
+      # Run as the data's owner (1000:1000). Because it's non-root, the image
+      # entrypoint's root-only chown of $HOME is skipped -> NO walk of the 249G
+      # tree. NO fsGroup (same reason).
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+      # k8s service-links would inject SYNCTHING_PORT=tcp://...; disable for hygiene.
+      enableServiceLinks: false
+      containers:
+        - name: syncthing
+          image: syncthing/syncthing:2.1.3
+          env:
+            # Bind the GUI on all interfaces so Traefik can reach it (config.xml may
+            # otherwise pin 127.0.0.1). syncthing keeps its own GUI login.
+            - name: STGUIADDRESS
+              value: 0.0.0.0:8384
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
+            - name: TZ
+              value: Europe/Berlin
+          ports:
+            - {name: gui, containerPort: 8384, protocol: TCP}
+            - {name: sync-tcp, containerPort: 22000, protocol: TCP}
+            - {name: sync-udp, containerPort: 22000, protocol: UDP}
+          readinessProbe:
+            httpGet:
+              path: /rest/noauth/health
+              port: gui
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 18
+          volumeMounts:
+            - name: data
+              mountPath: /var/syncthing
+            # index-v2 on RBD (block), overlaying the CephFS home subdir.
+            - name: index
+              mountPath: /var/syncthing/config/index-v2
+              subPath: idx
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: syncthing-data
+        - name: index
+          persistentVolumeClaim:
+            claimName: syncthing-index
+---
+# In-cluster web UI endpoint Traefik routes to.
+apiVersion: v1
+kind: Service
+metadata:
+  name: syncthing
+  namespace: syncthing
+spec:
+  selector:
+    app.kubernetes.io/name: syncthing
+  ports:
+    - {name: gui, port: 8384, targetPort: gui}
+---
+# Raw sync port 22000 (TCP + UDP) on a dedicated MetalLB VIP — Traefik here is
+# TCP/HTTP-only (no UDP entrypoint), so syncthing gets its own LoadBalancer.
+# externalTrafficPolicy: Local preserves peer source IPs; single pod so the VIP
+# follows it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: syncthing-lb
+  namespace: syncthing
+  annotations:
+    metallb.io/loadBalancerIPs: 10.20.2.18
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: syncthing
+  ports:
+    - {name: sync-tcp, port: 22000, targetPort: sync-tcp, protocol: TCP}
+    - {name: sync-udp, port: 22000, targetPort: sync-udp, protocol: UDP}

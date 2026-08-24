@@ -1,0 +1,59 @@
+# act_runner configuration. Rendered into a ConfigMap by configMapGenerator, so the content hash
+# rolls the pod — act_runner only reads this at startup.
+log:
+  level: info
+
+runner:
+  # The registration identity, on the /data PVC. Present => act_runner starts with the stored
+  # credentials; absent => it registers using GITEA_RUNNER_REGISTRATION_TOKEN and writes this.
+  file: /data/.runner
+
+  # Concurrency lives HERE, not in replicas. The Swarm stack ran three service slots, each with
+  # its own dockerd and its own complete image cache; one pod running four jobs against a single
+  # daemon shares one layer cache and is strictly cheaper on a 20-CPU worker.
+  capacity: 4
+
+  timeout: 3h
+  # Paired with terminationGracePeriodSeconds so a drain lets running jobs finish.
+  shutdown_timeout: 3h
+  insecure: false
+  fetch_timeout: 5s
+  fetch_interval: 2s
+
+  # Explicit rather than inherited: the Swarm stack set GITEA_RUNNER_LABELS="" and relied on
+  # defaults, which is harder to review than saying it here.
+  labels:
+    - "ubuntu-latest:docker://gitea/runner-images:ubuntu-latest"
+    - "ubuntu-22.04:docker://gitea/runner-images:ubuntu-22.04"
+
+cache:
+  # The GitHub Actions cache protocol backend (actions/cache, setup-*). Nothing to do with Docker
+  # image layers. Its only clients are job containers inside this pod's own network namespace, so
+  # it needs no Service and no vnet edge — the Swarm `ports: 8088:8088` publish was vestigial.
+  enabled: true
+  # A dedicated emptyDir. NOT /data, which is a 1Gi PVC the cache would silently fill.
+  dir: /cache
+  # Empty => auto-detect the outbound address, which in a pod is the pod IP. Job containers sit on
+  # the dind bridge inside this same netns and can reach it. If they ever cannot, set this to the
+  # bridge gateway (172.17.0.1) instead — see README.
+  host: ""
+  port: 8088
+
+container:
+  # The daemon is a sidecar in this pod; containers in a Pod share a network namespace, so this is
+  # a LOOPBACK address. That is what removes the socat UNIX->TCP shim the Swarm entrypoint needed.
+  docker_host: "tcp://127.0.0.1:2375"
+  # Per-job bridge network, created and cleaned up by the daemon.
+  network: ""
+  # The DAEMON is privileged; individual job containers must not inherit that. Different knob,
+  # easy to conflate, and the whole containment story depends on the distinction.
+  privileged: false
+  # Empty allow-list: workflows cannot request arbitrary host volume mounts into their job
+  # containers. Without this a workflow could mount the daemon's own socket or /var/lib/docker
+  # and escape everything below.
+  valid_volumes: []
+  force_pull: false
+  options: ""
+
+host:
+  workdir_parent: workspace

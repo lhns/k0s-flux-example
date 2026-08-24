@@ -1,0 +1,14 @@
+# Under pod-level kube-vnet isolation, intra-namespace ingress is denied by
+# default, so the one internal edge (teamspeak -> mariadb) gets a bare same-namespace
+# VirtualNetwork. Same-ns membership is implicit (no own-ns self-entry). The DB
+# carries net.teamspeak-db: ingress, the server net.teamspeak-db: egress. The raw
+# voice/query/filetransfer ports arrive via the teamspeak-lb LoadBalancer, which
+# kube-vnet auto-allows (ext.svc) — no vnet needed for those.
+---
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: teamspeak-db
+  namespace: teamspeak
+spec:
+  description: "teamspeak -> MariaDB (:3306), intra-namespace."

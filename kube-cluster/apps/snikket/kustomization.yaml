@@ -1,0 +1,37 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # traefik carries both the web routes and the three raw XMPP entrypoints;
+    # cert-manager issues the three-SAN cert; ceph-csi-rbd backs the data PVC;
+    # reloader rolls the pod when the shared TURN secret rotates; app-coturn
+    # because the reflected coturn-shared-secret must exist before the pod can
+    # start. Read by the root generator; inert to kustomize.
+    # app-lldap because authentication now depends on the directory being up.
+    # infra-oci-composer because the pod mounts a composed artifact as an image volume and the
+    # kubelet cannot pull it until the registry is serving.
+    dependsOn: infra-traefik,infra-cert-manager,infra-ceph-csi-rbd,infra-reloader,app-coturn,app-lldap,infra-oci-composer
+resources:
+- resources.yaml
+- routing.yaml
+- ldap-secret.yaml
+- lualdap.yaml
+configMapGenerator:
+- name: snikket-env
+  namespace: snikket
+  envs:
+  - snikket.env
+# Prosody config that switches authentication to lldap. Loaded through
+# SNIKKET_TWEAK_EXTRA_CONFIG rather than by replacing Snikket's generated
+# config, so upstream keeps ownership of everything else.
+- name: snikket-ldap-config
+  namespace: snikket
+  files:
+  - ldap.cfg.lua
+# The forked auth provider. Mounted by subPath into /etc/prosody/modules, which
+# is already in prosody's plugin_paths - see resources.yaml for why a whole
+# directory mount there would break the server.
+- name: snikket-ldap-module
+  namespace: snikket
+  files:
+  - mod_auth_lldap.lua

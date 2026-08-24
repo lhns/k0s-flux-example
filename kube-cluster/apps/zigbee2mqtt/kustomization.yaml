@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # The data PVC needs the ceph-rbd StorageClass; MQTT needs the `mosquitto` vnet
+    # (app-mosquitto). Read by the root generator; inert to kustomize.
+    dependsOn: infra-ceph-csi-rbd,app-mosquitto
+resources:
+- resources.yaml
+- routing.yaml

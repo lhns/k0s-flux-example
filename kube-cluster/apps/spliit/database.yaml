@@ -1,0 +1,31 @@
+---
+# spliit's login role in the shared CNPG cluster (miniflux/mealie/homebox precedent).
+# Password from secret/spliit-db (postgres ns). retain: never drop on delete.
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: spliit
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: spliit
+  ensure: present
+  login: true
+  passwordSecret:
+    name: spliit-db
+  databaseRoleReclaimPolicy: retain
+---
+# The spliit database, owned by that role. A pg_dump of the old Swarm Postgres
+# (10.20.2.10:5436) is restored into it once (same major, PG 18 -> PG 18).
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: spliit
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: spliit
+  owner: spliit
+  databaseReclaimPolicy: retain

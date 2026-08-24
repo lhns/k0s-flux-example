@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # The RBD data PVC needs the ceph-rbd StorageClass. Read by the root generator;
+    # inert to kustomize. (kube-vnet's external-allow policy for the LoadBalancer is
+    # emitted automatically; the authelia/traefik reflection is eventually consistent.)
+    dependsOn: infra-ceph-csi-rbd
+resources:
+- resources.yaml
+- routing.yaml
+- config-secret.yaml
+- vnet.yaml

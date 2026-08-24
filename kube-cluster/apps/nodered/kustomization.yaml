@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # Needs the nodered-vip MetalLB pool (infra-metallb) for the nodered-lb
+    # LoadBalancer's 10.20.2.16. No DB/secret, no per-host cert (all hosts under the
+    # *.example.com wildcard). Read by the root generator; inert to kustomize.
+    dependsOn: infra-metallb
+resources:
+- resources.yaml
+- routing.yaml

@@ -1,0 +1,56 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mqtt-monitoring
+---
+# mqtt-monitoring subscribes to MQTT topics and exports them as OpenTelemetry metrics.
+# Stateless (no volume), no inbound ports (no Service/routing) — it only makes outbound
+# connections: MQTT to the in-cluster mosquitto, and OTLP to the collector.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mqtt-monitoring
+  namespace: mqtt-monitoring
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  # Stateless -> start-first (matches the Swarm order:start-first).
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mqtt-monitoring
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mqtt-monitoring
+        app.kubernetes.io/instance: mqtt-monitoring
+        # reach the in-cluster mosquitto :1883 (the `mosquitto` vnet). No inbound, so
+        # no ingress vnet.
+        kube-vnet/net.mosquitto.mosquitto: egress
+        # OTLP to the in-cluster gateway. Was the Swarm collector at 10.20.2.10:4317,
+        # which was external egress and needed no label; a ClusterIP does.
+        kube-vnet/net.opentelemetry-gateway.otel-gateway: egress
+    spec:
+      containers:
+        - name: mqtt-monitoring
+          image: ghcr.io/lhns/mqtt-monitoring:0.3.0
+          env:
+            # OTLP export target: the in-cluster gateway.
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://opentelemetry-gateway.opentelemetry-gateway.svc.cluster.local:4317
+            - name: OTEL_SERVICE_NAME
+              value: mqtt-monitoring
+            # The full monitoring config (HOCON) — holds the MQTT broker password, so
+            # it's a SOPS secret; the broker is repointed to the in-cluster mosquitto.
+            - name: CONFIG
+              valueFrom:
+                secretKeyRef:
+                  name: mqtt-monitoring-config
+                  key: CONFIG

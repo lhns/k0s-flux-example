@@ -1,0 +1,81 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: ceph-csi
+  namespace: ceph-csi-rbd
+spec:
+  interval: 1h0m0s
+  url: https://ceph.github.io/csi-charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: ceph-csi-rbd
+  namespace: ceph-csi-rbd
+spec:
+  interval: 10m0s
+  chart:
+    spec:
+      chart: ceph-csi-rbd
+      version: "3.17.0"
+      interval: 1h0m0s
+      sourceRef:
+        kind: HelmRepository
+        name: ceph-csi
+  values:
+    # k0s puts the kubelet root at /var/lib/k0s/kubelet (not the default
+    # /var/lib/kubelet); the CSI hostPath mounts must match or the plugin
+    # fails to register.
+    kubeletDir: /var/lib/k0s/kubelet
+    # Metrics-port convention: kube-router (hostNetwork) owns host :8080, so the
+    # ceph-csi liveness sidecars live at 8090+ — cephfs 8090, rbd 8091. The
+    # nodeplugin is hostNetwork (real host port); the provisioner is pod-network
+    # but kept on the same port for consistency.
+    nodeplugin:
+      httpMetrics:
+        containerPort: 8091
+        service:
+          servicePort: 8091
+    provisioner:
+      httpMetrics:
+        containerPort: 8091
+        service:
+          servicePort: 8091
+    # clusterID -> monitors (same Ceph cluster as cephfs). rbd images live in
+    # the `kube` rados namespace of pool rbd.kube (radosNamespace is per-cluster
+    # config here, so the StorageClass only needs `pool`).
+    # clusterID identifies the Ceph *cluster* (monitor set), not a filesystem.
+    # (A `fastappdata` alias existed transiently during volume migration; all
+    # volumes now use `ceph-cluster`, so the alias is gone.)
+    csiConfig:
+      - clusterID: ceph-cluster
+        monitors:
+          - 10.20.2.101:6789
+          - 10.20.2.102:6789
+          - 10.20.2.103:6789
+        rbd:
+          radosNamespace: kube
+    # We provide our own StorageClass; the secret is SHARED with the cephfs
+    # driver (csi-cephfs-secret in the ceph-csi namespace) via the StorageClass's
+    # namespace-qualified secret refs, so none is created here.
+    secret:
+      create: false
+    storageClass:
+      create: false
+  # Same SlowGRPCRestart opt-out as the cephfs driver -- see the long comment in
+  # ../ceph-csi-cephfs/release.yaml for the full reasoning. Short version: the
+  # node plugin is one process per node for ALL rbd volumes, and ceph-csi 3.17.0
+  # kills it outright when any gRPC call exceeds 10 minutes, which deregisters
+  # the driver and takes every rbd mount on that node with it.
+  postRenderers:
+    - kustomize:
+        patches:
+          # containers[0] is csi-rbdplugin. Re-verify after a chart bump.
+          - target:
+              kind: DaemonSet
+              name: ceph-csi-rbd-nodeplugin
+            patch: |
+              - op: add
+                path: /spec/template/spec/containers/0/args/-
+                value: --feature-gates=SlowGRPCRestart=false

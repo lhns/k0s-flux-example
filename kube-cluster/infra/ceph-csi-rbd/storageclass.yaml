@@ -1,0 +1,23 @@
+---
+# Dynamic RBD block provisioning. Each PVC -> an rbd image in the `kube` rados
+# namespace of pool rbd.kube on the same Ceph cluster as cephfs.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ceph-rbd
+provisioner: rbd.csi.ceph.com
+parameters:
+  clusterID: ceph-cluster
+  pool: rbd.kube
+  imageFeatures: layering
+  csi.storage.k8s.io/fstype: ext4
+  # Shared cephx creds (client.kube) — the cephfs driver's secret, read
+  # cross-namespace (the rbd driver's ClusterRole grants secrets get/list/watch).
+  csi.storage.k8s.io/provisioner-secret-name: csi-cephfs-secret
+  csi.storage.k8s.io/provisioner-secret-namespace: ceph-csi-cephfs
+  csi.storage.k8s.io/controller-expand-secret-name: csi-cephfs-secret
+  csi.storage.k8s.io/controller-expand-secret-namespace: ceph-csi-cephfs
+  csi.storage.k8s.io/node-stage-secret-name: csi-cephfs-secret
+  csi.storage.k8s.io/node-stage-secret-namespace: ceph-csi-cephfs
+reclaimPolicy: Retain
+allowVolumeExpansion: true

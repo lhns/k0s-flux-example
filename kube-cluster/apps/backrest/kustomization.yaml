@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # backrest-state (RBD) + backrest-cache (cephfs) need the CSI drivers; the
+    # static CephFS source PVs need infra-ceph-csi-cephfs. No LB, no per-host cert
+    # (backrest.example.com is under the *.example.com wildcard + Authelia catch-all). Read
+    # by the root generator; inert to kustomize.
+    dependsOn: infra-ceph-csi-cephfs,infra-ceph-csi-rbd
+resources:
+- resources.yaml
+- routing.yaml

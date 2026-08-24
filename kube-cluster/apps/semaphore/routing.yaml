@@ -1,0 +1,46 @@
+---
+# Semaphore — public, its own login (no OIDC/forwardAuth). TLS via the default
+# *.example.com wildcard.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: semaphore
+  namespace: semaphore
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`semaphore.example.com`)
+      services:
+        - name: semaphore
+          port: 3000
+  tls: {}
+---
+# semaphore.kube.example.com -> canonical semaphore.example.com.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: semaphore-kube-redirect
+  namespace: semaphore
+spec:
+  redirectRegex:
+    regex: "^https://semaphore.kube.example.com/(.*)"
+    replacement: "https://semaphore.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: semaphore-kube-redirect
+  namespace: semaphore
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`semaphore.kube.example.com`)
+      services:
+        - name: semaphore
+          port: 3000
+      middlewares:
+        - name: semaphore-kube-redirect
+  tls: {}

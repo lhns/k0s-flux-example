@@ -1,0 +1,104 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: ceph-csi
+  namespace: ceph-csi-cephfs
+spec:
+  interval: 1h0m0s
+  url: https://ceph.github.io/csi-charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: ceph-csi-cephfs
+  namespace: ceph-csi-cephfs
+spec:
+  interval: 10m0s
+  chart:
+    spec:
+      chart: ceph-csi-cephfs
+      version: "3.17.0"
+      interval: 1h0m0s
+      sourceRef:
+        kind: HelmRepository
+        name: ceph-csi
+  values:
+    # k0s puts the kubelet root at /var/lib/k0s/kubelet (not the default
+    # /var/lib/kubelet); the CSI hostPath mounts must match or the plugin
+    # fails to register.
+    kubeletDir: /var/lib/k0s/kubelet
+    # Metrics-port convention: kube-router (hostNetwork) owns host :8080, so the
+    # ceph-csi liveness sidecars live at 8090+ — cephfs 8090, rbd 8091. (Chart
+    # default is 8081.) The nodeplugin is hostNetwork, so this is a real host port.
+    nodeplugin:
+      httpMetrics:
+        containerPort: 8090
+        service:
+          servicePort: 8090
+    provisioner:
+      httpMetrics:
+        containerPort: 8090
+        service:
+          servicePort: 8090
+    # Map clusterID -> Ceph monitors. clusterID is an arbitrary key that must
+    # match the StorageClass; it identifies the Ceph *cluster* (monitor set), not
+    # a filesystem — one cluster hosts both `fastappdata` and `archive`.
+    # (A `fastappdata` alias existed transiently while volumes were migrated off
+    # the old clusterID; all volumes now use `ceph-cluster`, so the alias is gone.)
+    csiConfig:
+      - clusterID: ceph-cluster
+        monitors:
+          - 10.20.2.101:6789
+          - 10.20.2.102:6789
+          - 10.20.2.103:6789
+        cephFS:
+          # subvolumes are created under /volumes/kube/ (must match the
+          # subvolumegroup created on the Ceph cluster)
+          subvolumeGroup: kube
+    # We provide our own SOPS-encrypted secret + StorageClass.
+    secret:
+      create: false
+    storageClass:
+      create: false
+  # Turn OFF the SlowGRPCRestart feature gate on the *node* plugin.
+  #
+  # ceph-csi 3.17.0 ships killOnSlowGRPC (PR #6286): any unary gRPC handler that
+  # runs longer than a hardcoded 10 minutes calls os.Exit(1) on the whole
+  # process. That is far too blunt here, because the node plugin is ONE process
+  # per node serving EVERY CephFS volume on it: a single unresponsive mount takes
+  # down all the others. The driver then deregisters from the kubelet, so every
+  # pod on that node fails with "driver name cephfs.csi.ceph.com not found in the
+  # list of registered CSI drivers", and pods whose containers died meanwhile get
+  # stuck for good (terminated + PodReadyToStartContainers=False, nothing retries
+  # the mount) until they are deleted by hand.
+  #
+  # What actually hangs is NodeGetVolumeStats -> os.Stat() on an unresponsive
+  # mount, which blocks in the kernel and never returns; that is upstream bug
+  # #6418, fixed on 2026-08-04 but ONLY in `devel` -- v3.17.0 (tagged 2026-05-25)
+  # is still the newest release, so there is no version to upgrade to. Revisit
+  # this block when a release containing #6418 exists.
+  #
+  # Trade-off: with the gate off a wedged volume keeps its VolumeLock, so calls
+  # for THAT volume return "Aborted: operation already in progress" until the
+  # plugin is restarted manually. That is deliberate -- one broken volume beats
+  # every volume on the node, which is what the self-restart actually costs us.
+  #
+  # Set via postRenderers because the chart exposes no extraArgs for
+  # nodeplugin.plugin (only image/resources); --feature-gates itself is a normal
+  # cephcsi flag (cmd/cephcsi.go). The provisioner is deliberately NOT patched:
+  # there the restart is cheap and the blast radius is one replica of three.
+  postRenderers:
+    - kustomize:
+        patches:
+          # containers[0] is csi-cephfsplugin (then driver-registrar,
+          # liveness-prometheus). Verify with `kubectl -n ceph-csi-cephfs get ds
+          # ceph-csi-cephfs-nodeplugin -o jsonpath='{.spec.template.spec.containers[0].name}'`
+          # after a chart bump.
+          - target:
+              kind: DaemonSet
+              name: ceph-csi-cephfs-nodeplugin
+            patch: |
+              - op: add
+                path: /spec/template/spec/containers/0/args/-
+                value: --feature-gates=SlowGRPCRestart=false

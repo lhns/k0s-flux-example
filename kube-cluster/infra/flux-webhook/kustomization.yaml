@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # No workloads of its own — fold the webhook receiver/ingress/vnet-binding
+    # into the flux-system app (the generator reads this into commonMetadata).
+    appInstance: flux-system
+resources:
+- secret.yaml
+- receiver.yaml
+- ingress.yaml
+- vnet-binding.yaml

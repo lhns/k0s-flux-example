@@ -1,0 +1,32 @@
+---
+# duckdb.kube.example.com redirects to the canonical duckdb.example.com. Served by the
+# default *.example.com wildcard cert (tls: {}); redirectRegex 308s before the
+# backend (or Authelia / the Host-spoof middleware) is reached, so none of that
+# is needed on this route.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: duckdb-kube-redirect
+  namespace: duckdb
+spec:
+  redirectRegex:
+    regex: "^https://duckdb.kube.example.com/(.*)"
+    replacement: "https://duckdb.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: duckdb-kube-redirect
+  namespace: duckdb
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`duckdb.kube.example.com`)
+      services:
+        - name: duckdb
+          port: 4214
+      middlewares:
+        - name: duckdb-kube-redirect
+  tls: {}

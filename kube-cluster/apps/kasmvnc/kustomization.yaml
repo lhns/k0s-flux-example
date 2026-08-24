@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # RBD PVC for the home directory. Read by the root generator; inert to kustomize.
+    dependsOn: infra-ceph-csi-rbd
+resources:
+- resources.yaml
+- routing.yaml
+- secret.yaml
+configMapGenerator:
+# nginx config for the auth-injecting sidecar. A template, not a finished config: the
+# sidecar substitutes __AUTH__ from $VNC_PW at startup so the credential stays in the
+# SOPS Secret and never lands in a ConfigMap.
+- name: kasmvnc-proxy-conf
+  namespace: kasmvnc
+  files:
+  - nginx.conf.template

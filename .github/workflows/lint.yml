@@ -1,0 +1,53 @@
+name: Lint
+on:
+  pull_request: {}
+  push:
+    branches: [main]
+# Renovate's fine-grained PAT can't read the Checks API (no `Checks` permission
+# available on this account), so it can't see this workflow's check-run and treats
+# Renovate branches as perpetually "pending" -> patch PRs never automerge. Renovate
+# CAN read commit statuses, so we mirror the result to a `lint` commit status on the
+# PR head (a non-`renovate/` context) -> the branch reads green and automerge proceeds.
+permissions:
+  contents: read
+  statuses: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore schema cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/kubeconform
+          key: kubeconform-schemas-${{ github.run_id }}
+          restore-keys: kubeconform-schemas-
+      - name: Install tools
+        run: |
+          set -euo pipefail
+          pipx install yamllint
+          curl -fsSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.8.1/kustomize_v5.8.1_linux_amd64.tar.gz" | sudo tar -xz -C /usr/local/bin kustomize
+          curl -fsSL "https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz" | sudo tar -xz -C /usr/local/bin kubeconform
+      - name: Validate
+        id: validate
+        run: bash scripts/validate.sh
+      - name: Save schema cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .cache/kubeconform
+          key: kubeconform-schemas-${{ github.run_id }}
+      # Mirror the validate result to a commit status Renovate can read (see top-of-file
+      # note). Posted to the PR head SHA so it lands on the branch tip Renovate checks.
+      - name: Report lint status for Renovate
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STATE: ${{ steps.validate.outcome == 'success' && 'success' || 'failure' }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          gh api -X POST "repos/${{ github.repository }}/statuses/$SHA" \
+            -f state="$STATE" \
+            -f context="lint" \
+            -f description="kubeconform + yamllint" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

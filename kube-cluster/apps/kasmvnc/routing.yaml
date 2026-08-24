@@ -1,0 +1,69 @@
+---
+# Public — gated by Authelia forwardAuth, which is now the ONLY login. KasmVNC's own
+# HTTP Basic auth cannot be disabled (`-DisableBasicAuth` covers the websocket only, and
+# /api/* still 401s), so the `proxy` sidecar injects the credential and Traefik talks
+# plain HTTP to it. See resources.yaml and nginx.conf.template.
+#
+# The ServersTransport with insecureSkipVerify that used to live here is gone with it —
+# the TLS hop to KasmVNC's self-signed certificate is now inside the pod over loopback.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: kasmvnc
+  namespace: kasmvnc
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`kasmvnc.example.com`)
+      services:
+        - name: kasmvnc
+          port: 8080
+      middlewares:
+        # authelia-session, NOT plain authelia — and it stays that way even though the
+        # sidecar means this app no longer challenges anyone itself.
+        #
+        # The reason is browser state, not server state. Any browser that ever answered
+        # KasmVNC's old prompt caches those credentials for this host and keeps sending
+        # `Authorization: Basic` on every request, indefinitely. Authelia's default
+        # forward-auth endpoint consumes that header, fails to find `kasm_user` in LDAP,
+        # and replies 401 with `WWW-Authenticate: Basic` — so the browser prompts again,
+        # forever, and the user can never get past it. Measured, after the sidecar was in
+        # place: stale header -> 401, no header -> 302 to Authelia.
+        #
+        # This endpoint authenticates on the session cookie only and ignores the header,
+        # so a stale credential is harmless. Switching back to plain `authelia` would look
+        # correct and would work in a fresh browser profile, which is exactly what makes
+        # the bug expensive to find.
+        - name: authelia-session
+  tls: {}
+---
+# kasmvnc.kube.example.com redirects to the canonical kasmvnc.example.com. No authelia on the
+# redirect route — it 301s first, and never reaches the backend.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: kasmvnc-kube-redirect
+  namespace: kasmvnc
+spec:
+  redirectRegex:
+    regex: "^https://kasmvnc.kube.example.com/(.*)"
+    replacement: "https://kasmvnc.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: kasmvnc-kube-redirect
+  namespace: kasmvnc
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`kasmvnc.kube.example.com`)
+      services:
+        - name: kasmvnc
+          port: 8080
+      middlewares:
+        - name: kasmvnc-kube-redirect
+  tls: {}

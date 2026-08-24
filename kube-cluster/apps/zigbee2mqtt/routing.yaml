@@ -1,0 +1,48 @@
+---
+# The zigbee2mqtt frontend, behind Authelia (group:admin/zigbee_admin, two_factor — the
+# rule already exists in the Authelia config). TLS via the default *.example.com wildcard.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: zigbee2mqtt
+  namespace: zigbee2mqtt
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`zigbee2mqtt.example.com`)
+      services:
+        - name: zigbee2mqtt
+          port: 8080
+      middlewares:
+        - name: authelia
+  tls: {}
+---
+# zigbee2mqtt.kube.example.com redirects to the canonical zigbee2mqtt.example.com.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: zigbee2mqtt-kube-redirect
+  namespace: zigbee2mqtt
+spec:
+  redirectRegex:
+    regex: "^https://zigbee2mqtt.kube.example.com/(.*)"
+    replacement: "https://zigbee2mqtt.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: zigbee2mqtt-kube-redirect
+  namespace: zigbee2mqtt
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`zigbee2mqtt.kube.example.com`)
+      services:
+        - name: zigbee2mqtt
+          port: 8080
+      middlewares:
+        - name: zigbee2mqtt-kube-redirect
+  tls: {}

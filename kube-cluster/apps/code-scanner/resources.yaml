@@ -1,0 +1,82 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: code-scanner
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: code-scanner
+  namespace: code-scanner
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # start-first (from the Swarm update_config): bring the new pod up and ready
+      # before the old one is removed.
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: code-scanner
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: code-scanner
+        # commonMetadata (from the root generator) can't reach the pod template,
+        # so set the app label here too, so the pods group under the app.
+        app.kubernetes.io/instance: code-scanner
+        # Join the traefik vnet as an ingress receiver so traefik can reach us
+        # under kube-vnet's cluster-wide isolation. Egress (incl. internet) is
+        # granted by the kube-vnet baseline — no extra config needed.
+        kube-vnet/net.traefik.traefik: ingress
+    spec:
+      containers:
+        - name: scanner
+          image: ghcr.io/lhns/code-scanner:e0d302d
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: TZ
+              value: Europe/Berlin
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: code-scanner
+  namespace: code-scanner
+spec:
+  selector:
+    app.kubernetes.io/name: code-scanner
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: code-scanner
+  namespace: code-scanner
+spec:
+  # TLS is served by traefik's default TLSStore (wildcard *.kube.example.com), so no
+  # per-host cert here. Mirrors the Swarm websecure router at Host(scanner...).
+  ingressClassName: traefik
+  rules:
+    - host: scanner.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: code-scanner
+                port:
+                  number: 8080

@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # CNPG (db) + Reflector (db secret) + ceph-rbd (app volume) + ceph-csi-cephfs
+    # (data + seed static PVs) + traefik (routes) + cert-manager (lolhens cert).
+    # Read by the root generator; inert to kustomize. No `namespace:` transformer —
+    # database.yaml/db-role-secret.yaml pin `namespace: postgres`, the static PVs
+    # are cluster-scoped, everything else is `nextcloud`.
+    dependsOn: infra-postgres,infra-reflector,infra-ceph-csi-rbd,infra-ceph-csi-cephfs,infra-traefik,infra-cert-manager
+resources:
+- resources.yaml
+- routing.yaml
+- vnet.yaml
+- database.yaml
+- db-role-secret.yaml
+configMapGenerator:
+- name: nextcloud-config
+  namespace: nextcloud
+  files:
+  - zz-kube.config.php

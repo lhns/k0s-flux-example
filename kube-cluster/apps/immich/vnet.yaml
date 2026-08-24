@@ -1,0 +1,21 @@
+---
+# immich-server dials immich-postgres (:5432) and immich-redis (:6379) inside this
+# namespace. Under pod-level kube-vnet isolation, intra-namespace ingress is denied by
+# default, so give each a private channel immich-server may join. Bare net.<name> =
+# same-namespace vnet; the datastore pods carry net.<name>: ingress and immich-server
+# carries net.<name>: egress.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: immich-postgres
+  namespace: immich
+spec:
+  description: "immich-server -> immich-postgres (:5432), intra-namespace."
+---
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: immich-redis
+  namespace: immich
+spec:
+  description: "immich-server -> immich-redis (:6379), intra-namespace."

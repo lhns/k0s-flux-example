@@ -1,0 +1,79 @@
+# One-shot Job that (re)creates the singleton Autopilot Plan for the desired k0s
+# version. The version is injected by the k0s-upgrade Flux Kustomization via
+# postBuild.substitute (see templates/k0s-upgrade.yaml, sourced from k0sctl.yaml).
+#
+# Flux substitutes ONLY the braced form ${VAR}; every shell variable below uses the
+# brace-less $var form so Flux leaves it for /bin/sh. So the two substitute vars
+# (K0S_VERSION, K0S_VERSION_SANITIZED) appear braced only in the name + env value;
+# the script uses $want/$have/$ctrls/... which Flux does not touch.
+#
+# The version is in the Job NAME, so a bump renders a new name -> Flux prunes the old
+# Job and creates the new one (that's the trigger; no ttlSecondsAfterFinished, or Flux
+# would drift-recreate it every reconcile).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k0s-upgrade-${K0S_VERSION_SANITIZED}
+  namespace: k0s-upgrade
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: k0s-upgrade
+    spec:
+      serviceAccountName: k0s-upgrade
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+      containers:
+        - name: upgrade
+          image: alpine/k8s:1.36.2
+          env:
+            - name: K0S_VERSION
+              value: "${K0S_VERSION}"
+            - name: HOME
+              value: /tmp # kubectl discovery cache dir, writable as non-root
+          command: ["/bin/sh", "-ceu"]
+          args:
+            - |
+              want="$K0S_VERSION"
+              have="$(kubectl get plan autopilot -o jsonpath='{.spec.commands[0].k0supdate.version}' 2>/dev/null || true)"
+              if [ "$have" = "$want" ]; then
+                echo "Plan/autopilot already targets $want; nothing to do."
+                exit 0
+              fi
+              ctrls="$(kubectl get controlnodes -o jsonpath='{.items[*].metadata.name}')"
+              wrkrs="$(kubectl get nodes -o jsonpath='{.items[*].metadata.name}')"
+              ctrls_yaml="[$(echo $ctrls | tr ' ' ',')]"
+              wrkrs_yaml="[$(echo $wrkrs | tr ' ' ',')]"
+              url="https://github.com/k0sproject/k0s/releases/download/$want/k0s-$want-amd64"
+              echo "Recreating Plan/autopilot -> $want  controllers=$ctrls_yaml workers=$wrkrs_yaml"
+              kubectl delete plan autopilot --ignore-not-found
+              cat <<EOF | kubectl create -f -
+              apiVersion: autopilot.k0sproject.io/v1beta2
+              kind: Plan
+              metadata:
+                name: autopilot
+              spec:
+                id: "$want"
+                timestamp: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                commands:
+                  - k0supdate:
+                      version: "$want"
+                      platforms:
+                        linux-amd64:
+                          url: "$url"
+                      targets:
+                        controllers:
+                          discovery:
+                            static:
+                              nodes: $ctrls_yaml
+                        workers:
+                          limits:
+                            concurrent: 1
+                          discovery:
+                            static:
+                              nodes: $wrkrs_yaml
+              EOF

@@ -1,0 +1,32 @@
+{{- /*
+  Optional k0s in-cluster upgrade wrapper. When .Values.k0sUpgrade is set, emit a
+  dedicated Flux Kustomization for kube-cluster/k0s-upgrade/ and inject the k0s
+  version — read straight from k0sctl.yaml via .Files.Get — through
+  postBuild.substitute. The Job there recreates the singleton Autopilot Plan
+  (Autopilot then rolls the nodes). Absent -> renders nothing (non-k0s clusters).
+
+  Its own Kustomization = its own failure domain: a bad Job can't wedge the
+  generator. The version lives in the Job NAME (sanitized), so a bump renders a new
+  name and Flux prunes the old Job + creates the new one — that's the trigger.
+*/ -}}
+{{- with .Values.k0sUpgrade }}
+{{- $ver := ($.Files.Get .k0sctlPath | fromYaml).spec.k0s.version }}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: k0s-upgrade
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  prune: true
+  path: ./{{ .path | required "k0sUpgrade.path is required when k0sUpgrade is set" }}
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  postBuild:
+    substitute:
+      K0S_VERSION: {{ $ver | quote }}
+      K0S_VERSION_SANITIZED: {{ $ver | replace "." "-" | replace "+" "-" | quote }}
+{{- end }}

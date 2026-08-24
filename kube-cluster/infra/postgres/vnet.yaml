@@ -1,0 +1,118 @@
+---
+# ── Internal channel: CNPG's own traffic (not for clients) ──────────────────
+# instance <-> instance streaming replication + the operator reaching each
+# instance manager (:8000). Scoped tight to the cluster + cnpg-system.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: postgres-internal
+  namespace: postgres
+spec:
+  description: "CNPG internal: instance replication + operator management."
+  allowedNamespaces:
+    names:
+      - cnpg-system
+---
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetworkBinding
+metadata:
+  name: pg-instances-internal
+  namespace: postgres
+spec:
+  virtualNetworkRef:
+    name: postgres-internal
+    namespace: postgres
+  direction: both        # mutual streaming replication (either can be primary)
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: postgres
+---
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetworkBinding
+metadata:
+  name: cnpg-operator-postgres
+  namespace: cnpg-system
+spec:
+  virtualNetworkRef:
+    name: postgres-internal
+    namespace: postgres
+  # egress only: the operator initiates; responses return on the stateful
+  # connection. Also denies instance->operator, keeping this channel minimal.
+  direction: egress
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: cloudnative-pg
+---
+# ── Client-facing channel (like the traefik vnet) ───────────────────────────
+# Any namespace's pods MAY join; a pod actually reaches the databases only by
+# opting in — an egress VirtualNetworkBinding, or the pod label
+#   kube-vnet/net.postgres.postgres: egress
+# The instances accept ingress here; clients never see replication or the operator.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: postgres
+  namespace: postgres
+spec:
+  description: "Client channel to the postgres databases (join egress from any namespace)."
+  allowedNamespaces:
+    all: true
+---
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetworkBinding
+metadata:
+  name: pg-instances-clients
+  namespace: postgres
+spec:
+  virtualNetworkRef:
+    name: postgres
+    namespace: postgres
+  direction: ingress     # instances accept client connections (:5432)
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: postgres
+---
+# ── Pooler client-facing channel ────────────────────────────────────────────
+# The pgbouncer Pooler (pooler.yaml) is a separate pod identity. Apps that want
+# connection pooling join THIS vnet (egress) and connect to the postgres-pooler
+# service — same opt-in model as the `postgres` client channel above:
+#   kube-vnet/net.postgres.postgres-pooler: egress
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: postgres-pooler
+  namespace: postgres
+spec:
+  description: "Client channel to the pgbouncer pooler (join egress from any namespace)."
+  allowedNamespaces:
+    all: true
+---
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetworkBinding
+metadata:
+  name: pg-pooler-clients
+  namespace: postgres
+spec:
+  virtualNetworkRef:
+    name: postgres-pooler
+    namespace: postgres
+  direction: ingress     # pooler pods accept client connections (:5432)
+  podSelector:
+    matchLabels:
+      cnpg.io/poolerName: postgres-pooler
+---
+# The pooler is itself a *client* of the databases: it joins the `postgres` client
+# channel as egress so the instances' pg-instances-clients ingress rule admits it.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetworkBinding
+metadata:
+  name: pg-pooler-to-db
+  namespace: postgres
+spec:
+  virtualNetworkRef:
+    name: postgres
+    namespace: postgres
+  direction: egress      # pooler -> instances (:5432)
+  podSelector:
+    matchLabels:
+      cnpg.io/poolerName: postgres-pooler

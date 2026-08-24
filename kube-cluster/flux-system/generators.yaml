@@ -1,0 +1,41 @@
+---
+# Renders the repo-root generator chart once for both groups: one Flux
+# Kustomization per dir under kube-cluster/apps/ (prefix app-) and
+# kube-cluster/infra/ (prefix infra-). reconcileStrategy: Revision so a new dir
+# (no chart version bump) re-renders. The whole base path is a parameter, so a
+# second cluster is just another group (base: <cluster>/apps).
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: generators
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  chart:
+    spec:
+      chart: "."
+      reconcileStrategy: Revision
+      sourceRef:
+        kind: GitRepository
+        name: flux-system
+        namespace: flux-system
+  values:
+    groups:
+      - { base: kube-cluster/apps, prefix: app }
+      - { base: kube-cluster/infra, prefix: infra }
+    # Opt into the in-cluster k0s upgrade wrapper (templates/k0s-upgrade.yaml).
+    # The generator reads the k0s version from this file and emits the k0s-upgrade
+    # Flux Kustomization. Omit the block on clusters that don't use it.
+    k0sUpgrade:
+      k0sctlPath: kube-cluster/k0sctl.yaml
+      path: kube-cluster/k0s-upgrade
+    # Registry host prefixed onto every composed artifact reference. Must match
+    # infra/oci-composer's registry.host, INCLUDING THE PORT — containerd names its
+    # registry directory after this exact string, and it is the nodes' containerd,
+    # not DNS, that knows where this actually is (kube-cluster/k0s-files).
+    #
+    # Named publicHost, not servingHost: 0.5.0 removed the controller's serving
+    # endpoint, and this is now only the public name of the registry. The composer
+    # itself reaches that registry by its in-cluster Service and never uses this.
+    ociComposer:
+      publicHost: oci-composer.internal:30500

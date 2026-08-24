@@ -1,0 +1,70 @@
+# Kafka broker/topic/consumer metrics — split out of the gateway config into a
+# SINGLETON collector on purpose: `kafkametrics` is a cluster-wide scraper, so running
+# it in both gateway replicas would double-count every broker, topic and consumer-group
+# metric. Same reasoning the monitoring stack already applies to its daemon-vs-cluster
+# split.
+#
+# Writes straight to the otlp_meta_metrics topic rather than hopping through the
+# gateway's OTLP port: fewer moving parts, and it keeps working while the gateway rolls.
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  kafkametrics/otel-kafka:
+    protocol_version: 2.1.0
+    scrapers:
+      - brokers
+      - topics
+      - consumers
+    brokers:
+      - otel-kafka-bootstrap.opentelemetry-gateway.svc.cluster.local:9092
+    collection_interval: 10s
+
+  prometheus/feedback:
+    config:
+      scrape_configs:
+        - job_name: 'opentelemetry-gateway-kafkametrics'
+          scrape_interval: 10s
+          static_configs:
+            - targets: ['127.0.0.1:8888']
+
+processors:
+  attributes/otel-kafka:
+    actions:
+      - key: cluster_name
+        # DELIBERATELY NOT 'otel-kafka' (the Swarm broker's name). Both clusters are
+        # scraped while the migration runs, and docs/observability-exporter-lag.md
+        # queries filter on cluster_name="otel-kafka" — a distinct value here keeps the
+        # two sets of broker/consumer-lag metrics from silently merging.
+        value: otel-kafka-kube
+        action: insert
+
+  batch/kafka:
+    send_batch_size: 2048
+    send_batch_max_size: 2048
+
+exporters:
+  kafka/meta_metrics:
+    protocol_version: 2.1.0
+    brokers:
+      - otel-kafka-bootstrap.opentelemetry-gateway.svc.cluster.local:9092
+    metrics:
+      topic: otlp_meta_metrics
+      encoding: otlp_proto
+    timeout: 30s
+    producer:
+      max_message_bytes: 8000000
+      compression: zstd
+
+service:
+  extensions: [health_check]
+  pipelines:
+    metrics/kafka:
+      receivers: [kafkametrics/otel-kafka]
+      processors: [attributes/otel-kafka, batch/kafka]
+      exporters: [kafka/meta_metrics]
+    metrics/feedback:
+      receivers: [prometheus/feedback]
+      processors: [batch/kafka]
+      exporters: [kafka/meta_metrics]

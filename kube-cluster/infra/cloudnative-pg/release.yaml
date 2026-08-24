@@ -1,0 +1,27 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: cnpg
+  namespace: cnpg-system
+spec:
+  interval: 1h0m0s
+  url: https://cloudnative-pg.github.io/charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cloudnative-pg
+  namespace: cnpg-system
+spec:
+  interval: 10m0s
+  chart:
+    spec:
+      chart: cloudnative-pg
+      version: "0.29.0"
+      interval: 1h0m0s
+      sourceRef:
+        kind: HelmRepository
+        name: cnpg
+  # Chart defaults: crds.create=true (installs the postgresql.cnpg.io CRDs) and
+  # the operator watches all namespaces cluster-wide.

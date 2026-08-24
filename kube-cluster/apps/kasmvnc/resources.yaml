@@ -1,0 +1,194 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kasmvnc
+---
+# Same reasoning as webtop: the home directory holds browser profiles, which are
+# SQLite, so this is the repo's "embedded SQLite -> block" rule rather than the
+# file-only cephfs case. Single-writer by definition.
+#
+# Note the path differs from webtop — kasm images run as `kasm_user` with a home at
+# /home/kasm-user, not /config.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kasmvnc-home
+  namespace: kasmvnc
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kasmvnc
+  namespace: kasmvnc
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  # RWO home volume -> Recreate (never two writers).
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kasmvnc
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kasmvnc
+        app.kubernetes.io/instance: kasmvnc
+        # receive from traefik, and nothing else — see the webtop equivalent.
+        kube-vnet/net.traefik.traefik: ingress
+    spec:
+      securityContext:
+        # kasm images run as kasm_user (uid/gid 1000) and do NOT chown the home dir
+        # themselves, unlike LinuxServer's s6 entrypoint. fsGroup makes the RBD
+        # volume writable for that uid — the grafana/outline pattern (fixed non-root
+        # uid, small volume, so the recursive chown is cheap).
+        fsGroup: 1000
+      containers:
+        - name: kasmvnc
+          # `core`, not `desktop`: the bare XFCE desktop with no bundled applications.
+          # The `-desktop` variant ships 98 .desktop entries — Zoom, Telegram, Slack,
+          # Thunderbird, VLC, Signal, Chrome, GIMP, OnlyOffice, Nextcloud, VS Code — none
+          # of them asked for, and all frozen at the image's April 2025 build date
+          # (Firefox 136, Chrome 135). Leaner is the honest comparison against webtop,
+          # which bundles nothing either.
+          #
+          # NOTE: this means there is NO BROWSER in the image. Install what you want; see
+          # the README on making that survive a restart, which /home/kasm-user alone does
+          # not solve for anything landing in /usr.
+          #
+          # Version-pinned, so Renovate tracks it natively (unlike webtop, which has
+          # only rolling tags). Built on KasmVNC — a TigerVNC fork, therefore X11.
+          #
+          # KNOWN LIMITATION, not a misconfiguration: Kasm's own workspaces-images
+          # README states that outside the Kasm Workspaces platform, "audio, uploads,
+          # downloads, and microphone pass-through" do not work. This deployment is
+          # standalone, so expect all four to be missing. It is here to compare
+          # rendering feel against webtop, not feature parity.
+          image: kasmweb/core-ubuntu-noble:1.19.0
+          env:
+            - name: TZ
+              value: Europe/Berlin
+            # KasmVNC's own login CANNOT be turned off. `-DisableBasicAuth` covers the
+            # websocket only — that is literally what its help text says — and every
+            # /api/* call still answers 401, which is what makes a browser prompt. There
+            # is no config option for it. So the credential is injected by the `proxy`
+            # sidecar below instead, and nobody ever types it. See nginx.conf.template.
+            #
+            # Required regardless of any of that: the image refuses to start without it
+            # (vnc_startup.sh runs `kasmvncpasswd -u kasm_user` unconditionally), and the
+            # auxiliary audio / upload / gamepad helpers use `kasm_user:$VNC_PW` as their
+            # internal auth token.
+            - name: VNC_PW
+              valueFrom:
+                secretKeyRef:
+                  name: kasmvnc
+                  key: VNC_PW
+          ports:
+            # HTTPS with a self-signed cert, and no plain-HTTP port. Only the sidecar
+            # talks to it now, over loopback.
+            - name: https
+              containerPort: 6901
+          readinessProbe:
+            # TCP rather than httpGet: the endpoint is HTTPS with a self-signed cert,
+            # so an httpGet probe would need scheme: HTTPS and would still only be
+            # checking a login page. A successful connect is what we actually want.
+            tcpSocket:
+              port: https
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 18
+          resources:
+            # Same reasoning as webtop: memory only, no CPU limit.
+            requests:
+              memory: 1Gi
+            limits:
+              memory: 4Gi
+          volumeMounts:
+            - name: home
+              mountPath: /home/kasm-user
+            - name: dshm
+              mountPath: /dev/shm
+        # Auth-injecting reverse proxy, so Authelia is the only login. It adds the
+        # `Authorization: Basic` header KasmVNC insists on, reading VNC_PW from the same
+        # Secret, so the browser never receives a 401 and never prompts.
+        #
+        # This is what Traefik would have done if it could: `customRequestHeaders` values
+        # are literals in the Middleware object with no way to reference a Secret, and a
+        # credential in plaintext in git is not something this repo does. A sidecar keeps
+        # it in the Secret.
+        - name: proxy
+          image: nginx:1.31.3-alpine
+          command: [sh, -c]
+          args:
+            - |
+              set -eu
+              # Built here, not in the ConfigMap: the ConfigMap holds a template with a
+              # __AUTH__ placeholder, so the credential exists only in the Secret and in
+              # this process's memory.
+              AUTH=$(printf '%s' "kasm_user:$VNC_PW" | base64 | tr -d '\n')
+              sed "s|__AUTH__|$AUTH|" /etc/nginx/template/nginx.conf.template > /tmp/nginx.conf
+              exec nginx -c /tmp/nginx.conf -g 'daemon off;'
+          env:
+            - name: VNC_PW
+              valueFrom:
+                secretKeyRef:
+                  name: kasmvnc
+                  key: VNC_PW
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            # Now a real check, unlike the TCP probe on the kasm container: this asks for
+            # the actual page through the injected credential, so a 200 proves the whole
+            # chain — proxy up, credential correct, KasmVNC answering.
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 18
+          resources:
+            requests:
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          volumeMounts:
+            - name: proxy-conf
+              mountPath: /etc/nginx/template
+      volumes:
+        - name: home
+          persistentVolumeClaim:
+            claimName: kasmvnc-home
+        # Upstream's own docker run example passes --shm-size=512m; 1Gi matches what
+        # webtop gets so the two are compared on equal terms.
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+        - name: proxy-conf
+          configMap:
+            name: kasmvnc-proxy-conf
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kasmvnc
+  namespace: kasmvnc
+spec:
+  selector:
+    app.kubernetes.io/name: kasmvnc
+  ports:
+    # Points at the sidecar, not at KasmVNC. Plain HTTP, which is why routing.yaml no
+    # longer needs `scheme: https` or the insecureSkipVerify ServersTransport.
+    - name: http
+      port: 8080
+      targetPort: http

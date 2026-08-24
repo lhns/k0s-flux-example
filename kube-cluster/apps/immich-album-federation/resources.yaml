@@ -1,0 +1,77 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: immich-album-federation
+---
+# Headless sync worker — no Service, no Ingress. It reconciles albums between
+# Immich peers on an interval, keeping sync state in a dedicated CNPG database and
+# calling each peer's HTTP API. Migrated from Docker Swarm; the bundled throwaway
+# Postgres is dropped in favour of the shared CNPG cluster (fresh db — no prior
+# sync state to carry over). The worker creates its own schema on first run.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: immich-album-federation
+  namespace: immich-album-federation
+  annotations:
+    # The worker reads its config only at startup and the config is a plain SOPS
+    # secret (not a hashed ConfigMap), so a config change won't roll the pod on
+    # its own. Reloader restarts it when immich-album-federation-config changes.
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  # Singleton reconciler: never run two workers concurrently against the same db
+  # and peers. Recreate drops the old pod before starting the new one.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: immich-album-federation
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: immich-album-federation
+        app.kubernetes.io/instance: immich-album-federation
+        # reach the CNPG primary. No traefik label — nothing connects to this
+        # worker; its outbound HTTPS to the peers is external egress (unrestricted
+        # under the ingress-only kube-vnet baseline).
+        kube-vnet/net.postgres.postgres: egress
+    spec:
+      containers:
+        - name: immich-album-federation
+          image: ghcr.io/lhns/immich-album-federation:0.1.0
+          env:
+            - name: TZ
+              value: Europe/Berlin
+            # Dedicated role + db in the shared CNPG cluster. pgjdbc sslmode=require
+            # encrypts without validating the server cert (CNPG's CA is self-signed).
+            - name: IMMICH_SYNC_DB_URL
+              value: jdbc:postgresql://postgres-rw.postgres.svc.cluster.local:5432/immich-album-federation?sslmode=require
+            - name: IMMICH_SYNC_DB_USER
+              value: immich-album-federation
+            - name: IMMICH_SYNC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: immich-album-federation-db
+                  key: password
+            - name: IMMICH_SYNC_CONFIG
+              value: /config/config.yaml
+            # Reconcile continuously on this interval (30s / 15m / 1h also valid).
+            - name: IMMICH_SYNC_INTERVAL
+              value: 1m
+            # Preview mode: logs what would happen without writing anything.
+            - name: DRY_RUN
+              value: "false"
+            # Re-arm after a circuit-breaker quarantine: paste the one-shot rearm
+            # key from the logs; consumed on use, so leaving it set is harmless.
+            #- name: IMMICH_SYNC_REARM
+            #  value: <rearm-key-from-logs>
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+      volumes:
+        # peers + apiKey (SOPS-encrypted). Mounted as /config/config.yaml.
+        - name: config
+          secret:
+            secretName: immich-album-federation-config

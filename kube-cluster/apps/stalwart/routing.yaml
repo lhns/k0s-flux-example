@@ -1,0 +1,73 @@
+---
+# mail.example.com -> Stalwart (JMAP/admin/dav/.well-known/autodiscover/...). Stalwart
+# does its own auth (+ OIDC). No Authelia middleware. TLS via the *.example.com wildcard.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: stalwart
+  namespace: stalwart
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`mail.example.com`)
+      services:
+        - name: stalwart
+          port: 8080
+    # Bare root on the mail host redirects to the webmail (Bulwark owns the UI).
+    - kind: Rule
+      priority: 100
+      match: Host(`mail.example.com`) && Path(`/`)
+      services:
+        - name: stalwart
+          port: 8080
+      middlewares:
+        - name: stalwart-root-redirect
+  tls: {}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: stalwart-root-redirect
+  namespace: stalwart
+spec:
+  redirectRegex:
+    regex: "^https://mail\\.lhns\\.de/?$"
+    replacement: "https://webmail.example.com"
+    permanent: false
+---
+# webmail.example.com -> Bulwark webmail. /account redirects back to the mail host
+# (Stalwart owns account pages). No Authelia middleware (Bulwark does OIDC).
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: bulwark
+  namespace: stalwart
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`webmail.example.com`)
+      services:
+        - name: bulwark
+          port: 3000
+    - kind: Rule
+      priority: 100
+      match: Host(`webmail.example.com`) && PathPrefix(`/account`)
+      services:
+        - name: bulwark
+          port: 3000
+      middlewares:
+        - name: bulwark-account-redirect
+  tls: {}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: bulwark-account-redirect
+  namespace: stalwart
+spec:
+  redirectRegex:
+    regex: "^https://webmail\\.lhns\\.de"
+    replacement: "https://mail.example.com"
+    permanent: false

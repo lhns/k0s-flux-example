@@ -1,0 +1,21 @@
+---
+# LDAP (:3890) is reached by Authelia (auth backend), mosquitto (go-auth),
+# jellyfin (LDAP plugin) and snikket (prosody's LDAP auth provider). Under
+# pod-level kube-vnet isolation, cross-namespace ingress
+# is denied by default, so expose a vnet that those namespaces may join. Members opt in
+# with the egress label kube-vnet/net.lldap.lldap; lldap itself carries
+# kube-vnet/net.lldap: ingress.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: lldap
+  namespace: lldap
+spec:
+  description: "LDAP clients (Authelia, mosquitto, jellyfin, stalwart, snikket) -> lldap :3890."
+  allowedNamespaces:
+    names:
+      - authelia
+      - mosquitto
+      - jellyfin
+      - stalwart
+      - snikket

@@ -1,0 +1,28 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: stakater
+  namespace: reloader
+spec:
+  interval: 1h0m0s
+  url: https://stakater.github.io/stakater-charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: reloader
+  namespace: reloader
+spec:
+  interval: 10m0s
+  chart:
+    spec:
+      chart: reloader
+      version: "2.2.16"
+      interval: 1h0m0s
+      sourceRef:
+        kind: HelmRepository
+        name: stakater
+  # Chart defaults are what we want: watches all namespaces, creates its RBAC +
+  # ServiceAccount, and reloadStrategy=default (rolling restart). It only acts on
+  # workloads that opt in via the reloader.stakater.com/* annotations.

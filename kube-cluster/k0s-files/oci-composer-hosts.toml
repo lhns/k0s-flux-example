@@ -1,0 +1,57 @@
+# containerd registry config for the in-cluster OCI registry, uploaded to each worker's
+# /etc/k0s/registries/oci-composer/oci-composer.internal_30500_/hosts.toml via k0sctl (see
+# k0sctl.yaml host `files`). That directory is the FIRST root of registry.config_path, set in
+# k0s-files/registries.toml.
+#
+# IT HAS ITS OWN ROOT, separate from Spegel's. Spegel clears its config path on every pod start,
+# so a file placed alongside it is deleted without warning -- which happened twice, on 17 Aug and
+# again during testing. registries.toml carries the full explanation and the ordering rule.
+#
+# THE PORT IS PART OF THE DIRECTORY NAME, and that is not cosmetic: containerd looks the directory
+# up by the exact host string in the image reference. From composer 0.5.0 that string is
+# `oci-composer.internal:30500`, so a directory named `oci-composer.internal` is never consulted
+# and every pull fails as if this file did not exist. `_30500_` is containerd's own conversion of
+# `:30500` and is the spelling it tries first, so it matches while keeping a colon out of the path.
+#
+# Why this file has to exist at all:
+#
+#   Image pulls are done by the KUBELET on each node, not by the pod that mounts the result. So
+#   the endpoint has to be reachable from the node, and `oci-composer.internal` deliberately
+#   resolves nowhere — this file supplies the address instead. containerd also defaults to HTTPS
+#   for any host:port, so even a plain IP would need telling that the endpoint is http://.
+#
+# Why all three nodes are listed, and why there is NO `server` line:
+#
+#   The registry runs as a single pod, but its Service is a NodePort, so EVERY node answers on
+#   30500 and kube-proxy forwards to wherever the pod actually is.
+#
+#   containerd tries `[host."..."]` entries in order and falls through on failure, using `server`
+#   only as the final upstream. Setting `server` to one node would therefore make that node a
+#   distinguished fallback for no reason — the three are interchangeable. Omitting it leaves
+#   three equal peers and no primary.
+#
+#   `server = "http://oci-composer.internal:30500"` is not an option: that name resolves nowhere,
+#   which is the entire reason this file exists.
+#
+# Node IPs appear ONLY here, never in an image reference. Every reference stays
+# `oci-composer.internal:30500/<namespace>/<name>:<tag>`, which is what keeps them portable and
+# reviewable.
+#
+# Adding or replacing a worker means updating this list and re-running `k0sctl apply`. Nothing in
+# Flux notices if that is missed; it shows up as ImagePullBackOff on the affected node only.
+#
+# NOTE: having this directory at all opts the registry OUT of Spegel's peer-to-peer mirroring —
+# Spegel's `_default` is consulted only for registries with no directory of their own, and this
+# registry has one. That is still true with the two-root split, and now doubly so: containerd
+# stops at the first root that matches, so a hit here never reaches Spegel's root at all. A node
+# that has never pulled a given artifact therefore depends on the registry pod being up.
+# See infra/oci-composer/README.md.
+
+[host."http://10.20.2.72:30500"]
+  capabilities = ["pull", "resolve"]
+
+[host."http://10.20.2.73:30500"]
+  capabilities = ["pull", "resolve"]
+
+[host."http://10.20.2.74:30500"]
+  capabilities = ["pull", "resolve"]

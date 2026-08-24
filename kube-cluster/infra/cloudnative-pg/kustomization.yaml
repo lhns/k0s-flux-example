@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # Start the operator after the VolumeSnapshot CRDs exist so it detects them at
+    # startup and can run volumeSnapshot backups without a manual restart (matters on
+    # a from-scratch rebuild).
+    dependsOn: infra-snapshot-controller
+resources:
+- namespace.yaml
+- release.yaml

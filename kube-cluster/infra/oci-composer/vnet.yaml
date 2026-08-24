@@ -1,0 +1,59 @@
+# oci-composer -> source-controller's artifact HTTP.
+#
+# A `sourceRef` layer consumes the tarball source-controller publishes, which means an ordinary
+# cross-namespace dial into flux-system — and under pod-level kube-vnet isolation that is denied by
+# default. Symptom when it is missing: the ImageComposition reports
+#
+#   layer "...": fetching http://source-controller.flux-system.svc.cluster.local./gitrepository/...
+#   dial tcp <ip>:80: connect: connection refused
+#
+# which reads like a broken Service. It is not: the Service and its endpoint are fine, the dial is
+# rejected. Worth recognising, because "connection refused" usually means nothing is listening
+# whereas a policy drop usually times out.
+#
+# Bindings rather than labels on both ends: source-controller is bootstrap-managed
+# (flux-system/gotk-components.yaml) and the composer is Helm-managed, so neither pod template is
+# ours to hand-label. Same mechanism as opentelemetry-monitoring/vnet.yaml uses to scrape these
+# very pods.
+---
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: source-artifacts
+  namespace: oci-composer
+spec:
+  description: "oci-composer -> source-controller artifact HTTP, for sourceRef layers."
+  allowedNamespaces:
+    names:
+      - flux-system
+---
+# Egress initiator: the composer, bound by its chart labels.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetworkBinding
+metadata:
+  name: oci-composer-source-egress
+  namespace: oci-composer
+spec:
+  virtualNetworkRef:
+    name: source-artifacts
+    namespace: oci-composer
+  direction: egress
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: kube-oci-composer
+---
+# Ingress receiver: source-controller. Deliberately selects only that controller rather than
+# everything with part-of=flux — nothing here needs to reach the others.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetworkBinding
+metadata:
+  name: source-controller-artifacts-ingress
+  namespace: flux-system
+spec:
+  virtualNetworkRef:
+    name: source-artifacts
+    namespace: oci-composer
+  direction: ingress
+  podSelector:
+    matchLabels:
+      app: source-controller

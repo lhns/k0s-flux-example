@@ -1,0 +1,31 @@
+---
+# Homebox's login role in the shared CNPG cluster (grafana/guacamole precedent).
+# Password from secret/homebox-db (postgres ns). retain: never drop on delete.
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: homebox
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: homebox
+  ensure: present
+  login: true
+  passwordSecret:
+    name: homebox-db
+  databaseRoleReclaimPolicy: retain
+---
+# The homebox database, owned by that role. A pg_dump of the old Swarm Postgres is
+# restored into it once (same major version -> clean PG->PG restore).
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: homebox
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: homebox
+  owner: homebox
+  databaseReclaimPolicy: retain

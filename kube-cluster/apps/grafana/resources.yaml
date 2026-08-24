@@ -1,0 +1,228 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: grafana
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-data
+  namespace: grafana
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # /var/lib/grafana is plugins + png/csv, not the DB (that's Postgres), so CephFS
+  # (file) rather than block. Fresh; copy the old data in later if wanted.
+  storageClassName: cephfs
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: grafana
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  # Single writer on /var/lib/grafana; state of record is in Postgres, so a brief
+  # restart is fine.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: grafana
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: grafana
+        app.kubernetes.io/instance: grafana
+        # receive from traefik, and reach the postgres primary directly
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.postgres.postgres: egress
+        # reach the in-cluster VictoriaTraces DB (:10428) as a datasource
+        kube-vnet/net.victoriatraces.victoriatraces: egress
+        # reach the in-cluster VictoriaLogs DB (:9428) as a datasource
+        kube-vnet/net.victorialogs.victorialogs: egress
+        # reach the in-cluster VictoriaMetrics DB (:8428) as the metrics datasource
+        kube-vnet/net.victoriametrics.victoriametrics: egress
+        # reach the in-cluster VictoriaMetrics cluster (vmselect :8481) datasource
+        kube-vnet/net.victoriametrics-cluster.vmselect: egress
+    spec:
+      # Grafana runs as uid/gid 472; make the fresh volume group-writable by it.
+      securityContext:
+        fsGroup: 472
+      containers:
+        - name: grafana
+          image: ghcr.io/lhns/grafana-babel:13.1.1
+          env:
+            - name: GF_SERVER_ROOT_URL
+              value: https://grafana.example.com
+            - name: GF_AUTH_TOKEN_ROTATION_INTERVAL_MINUTES
+              value: "600"
+            - name: GF_INSTALL_PLUGINS
+              value: victoriametrics-metrics-datasource,victoriametrics-logs-datasource
+            # Store Grafana's state in the shared CNPG Postgres (dedicated grafana
+            # role + database) instead of the bundled SQLite.
+            - name: GF_DATABASE_TYPE
+              value: postgres
+            - name: GF_DATABASE_HOST
+              value: postgres-rw.postgres.svc.cluster.local:5432
+            - name: GF_DATABASE_NAME
+              value: grafana
+            - name: GF_DATABASE_USER
+              value: grafana
+            - name: GF_DATABASE_SSL_MODE
+              value: require
+            - name: GF_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-db
+                  key: password
+            # SSO via the external Authelia OIDC provider (auth.example.com). Ported
+            # from the Swarm grafana.ini [auth.generic_oauth].
+            - name: GF_AUTH_GENERIC_OAUTH_ENABLED
+              value: "true"
+            - name: GF_AUTH_GENERIC_OAUTH_NAME
+              value: Authelia
+            - name: GF_AUTH_GENERIC_OAUTH_ICON
+              value: signin
+            - name: GF_AUTH_GENERIC_OAUTH_CLIENT_ID
+              value: grafana
+            - name: GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-config
+                  key: oauth_client_secret
+            - name: GF_AUTH_GENERIC_OAUTH_SCOPES
+              value: openid profile email groups
+            - name: GF_AUTH_GENERIC_OAUTH_EMPTY_SCOPES
+              value: "false"
+            - name: GF_AUTH_GENERIC_OAUTH_AUTH_URL
+              value: https://auth.example.com/api/oidc/authorization
+            - name: GF_AUTH_GENERIC_OAUTH_TOKEN_URL
+              value: https://auth.example.com/api/oidc/token
+            - name: GF_AUTH_GENERIC_OAUTH_API_URL
+              value: https://auth.example.com/api/oidc/userinfo
+            - name: GF_AUTH_GENERIC_OAUTH_LOGIN_ATTRIBUTE_PATH
+              value: preferred_username
+            - name: GF_AUTH_GENERIC_OAUTH_GROUPS_ATTRIBUTE_PATH
+              value: groups
+            - name: GF_AUTH_GENERIC_OAUTH_NAME_ATTRIBUTE_PATH
+              value: name
+            - name: GF_AUTH_GENERIC_OAUTH_USE_PKCE
+              value: "true"
+            - name: GF_AUTH_GENERIC_OAUTH_AUTO_LOGIN
+              value: "true"
+            - name: GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH
+              value: "contains(groups, 'admin') && 'Admin' || contains(groups, 'grafana_admin') && 'Admin' || contains(groups, 'grafana_editor') && 'Editor' || 'Viewer'"
+            # SMTP for alert/notification email (Gmail app password). Ported from
+            # the Swarm grafana.ini [smtp].
+            - name: GF_SMTP_ENABLED
+              value: "true"
+            - name: GF_SMTP_HOST
+              value: smtp.gmail.com:587
+            - name: GF_SMTP_USER
+              value: admin@example.com
+            - name: GF_SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-config
+                  key: smtp_password
+            - name: GF_SMTP_FROM_ADDRESS
+              value: admin+grafana@example.com
+            - name: GF_SMTP_FROM_NAME
+              value: Grafana
+            - name: GF_SMTP_EHLO_IDENTITY
+              value: example.com
+            # Allow HTML in text panels (dashboards rely on it). From [panels].
+            - name: GF_PANELS_DISABLE_SANITIZE_HTML
+              value: "true"
+          ports:
+            - name: http
+              containerPort: 3000
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/grafana
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 18 # plugin install + DB migration on first start
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: grafana-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: grafana
+spec:
+  selector:
+    app.kubernetes.io/name: grafana
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grafana
+  namespace: grafana
+  # No Authelia — Grafana does its own auth (the Swarm middleware was commented out).
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: grafana.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: grafana
+                port:
+                  number: 3000
+---
+# grafana.example.com is Grafana's canonical URL (GF_SERVER_ROOT_URL), so OAuth
+# only works there. grafana.kube.example.com therefore just redirects to it — serving the
+# app on both would break the OAuth flow (state cookie set on one host, callback
+# on the other). The default cert covers *.example.com, so tls: {} gives a valid cert
+# for the redirect. (Route needs a service even though the middleware redirects
+# before the backend is hit.)
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: grafana-kube-redirect
+  namespace: grafana
+spec:
+  redirectRegex:
+    regex: "^https://grafana.kube.example.com/(.*)"
+    replacement: "https://grafana.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: grafana-kube-redirect
+  namespace: grafana
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`grafana.kube.example.com`)
+      services:
+        - name: grafana
+          port: 3000
+      middlewares:
+        - name: grafana-kube-redirect
+  tls: {}

@@ -1,0 +1,52 @@
+---
+# Public — gated by Authelia forwardAuth (the `authelia` middleware, reflected into
+# every namespace by traefik-reflector, so referenced locally with no namespace).
+# webtop has no auth of its own by design, so this middleware is the ONLY gate in
+# front of a desktop with a terminal and passwordless sudo. TLS via the default
+# *.example.com wildcard.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: webtop
+  namespace: webtop
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`webtop.example.com`)
+      services:
+        - name: webtop
+          port: 3000
+      middlewares:
+        - name: authelia
+  tls: {}
+---
+# webtop.kube.example.com redirects to the canonical webtop.example.com (default *.example.com
+# wildcard cert). No authelia on the redirect route — it 301s first.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: webtop-kube-redirect
+  namespace: webtop
+spec:
+  redirectRegex:
+    regex: "^https://webtop.kube.example.com/(.*)"
+    replacement: "https://webtop.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: webtop-kube-redirect
+  namespace: webtop
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`webtop.kube.example.com`)
+      services:
+        - name: webtop
+          port: 3000
+      middlewares:
+        - name: webtop-kube-redirect
+  tls: {}

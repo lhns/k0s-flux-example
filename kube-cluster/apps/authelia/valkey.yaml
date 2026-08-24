@@ -1,0 +1,151 @@
+---
+# ===========================================================================
+# Valkey + Sentinel — HA session store for Authelia (replaces the single `redis`
+# Deployment). One StatefulSet, 3 pods, each running TWO containers: valkey-server
+# (:6379) + valkey-sentinel (:26379), co-located so sentinel->its-local-valkey is a
+# localhost hop. Quorum 2-of-3 tolerates losing one node. Authelia connects via the
+# Sentinel `high_availability` provider, so a failover is transparent to logins.
+#
+# Why hand-rolled (not an operator/chart): spotahome/redis-operator is archived,
+# Bitnami charts moved to frozen `bitnamilegacy`, hyperspike is Valkey-Cluster mode
+# (Authelia supports only Standalone/Sentinel), and OT-CONTAINER-KIT ships an open
+# announce-ip failover bug. A StatefulSet matches the repo's conventions (valkey/
+# valkey:9, ceph-rbd volumeClaimTemplates) and lets us set the announce-HOSTNAME
+# config that the operators get wrong — critical because k8s pod IPs churn.
+# ===========================================================================
+# valkey-scripts ConfigMap is generated from start-valkey.sh / start-sentinel.sh
+# via configMapGenerator (kustomization.yaml), so its name is content-hashed and
+# editing a script rolls the StatefulSet automatically.
+---
+# Headless service: stable per-pod DNS (valkey-0.valkey-headless…). Publishes
+# not-ready addresses so pods can resolve each other during bootstrap/sync.
+apiVersion: v1
+kind: Service
+metadata:
+  name: valkey-headless
+  namespace: authelia
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: valkey
+  ports:
+    - {name: valkey, port: 6379, targetPort: valkey}
+    - {name: sentinel, port: 26379, targetPort: sentinel}
+---
+# Sentinel discovery service — Authelia and the bootstrap scripts query this to find
+# the current master. Routes only to Ready sentinels.
+apiVersion: v1
+kind: Service
+metadata:
+  name: valkey-sentinel
+  namespace: authelia
+spec:
+  selector:
+    app.kubernetes.io/name: valkey
+  ports:
+    - {name: sentinel, port: 26379, targetPort: sentinel}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: valkey
+  namespace: authelia
+spec:
+  serviceName: valkey-headless
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: valkey
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: valkey
+        app.kubernetes.io/instance: authelia
+        # vnet membership is granted by VirtualNetworkBindings (see vnet.yaml):
+        # valkey-peers (direction: both) for replication+gossip, and the `valkey`
+        # client channel (ingress) for Authelia. No per-pod net.* label needed.
+    spec:
+      # valkey runs as uid 999; ceph-rbd (fsGroupPolicy: File) chowns /data to this
+      # gid before start so AOF/RDB writes succeed (same rationale as the old redis).
+      securityContext:
+        fsGroup: 999
+      # Spread the 3 pods across distinct nodes so one node loss never takes quorum.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: valkey
+      containers:
+        - name: valkey
+          image: valkey/valkey:9
+          command: ["sh", "/scripts/start-valkey.sh"]
+          ports:
+            - {name: valkey, containerPort: 6379}
+          # valkey opens its port only after replaying AOF/RDB; give it generous grace
+          # on the slow Ceph before liveness can kill it.
+          startupProbe:
+            tcpSocket: {port: valkey}
+            periodSeconds: 5
+            failureThreshold: 30
+          # exec (not tcpSocket) so this asserts the server actually *answers*, not just
+          # that the port is open. timeoutSeconds is explicit: spawning valkey-cli costs
+          # real CPU, and the 1s default fails the moment the spawn lands in a busy
+          # scheduling slice (same trap documented on localstack's awscli probe).
+          readinessProbe:
+            exec: {command: ["valkey-cli", "-p", "6379", "ping"]}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket: {port: valkey}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          # No CPU limit (repo convention: memory limits only). A CFS quota hard-stops the
+          # container mid-slice, which on a latency-sensitive datastore buys nothing and
+          # costs tail latency — it was throttling ~1.5% of periods and timing out the
+          # readiness probe above. Requests still guarantee the share we need.
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 256Mi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: scripts, mountPath: /scripts, readOnly: true}
+        - name: sentinel
+          image: valkey/valkey:9
+          command: ["sh", "/scripts/start-sentinel.sh"]
+          ports:
+            - {name: sentinel, containerPort: 26379}
+          readinessProbe:
+            tcpSocket: {port: sentinel}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: {port: sentinel}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          # Same reasoning as the valkey container: no CPU limit. Sentinel's failure
+          # detection is timing-sensitive (down-after 5s) — throttling it risks spurious
+          # failovers, which is a far worse outcome than a little extra CPU.
+          resources:
+            requests: {cpu: 25m, memory: 32Mi}
+            limits: {memory: 64Mi}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            - {name: scripts, mountPath: /scripts, readOnly: true}
+      volumes:
+        - name: scripts
+          configMap:
+            name: valkey-scripts
+            defaultMode: 0755
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: ceph-rbd
+        resources:
+          requests:
+            storage: 1Gi

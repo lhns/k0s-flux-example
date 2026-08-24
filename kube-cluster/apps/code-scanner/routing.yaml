@@ -1,0 +1,31 @@
+---
+# scanner.kube.example.com redirects to the canonical scanner.example.com. Served by the
+# default *.example.com wildcard cert (tls: {}); redirectRegex 308s before the
+# backend is reached, so no service/auth middleware is needed on this route.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: scanner-kube-redirect
+  namespace: code-scanner
+spec:
+  redirectRegex:
+    regex: "^https://scanner.kube.example.com/(.*)"
+    replacement: "https://scanner.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: scanner-kube-redirect
+  namespace: code-scanner
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`scanner.kube.example.com`)
+      services:
+        - name: code-scanner
+          port: 8080
+      middlewares:
+        - name: scanner-kube-redirect
+  tls: {}

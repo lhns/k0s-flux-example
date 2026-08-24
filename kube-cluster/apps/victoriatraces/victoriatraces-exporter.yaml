@@ -1,0 +1,57 @@
+# OTel collector config (reproduced from the Swarm original; two endpoints
+# repointed for cross-cluster reach):
+#   - kafka brokers          otel_kafka-s3:9092            -> 10.20.2.10:9092
+#   - otlp/feedback endpoint  otel_opentelemetry-collector:4317 -> the in-cluster gateway
+#   - otlphttp/victoriatraces http://victoriatraces:10428/... (in-cluster Service, unchanged)
+extensions:
+  health_check:
+    # bind all interfaces (default is localhost) so the k8s readiness probe reaches it
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  prometheus/feedback:
+    config:
+      scrape_configs:
+      # Collect own metrics
+        - job_name: 'victoriatraces-exporter'
+          scrape_interval: 10s
+          static_configs:
+            - targets: ['127.0.0.1:8888']
+
+  kafka/traces:
+    protocol_version: 2.1.0
+    brokers:
+      - otel-kafka-bootstrap.opentelemetry-gateway.svc.cluster.local:9092
+    traces:
+      topics:
+        - otlp_spans
+    group_id: victoriatraces-exporter
+    initial_offset: earliest
+    message_marking:
+      after: true
+      on_error: true
+
+exporters:
+  otlp/feedback:
+    endpoint: opentelemetry-gateway.opentelemetry-gateway.svc.cluster.local:4317
+    tls:
+      insecure: true
+
+  otlphttp/victoriatraces:
+    traces_endpoint: http://victoriatraces:10428/insert/opentelemetry/v1/traces
+    sending_queue:
+      enabled: false
+    retry_on_failure:
+      enabled: false
+
+service:
+  extensions: [health_check]
+  pipelines:
+    metrics/feedback:
+      receivers: [prometheus/feedback]
+      processors: []
+      exporters: [otlp/feedback]
+    traces:
+      receivers: [kafka/traces]
+      processors: []
+      exporters: [otlphttp/victoriatraces]

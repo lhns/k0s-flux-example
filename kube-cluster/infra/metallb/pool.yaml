@@ -1,0 +1,199 @@
+---
+# MetalLB L2 address pool for the traefik LoadBalancer VIP.
+# MetalLB itself is installed via the k0s helm extension (k0sctl.yaml); only its
+# address config lives here (same split as cert-manager/traefik: operator in
+# k0sctl, config in Flux). Adopts the previously hand-applied CRs.
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: traefik-vip
+  namespace: metallb-system
+spec:
+  addresses:
+    - 10.20.2.15/32
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: traefik-vip-l2
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - traefik-vip
+---
+# A second VIP for Node-RED's raw TCP/UDP LAN ports (Google Home local fulfillment).
+# Traefik's VIP can't be shared (it uses externalTrafficPolicy: Local) and Traefik
+# can't carry UDP, so Node-RED gets its own LoadBalancer Service on this address.
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: nodered-vip
+  namespace: metallb-system
+spec:
+  addresses:
+    - 10.20.2.16/32
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: nodered-vip-l2
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - nodered-vip
+---
+# A third VIP for sftpgo's raw SFTP/FTP + FTP-passive ports. Traefik can't carry
+# them (SFTP is SSH, no SNI) and its VIP can't be shared (externalTrafficPolicy:
+# Local), so sftpgo gets its own LoadBalancer Service on this address.
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: sftpgo-vip
+  namespace: metallb-system
+spec:
+  addresses:
+    - 10.20.2.17/32
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: sftpgo-vip-l2
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - sftpgo-vip
+---
+# A fourth VIP for syncthing's raw sync port 22000 (TCP + UDP). Traefik here is
+# TCP/HTTP-only (no UDP entrypoint) and its VIP can't be shared, so syncthing gets
+# its own LoadBalancer Service on this address.
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: syncthing-vip
+  namespace: metallb-system
+spec:
+  addresses:
+    - 10.20.2.18/32
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: syncthing-vip-l2
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - syncthing-vip
+---
+# A fifth VIP for the Stalwart mail server's raw ports (SMTP 25, SMTPS 465,
+# IMAPS 993, ManageSieve 4190). externalTrafficPolicy: Local on its Service
+# preserves the real client source IP (spam/rate-limiting) without PROXY protocol.
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: stalwart-vip
+  namespace: metallb-system
+spec:
+  addresses:
+    - 10.20.2.8/32
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: stalwart-vip-l2
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - stalwart-vip
+---
+# A sixth VIP for LiveKit's Element Call media (TCP 7881 ICE + UDP 50100-50120
+# RTP). Traefik carries only the :7880 signaling; the raw media ports need a
+# dedicated LoadBalancer, and externalTrafficPolicy: Local preserves client IPs
+# for WebRTC/ICE.
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: livekit-vip
+  namespace: metallb-system
+spec:
+  addresses:
+    - 10.20.2.19/32
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: livekit-vip-l2
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - livekit-vip
+---
+# A seventh VIP for the TeamSpeak voice server's raw ports (voice UDP 9987,
+# ServerQuery TCP 10011, file transfer TCP 30033). Traefik carries none of these
+# (UDP voice, raw TCP) and its VIP can't be shared, so TeamSpeak gets its own
+# LoadBalancer Service on this address. externalTrafficPolicy: Local preserves
+# client source IPs.
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: teamspeak-vip
+  namespace: metallb-system
+spec:
+  addresses:
+    - 10.20.2.9/32
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: teamspeak-vip-l2
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - teamspeak-vip
+---
+# An eighth VIP for the OpenTelemetry ingest gateway's raw protocol ports (OTLP
+# gRPC/HTTP, carbon, fluentforward, influxdb, jaeger TCP+UDP, syslog TCP+UDP).
+# Traefik carries none of these and its VIP can't be shared, so the gateway gets
+# its own LoadBalancer Service. externalTrafficPolicy: Local preserves client
+# source IPs — syslog and carbon identify the sender by IP, so this matters.
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: otel-gateway-vip
+  namespace: metallb-system
+spec:
+  addresses:
+    - 10.20.2.14/32
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: otel-gateway-vip-l2
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - otel-gateway-vip
+---
+# A ninth VIP for the shared coturn (STUN/TURN for snikket's XMPP calls and
+# synapse's Matrix VoIP). Traefik can't carry UDP, and STUN/TURN is UDP-first, so
+# this can't ride the traefik VIP. externalTrafficPolicy: Local preserves client
+# source IPs — STUN exists to tell a client its own reflexive address, so a
+# SNAT'd source would make it report the wrong one and ICE would fail.
+#
+# .20 onwards is in use outside this repo; .80 is free.
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: coturn-vip
+  namespace: metallb-system
+spec:
+  addresses:
+    - 10.20.2.80/32
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: coturn-vip-l2
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - coturn-vip

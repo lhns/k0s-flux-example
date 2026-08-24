@@ -1,0 +1,206 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: freshrss
+---
+# Data dir: config.php, per-user config, favicons, caches, logs. Required even with
+# Postgres (only feeds/articles live in the DB). Mounted with subPath: `extensions/` is a
+# SIBLING of `data/` in the image, so mounting this PVC at the FreshRSS root would bury it.
+# Extension CONFIG lives here, under data/extensions-data/ — the extensions themselves are
+# read-only image volumes, see below.
+# File-only data + external DB -> cephfs (RWX), the mealie/homebox pattern, so the
+# Deployment can do start-first RollingUpdate and ha-surge can cover node drains (it
+# refuses RWO). Also sidesteps the RBD Multi-Attach stall on pod reschedule.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: freshrss-data
+  namespace: freshrss
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: cephfs
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: freshrss
+  namespace: freshrss
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  # Start-first: RWX volume + all content in Postgres, so a brief 2-pod overlap during a
+  # rollout is safe. The built-in cron's mutex is a lock file under TMP_PATH (/tmp, so
+  # per-pod) and would not span that overlap — harmless, because the entry table has a
+  # UNIQUE(id_feed, guid) index, so a concurrent refresh can only waste a fetch, never
+  # duplicate an article.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: freshrss
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: freshrss
+        app.kubernetes.io/instance: freshrss
+        # receive from traefik; reach the CNPG primary. Feed fetching over the
+        # internet is external egress (unrestricted under the ingress-only baseline).
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.postgres.postgres: egress
+    spec:
+      # FreshRSS reads plain env via getenv(); k8s service-links would inject
+      # FRESHRSS_PORT=tcp://… which collides with its own FRESHRSS_* config vars.
+      enableServiceLinks: false
+      # No securityContext / fsGroup on purpose: the image starts as root, its
+      # entrypoint runs cli/access-permissions.sh to chgrp data/ + extensions/, then
+      # Apache drops to www-data (33:33). Same shape as nextcloud. readOnlyRootFilesystem
+      # is impossible here — the entrypoint rewrites php.ini, apache conf and /etc/crontab.
+      containers:
+        - name: freshrss
+          image: freshrss/freshrss:1.29.1
+          env:
+            - name: TZ
+              value: Europe/Berlin
+            # Built-in cron daemon (upstream's supported refresh path); off when empty.
+            # Output lands on the pod's stderr, so refreshes show in `kubectl logs`.
+            - name: CRON_MIN
+              value: "13,43"
+            # Pod CIDR (k0sctl.yaml network.podCIDR). Required for mod_remoteip to log
+            # real client IPs and, later, for auth_type http_auth to honour Remote-User.
+            # Deliberately narrow: anything in trusted_sources could spoof that header —
+            # kube-vnet already restricts ingress to the traefik pods.
+            - name: TRUSTED_PROXY
+              value: 172.18.0.0/16
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: freshrss-db
+                  key: password
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: freshrss-secrets
+                  key: admin-password
+            - name: ADMIN_API_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: freshrss-secrets
+                  key: admin-api-password
+            # Arg-strings for cli/do-install.php and cli/create-user.php. The entrypoint
+            # shell-expands ${VAR} from the container env, so the secrets above are
+            # interpolated at runtime and never appear in the repo. Both are idempotent
+            # (exit 3 = already installed / user exists), so they no-op on every restart.
+            # auth-type http_auth: Authelia authenticates at the proxy and forwardAuth
+            # sets Remote-User, which FreshRSS trusts (hence TRUSTED_PROXY above). FreshRSS
+            # auto-creates unknown users on login — `http_auth_auto_register` defaults to
+            # true in config.default.php — so SSO identities need no manual provisioning.
+            # Note do-install only runs on a FRESH data volume; changing auth-type on a
+            # live install needs `php ./cli/reconfigure.php --auth-type …` (see README).
+            - name: FRESHRSS_INSTALL
+              value: >-
+                --api-enabled
+                --base-url https://freshrss.example.com
+                --db-type pgsql
+                --db-host postgres-rw.postgres.svc.cluster.local:5432
+                --db-base freshrss
+                --db-user freshrss
+                --db-password ${DB_PASSWORD}
+                --default-user admin
+                --auth-type http_auth
+                --language en
+            - name: FRESHRSS_USER
+              value: >-
+                --user admin
+                --password ${ADMIN_PASSWORD}
+                --api-password ${ADMIN_API_PASSWORD}
+                --language en
+          ports:
+            - name: http
+              containerPort: 80
+          # What upstream's own cli/health.php asserts; unauthenticated and cheap.
+          # Needs --api-enabled (set above).
+          readinessProbe:
+            httpGet:
+              path: /api/
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 12
+          volumeMounts:
+            - name: data
+              mountPath: /var/www/FreshRSS/data
+              subPath: data
+            # One mount per extension, each at its own subdirectory of extensions/ rather than
+            # one mount over the whole directory. That leaves the image's own extensions/ intact
+            # (it ships README.md and index.html, which the single mount was hiding) and means a
+            # repin of one extension re-pulls only that artifact.
+            - name: ext-autottl
+              mountPath: /var/www/FreshRSS/extensions/xExtension-AutoTTL
+              readOnly: true
+            - name: ext-af-readability
+              mountPath: /var/www/FreshRSS/extensions/xExtension-Af_Readability
+              readOnly: true
+            - name: ext-image-proxy
+              mountPath: /var/www/FreshRSS/extensions/xExtension-ImageProxy
+              readOnly: true
+            - name: ext-llm-classification
+              mountPath: /var/www/FreshRSS/extensions/xExtension-LlmClassification
+              readOnly: true
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: freshrss-data
+        # One composed artifact per extension, built by the extension-*.yaml files rather than
+        # cloned from GitHub at every pod start. Read-only, which is safe because FreshRSS only
+        # SCANS these directories — extension configuration is written to data/extensions-data/,
+        # not here. Verified against the running pod before the switch: nothing had been written
+        # into the old extensions directory since the day it was populated.
+        #
+        # Each reference is a bare placeholder — no registry, no version — matching the name of
+        # the ImageComposition that produces it. The root generator rewrites it to
+        # <publicHost>/<namespace>/<name>:<spec-hash> and patches the same hash into that composition's
+        # push.tags, so a volume and its artifact cannot disagree.
+        #
+        # These are the ONLY composed references here; the app container above stays an ordinary
+        # pinned upstream image.
+        #
+        # IfNotPresent is correct on a tag here for the same reason it is on a digest: the tag is
+        # derived from the spec, so it identifies content and a cached copy cannot be stale.
+        - name: ext-autottl
+          image:
+            reference: freshrss-ext-autottl
+            pullPolicy: IfNotPresent
+        - name: ext-af-readability
+          image:
+            reference: freshrss-ext-af-readability
+            pullPolicy: IfNotPresent
+        - name: ext-image-proxy
+          image:
+            reference: freshrss-ext-image-proxy
+            pullPolicy: IfNotPresent
+        - name: ext-llm-classification
+          image:
+            reference: freshrss-ext-llm-classification
+            pullPolicy: IfNotPresent
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: freshrss
+  namespace: freshrss
+spec:
+  selector:
+    app.kubernetes.io/name: freshrss
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

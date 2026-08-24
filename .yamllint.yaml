@@ -1,0 +1,20 @@
+# Relaxed yamllint for Kubernetes manifests.
+extends: default
+ignore: |
+  templates/
+  kube-cluster/flux-system/gotk-components.yaml
+rules:
+  line-length: disable # k8s has long image refs / annotations
+  document-start: disable # not every file starts with ---
+  comments-indentation: disable
+  new-lines: disable # line-ending is a git concern (CRLF locally, LF on CI)
+  indentation:
+    spaces: consistent # 2-space manifests + 4-space SOPS files both pass
+    indent-sequences: whatever # the repo mixes dash-aligned + indented sequences
+  truthy:
+    check-keys: false # allow `on:` in GitHub workflows
+  comments:
+    min-spaces-from-content: 1
+  braces:
+    min-spaces-inside: 0
+    max-spaces-inside: 1 # allow `{ base: x }` flow style

@@ -1,0 +1,48 @@
+---
+# Public — Mealie does its own auth (OpenID SSO via Authelia). TLS via the
+# default *.kube.example.com wildcard.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: mealie
+  namespace: mealie
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`mealie.example.com`)
+      services:
+        - name: mealie
+          port: 9000
+  tls: {}
+---
+# mealie.kube.example.com redirects to the canonical mealie.example.com (default *.example.com
+# wildcard cert). Update the Authelia mealie OIDC client's redirect_uri to the kube
+# host so the SSO callback lands here directly (not via the 301).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: mealie-kube-redirect
+  namespace: mealie
+spec:
+  redirectRegex:
+    regex: "^https://mealie.kube.example.com/(.*)"
+    replacement: "https://mealie.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: mealie-kube-redirect
+  namespace: mealie
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`mealie.kube.example.com`)
+      services:
+        - name: mealie
+          port: 9000
+      middlewares:
+        - name: mealie-kube-redirect
+  tls: {}

@@ -1,0 +1,53 @@
+# lualdap, the Lua binding mod_auth_ldap requires.
+#
+# Snikket's image ships mod_auth_ldap.lua but NOT lualdap, so the module dies on its first line
+# with "module 'lualdap' not found" and prosody loads no auth provider at all. The visible symptom
+# is not an LDAP error: it is "No available SASL mechanisms" on every client connection, because
+# with no provider there is no backend to advertise a mechanism for.
+#
+# Debian is the only place a built lualdap exists — upstream publishes source — so this is a .deb,
+# unpacked by oci-composer and mounted as an image volume. Nothing is installed and no maintainer
+# script runs; a .deb is treated purely as an archive with a wrapper. See ADR 0022 upstream.
+#
+# The version must match the image's base, currently Debian 12 (bookworm). liblua5.4-ldap links
+# against libldap-2.5, liblber-2.5, libsasl2 and gnutls, all already present in the image — the
+# only missing piece is the 27 KB binding itself. If Snikket's base ever moves to a newer Debian,
+# re-pin here: a mismatch fails loudly at load time with a soname error, and authentication falls
+# back to internal_hashed, so LDAP users are locked out until it is fixed.
+---
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageComposition
+metadata:
+  name: snikket-lualdap
+  namespace: snikket
+spec:
+  interval: 1h
+  # No `base`: a bundle of files mounted into the Snikket container, which keeps its own upstream
+  # image. A Snikket release therefore changes nothing here.
+  layers:
+    - name: lualdap
+      fetch:
+        # A pool URL is not permanent — Debian drops superseded revisions once they leave the
+        # archive — so this eventually 404s and needs a re-pin. That surfaces as a failed fetch,
+        # never as wrong content, because of the digest below.
+        url: https://deb.debian.org/debian/pool/main/l/lua-ldap/lua-ldap_1.3.0-2+b1_amd64.deb
+        # DECLARED, not resolved: an arbitrary URL is content-addressed by nothing else. A
+        # mismatch is terminal. Verified against the package as apt fetched it in-cluster.
+        digest: sha256:077bd1629b358e827c0651b2a4952657ec2e36fa2cca80ef9cb900a7346e115a
+        unpack: deb
+        # The package carries builds for Lua 5.1 through 5.4 plus its own docs. Taking only the
+        # library directory keeps the artifact to what is used, and — more importantly — makes
+        # `to: /` line up with the mount below.
+        subpath: usr/lib/x86_64-linux-gnu
+      # Mounted at /var/lib/prosody/custom_plugins/lib, so the artifact root IS that `lib`
+      # directory. That is load-bearing: the package's real file is lib/liblua5.4-ldap.so.0.0.0 and
+      # what prosody looks up is lib/lua/5.4/lualdap.so, a RELATIVE symlink to ../../ of it. Both
+      # ends have to land inside the same artifact or the link dangles.
+      to: /
+  push:
+    # No `repository` — publishes to <registry>/<namespace>/<name>. See apps/freshrss.
+    history: 10
+    # No `tags`, and there must not be any: the root generator hashes the build-determining part
+    # of this spec and drives both ends from it — a patch setting push.tags here, and an
+    # `images:` entry rewriting the volume reference in resources.yaml. Re-pin the url/digest
+    # above and the artifact and the pod template move in the same commit.

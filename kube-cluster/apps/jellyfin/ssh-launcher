@@ -1,0 +1,17 @@
+#!/bin/sh
+# ssh, run straight out of a read-only image volume instead of being apt-installed at pod start.
+#
+# This replaced an initContainer that ran `apt-get update && apt-get install openssh-client` on
+# EVERY pod start: a hard dependency on Debian's mirrors before Jellyfin could transcode, an ssh
+# version nothing in git recorded, and a copy of the binary and its libraries into an emptyDir.
+#
+# The mechanism is the same one that initContainer used, minus the install: run the binary with
+# the image's libraries preferred. buildpack-deps:trixie-scm is Debian trixie, the same glibc
+# family as the Jellyfin image, so the host loader handles it — which is precisely the situation
+# the old copy-and-LD_LIBRARY_PATH approach was already in, and it worked.
+#
+# LD_LIBRARY_PATH rather than invoking the image's loader directly on purpose: ssh resolves
+# hostnames through glibc NSS, which dlopens libnss_* at runtime, and keeping the host loader in
+# charge is the closer match to the arrangement that is known to work here.
+exec env LD_LIBRARY_PATH=/opt/ssh-img/lib/x86_64-linux-gnu:/opt/ssh-img/usr/lib/x86_64-linux-gnu \
+  /opt/ssh-img/usr/bin/ssh "$@"

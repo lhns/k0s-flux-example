@@ -1,0 +1,101 @@
+---
+# Convert Subsonic auth query params (u/p) into a Basic Authorization header so the
+# Authelia basic-auth forwardAuth can validate them. auth: proxy => the plugin sits
+# in front of a forwardAuth proxy (Authelia), not the subsonic backend directly.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: navidrome-sub2basic
+  namespace: navidrome
+spec:
+  plugin:
+    subsonic-basicauth:
+      auth: proxy
+      header: Authorization
+---
+# After Authelia validates the Basic header and injects Remote-User, strip the
+# Authorization header so navidrome (which trusts the ND_EXTAUTH Remote-User header)
+# doesn't also try to interpret Basic credentials.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: navidrome-authcleanup
+  namespace: navidrome
+spec:
+  headers:
+    customRequestHeaders:
+      Authorization: ""
+---
+# Web UI + regular API: browser SSO via the external Authelia (forwardAuth).
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: navidrome
+  namespace: navidrome
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`navidrome.example.com`)
+      services:
+        - name: navidrome
+          port: 4533
+      middlewares:
+        - name: authelia
+  tls: {}
+---
+# Subsonic API clients (/rest/) that are NOT the Navidrome web app ("NavidromeUI"):
+# convert their subsonic auth to Basic, validate via Authelia basic-auth, then strip
+# the header. Higher priority so it wins over the catch-all web router for these
+# requests; web-app subsonic calls (c=NavidromeUI) fall through to the session auth.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: navidrome-subsonic
+  namespace: navidrome
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      priority: 100
+      match: Host(`navidrome.example.com`) && PathPrefix(`/rest/`) && !Query(`c`, `NavidromeUI`)
+      services:
+        - name: navidrome
+          port: 4533
+      middlewares:
+        - name: navidrome-sub2basic
+        - name: authelia-basicauth
+        - name: navidrome-authcleanup
+  tls: {}
+---
+# navidrome.kube.example.com redirects to the canonical navidrome.example.com. Served by the
+# default *.example.com wildcard cert (tls: {}); the route still needs a service even
+# though the middleware 308-redirects before the backend is reached. (Repoint any
+# Subsonic clients to the new host — a 301/308 on /rest/ may not be followed.)
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: navidrome-kube-redirect
+  namespace: navidrome
+spec:
+  redirectRegex:
+    regex: "^https://navidrome.kube.example.com/(.*)"
+    replacement: "https://navidrome.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: navidrome-kube-redirect
+  namespace: navidrome
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`navidrome.kube.example.com`)
+      services:
+        - name: navidrome
+          port: 4533
+      middlewares:
+        - name: navidrome-kube-redirect
+  tls: {}

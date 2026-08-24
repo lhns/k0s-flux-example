@@ -1,0 +1,12 @@
+# Placeholder. The real dashboard is a link inventory of internal services and is
+# not published. Replace with your own; see https://dashy.to/docs/configuring
+pageInfo:
+  title: Example Dashboard
+appConfig:
+  theme: colorful
+sections:
+  - name: Example
+    items:
+      - title: Example Service
+        url: https://example.com
+        icon: hl-homeassistant

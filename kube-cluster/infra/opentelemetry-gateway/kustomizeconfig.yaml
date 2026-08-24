@@ -1,0 +1,30 @@
+# Teach the kustomize image transformer where Strimzi keeps an image volume's reference.
+#
+# WHY THIS FILE HAS TO EXIST. kustomize's builtin image fieldspecs are path-anchored
+# (api/internal/konfig/builtinpluginconsts/images.go):
+#
+#   spec/containers[]/image                       spec/template/spec/containers[]/image
+#   spec/initContainers[]/image                   spec/template/spec/initContainers[]/image
+#   spec/volumes[]/image/reference                spec/template/spec/volumes[]/image/reference
+#
+# A Deployment's volumes sit at the last of those, which is why apps/freshrss needs nothing
+# extra. Strimzi puts its pod template under `spec.template.pod`, so the reference lands at
+# spec/template/pod/volumes[]/image/reference — matched by none of them. Without this file the
+# placeholder in kafka.yaml is left verbatim and the kubelet tries to pull an image literally
+# named "kafka-tiered-storage": no rewrite, no error, brokers that will not start.
+#
+# It works because Flux MERGES its Kustomization's `spec.images` into this directory's own
+# kustomization.yaml before building it (fluxcd/pkg, kustomize_generator.go), so a
+# `configurations:` entry there governs the transformer that the root generator drives.
+#
+# NOT THE SAME FILE as the kustomizeconfig.yaml deleted from apps/freshrss. That one taught
+# kustomize the ImageComposition's own spec/publish/ref — the PRODUCER side — and the root
+# generator replaced it with an emitted patch, which is strictly better because it needs no
+# per-app file. This is the CONSUMER side, at a path only this CRD has, and the generator
+# cannot reach it: it knows what an app produces, never what consumes it or where.
+images:
+  - path: spec/template/pod/volumes[]/image/reference
+    kind: KafkaNodePool
+    # false: only rewrite a reference that is already there. `create: true` would invent the
+    # field on every KafkaNodePool the transformer touches.
+    create: false

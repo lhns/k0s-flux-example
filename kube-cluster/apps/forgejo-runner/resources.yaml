@@ -1,0 +1,249 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: forgejo-runner
+  labels:
+    # Nothing enforces PodSecurity in this cluster today, so these change no behaviour. They are
+    # here to state the exception AT the namespace boundary: this is a namespace that legitimately
+    # runs a privileged container, so when enforcement is turned on cluster-wide, every OTHER
+    # namespace can be tightened without touching this one.
+    #
+    # Its OWN namespace rather than sharing forgejo's: this is the second privileged application
+    # workload in the cluster, and a forge should not share a blast radius with the thing that
+    # executes arbitrary code on its behalf.
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: privileged
+---
+# No RBAC is attached to this ServiceAccount, and the token is not mounted (below). A workflow
+# author has root inside the dind container; the least we can do is not hand them a credential
+# for the API server on the way in.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: forgejo-runner
+  namespace: forgejo-runner
+automountServiceAccountToken: false
+---
+# ===========================================================================
+# Forgejo Actions runner + its own Docker daemon.
+#
+# Modelled on apps/gitea-runner, which is proven here — but forgejo-runner v13
+# diverged from act_runner in exactly the area that manifest is most opinionated
+# about. What survives verbatim is the CONTAINMENT (privileged sidecar bound to
+# loopback, disposable emptyDir image store, non-privileged jobs, egress policy).
+# What is gone is the entire identity apparatus: no registration token, no
+# .runner file, no PVC to hold it, and therefore no StatefulSet.
+#
+# A Deployment is the honest shape now. gitea-runner is a StatefulSet only
+# because GITEA_RUNNER_NAME came from metadata.name, so a Deployment's rolling
+# random names would register a new runner on every roll. In v13 identity is the
+# uuid/token pair in config.yaml and the display name is fixed server-side at
+# registration, so pod-name stability buys nothing at all.
+#
+# THIS IS A PRIVILEGED WORKLOAD. Read the README before changing it — in
+# particular, the real perimeter is who can trigger a workflow, not this file.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: forgejo-runner
+  namespace: forgejo-runner
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  # One pod. Two replicas would share one connection and fight over jobs; scale
+  # runner.capacity instead, or register a second runner with its own secret.
+  replicas: 1
+  strategy:
+    # Not RollingUpdate: two daemons briefly sharing one connection is the same
+    # contention as two replicas, and the image store is per-pod anyway.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: forgejo-runner
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: forgejo-runner
+        app.kubernetes.io/instance: forgejo-runner
+        # No vnet labels: the runner reaches Forgejo over its PUBLIC url, which
+        # resolves to Traefik's LoadBalancer Service — and kube-vnet auto-allows
+        # LoadBalancer/NodePort ingress. Egress is unrestricted under the
+        # ingress-only baseline, and constrained instead by networkpolicy.yaml.
+    spec:
+      serviceAccountName: forgejo-runner
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        # forgejo-runner's image is USER 1000:1000, where act_runner ran as root.
+        # This is the single most likely thing to bite on a change here: without
+        # it the process cannot write /cache or /data and cannot read the mounted
+        # token, and every one of those surfaces as something that reads like a
+        # config error rather than a permissions one.
+        fsGroup: 1000
+      # Split-horizon for one pod. The connection URL must be the PUBLIC hostname
+      # because it propagates into every job as the clone URL and
+      # GITHUB_SERVER_URL; an in-cluster Service name would produce URLs that
+      # only resolve inside the pod network. This points it straight at Traefik's
+      # MetalLB VIP so the traffic never leaves the cluster.
+      #
+      # TLS still validates: Traefik serves the *.example.com wildcard and the
+      # hostname asked for is unchanged. It also lets the runner work before
+      # forgejo.example.com is published, which is the state today.
+      #
+      # Caveat: containers started by the dind daemon do NOT inherit this — they
+      # get their resolver from dockerd. A workflow that clones forgejo.example.com
+      # still needs public DNS to be correct.
+      hostAliases:
+        - ip: "10.20.2.15"
+          hostnames:
+            - forgejo.example.com
+      # Long, because a drain must let running jobs finish rather than killing
+      # builds. Paired with runner.shutdown_timeout in config.yaml.
+      terminationGracePeriodSeconds: 3600
+      initContainers:
+        # A NATIVE SIDECAR (restartPolicy: Always on an initContainer). Two things
+        # an ordinary container would not give: dockerd is up BEFORE the runner
+        # starts, so there is no startup race, and it terminates AFTER the runner
+        # exits, so in-flight jobs drain.
+        - name: dind
+          restartPolicy: Always
+          # Shared pin with apps/gitea-runner — bump both together, and re-run the
+          # listener check afterwards (README). Also satisfies v13's hard minimum
+          # of Docker 25.0.
+          image: docker:29.7.2-dind
+          securityContext:
+            # dockerd needs it to manage cgroups, netfilter and overlay mounts.
+            # Note this is root on the NODE, not merely in the pod — see the
+            # README's containment section.
+            privileged: true
+          args:
+            # `dockerd` FIRST, and that word is load-bearing. dockerd-entrypoint.sh
+            # injects its own `--host=tcp://0.0.0.0:2375` whenever the first
+            # argument starts with a dash — so passing bare flags does not
+            # override the default, it ADDS to it: dockerd binds 0.0.0.0 first,
+            # then dies with "port is already allocated" on 127.0.0.1. Naming
+            # `dockerd` explicitly skips that injection while still letting the
+            # entrypoint wrap us in /usr/local/bin/dind, which does the cgroup
+            # setup a nested daemon needs.
+            - dockerd
+            # Bound to LOOPBACK, deliberately: an unauthenticated Docker API is
+            # root-equivalent, and 0.0.0.0 would expose it to every pod that can
+            # route here. The shared pod netns makes loopback sufficient.
+            - --host=unix:///var/run/docker.sock
+            - --host=tcp://127.0.0.1:2375
+            # overlay2 natively: /var/lib/docker is an emptyDir on the node's own
+            # filesystem.
+            - --storage-driver=overlay2
+          env:
+            # Must be present AND empty — that is what disables TLS on the TCP
+            # listener. Absent is not the same thing.
+            - name: DOCKER_TLS_CERTDIR
+              value: ""
+            - name: TZ
+              value: Europe/Berlin
+          # THIS IS WHAT MAKES THE SIDECAR ORDERING REAL, and it is not optional
+          # here. A native sidecar guarantees the next container does not start
+          # until this one has STARTED — but with no probe, "started" means the
+          # instant the process is exec'd, several seconds before dockerd is
+          # listening. apps/gitea-runner gets away with omitting it because
+          # act_runner retries the connection; forgejo-runner v13 exits with
+          # "cannot ping the docker daemon", and the pod recovers only by
+          # crash-looping into the right order. Observed on the first restart.
+          #
+          # An exec probe rather than tcpSocket: the kubelet dials the POD IP,
+          # and this listener is deliberately loopback-only.
+          startupProbe:
+            exec:
+              command: [nc, -z, 127.0.0.1, "2375"]
+            periodSeconds: 2
+            failureThreshold: 60
+          volumeMounts:
+            - name: docker-lib
+              mountPath: /var/lib/docker
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "8"
+              memory: 12Gi
+      containers:
+        - name: runner
+          image: code.forgejo.org/forgejo/runner:13.0.0
+          # The image's CMD is a bare `/bin/forgejo-runner`, which prints help and
+          # exits — so the subcommand has to be given explicitly or the pod
+          # CrashLoops on something that looks like success.
+          args:
+            - /bin/forgejo-runner
+            - daemon
+            - --config
+            - /config/config.yaml
+          securityContext:
+            # The runner itself needs no privileges — it talks to the daemon over
+            # loopback and writes two volumes. Only the sidecar is privileged. (No
+            # seccompProfile there on purpose: `privileged` forces seccomp and
+            # AppArmor unconfined at the CRI level regardless, so writing one
+            # would mislead review.)
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: TZ
+              value: Europe/Berlin
+            # container.docker_host in config.yaml is what the runner uses; this
+            # is what a `docker` CLI run inside this container would pick up.
+            - name: DOCKER_HOST
+              value: tcp://127.0.0.1:2375
+          volumeMounts:
+            # HOME and WORKDIR are both /data in this image.
+            - name: home
+              mountPath: /data
+            - name: cache
+              mountPath: /cache
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: token
+              mountPath: /secrets
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 2Gi
+      volumes:
+        # Disposable by definition — image layers and build caches regenerate
+        # from their sources. On the node's own disk rather than Ceph, which is
+        # HEALTH_ERR with OSDs near full: 40Gi of RBD would be ~120Gi raw at 3x
+        # replication, for a cache, over the network, unbacked-up.
+        #
+        # sizeLimit is the containment that matters: a runaway build evicts THIS
+        # POD rather than filling the node and taking its neighbours with it.
+        #
+        # Cost: a cold cache after every restart. Spegel does not help — it
+        # mirrors containerd, and this is a separate image store. If that hurts,
+        # move to `local-path` (node-local, no Ceph); never to ceph-rbd.
+        - name: docker-lib
+          emptyDir:
+            sizeLimit: 40Gi
+        - name: cache
+          emptyDir:
+            sizeLimit: 10Gi
+        # Replaces gitea-runner's 1Gi ceph-rbd PVC outright. That volume existed
+        # solely to persist the .runner registration file; v13 keeps identity in
+        # config, so there is nothing left worth persisting.
+        - name: home
+          emptyDir:
+            sizeLimit: 1Gi
+        - name: config
+          configMap:
+            name: forgejo-runner-config
+        - name: token
+          secret:
+            secretName: forgejo-runner-token

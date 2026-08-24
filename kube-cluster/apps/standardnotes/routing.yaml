@@ -1,0 +1,49 @@
+# Public HTTPS for the self-hosted web app + the two backend hosts the clients
+# talk to (the api-gateway, and the files server which clients hit directly for
+# encrypted-chunk upload/download). NO Authelia — Standard Notes owns its
+# accounts (zero-knowledge E2E; the account password derives the encryption key,
+# so auth cannot be delegated). TLS via the *.example.com wildcard default store.
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: standardnotes-web
+  namespace: standardnotes
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`standardnotes.example.com`)
+      services:
+        - {name: standardnotes-web, port: 80}
+  tls: {}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  # api-gateway (:3000) — the sync/API server the clients point at. Named to
+  # mirror the official host api.standardnotes.com.
+  name: standardnotes-api
+  namespace: standardnotes
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`standardnotes-api.example.com`)
+      services:
+        - {name: standardnotes-server, port: 3000}
+  tls: {}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: standardnotes-files
+  namespace: standardnotes
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`standardnotes-files.example.com`)
+      services:
+        - {name: standardnotes-server, port: 3104}
+  tls: {}

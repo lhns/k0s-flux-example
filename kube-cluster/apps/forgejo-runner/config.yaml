@@ -1,0 +1,88 @@
+# forgejo-runner configuration. Rendered into a ConfigMap by configMapGenerator, so the content
+# hash rolls the pod — the daemon only reads this at startup.
+log:
+  level: info
+  job_level: info
+
+runner:
+  # Concurrency lives HERE, not in replicas. One pod running four jobs against a single daemon
+  # shares one layer cache; four pods would each carry a complete copy of it.
+  capacity: 4
+
+  timeout: 3h
+  # Paired with terminationGracePeriodSeconds so a drain lets running jobs finish.
+  shutdown_timeout: 3h
+  insecure: false
+  fetch_timeout: 5s
+  fetch_interval: 2s
+
+  # Unlike act_runner, these are NOT sticky. act_runner baked labels into .runner at registration,
+  # so changing them here did nothing until you deleted that file and re-registered. With
+  # server.connections below, they are re-sent on every start and simply take effect.
+  labels:
+    - "docker:docker://data.forgejo.org/oci/alpine:3.22"
+    - "ubuntu-latest:docker://data.forgejo.org/oci/node:22-bookworm"
+    - "ubuntu-22.04:docker://data.forgejo.org/oci/node:20-bookworm"
+
+cache:
+  # The GitHub Actions cache protocol backend (actions/cache, setup-*). Nothing to do with Docker
+  # image layers. Its only clients are job containers inside this pod's own network namespace, so
+  # it needs no Service and no vnet edge.
+  enabled: true
+  # MUST be set explicitly. The default is $HOME/.cache/actcache, and HOME is /data in this image
+  # — so leaving it empty silently puts the cache on the identity volume instead of its own.
+  dir: /cache
+  # Empty => auto-detect the outbound address, which in a pod is the pod IP. Job containers sit on
+  # the dind bridge inside this same netns and can reach it. If they ever cannot, set this to the
+  # bridge gateway (172.17.0.1) — see README.
+  host: ""
+  port: 0
+  proxy_port: 0
+
+container:
+  # The daemon is a sidecar in this pod, and containers in a Pod share a network namespace, so this
+  # is a LOOPBACK address.
+  #
+  # v13 made the semantics of this field explicit, and they matter: a tcp:// host is used by the
+  # RUNNER and is NOT shared into job containers. The value to never write here is "automount",
+  # which finds the daemon socket and mounts it into every job — handing any workflow author the
+  # daemon this whole file is trying to contain.
+  docker_host: "tcp://127.0.0.1:2375"
+  # Per-job bridge network, created and cleaned up by the daemon. (v13 removed `network_mode`;
+  # this is the replacement.)
+  network: ""
+  enable_ipv6: false
+  # The DAEMON is privileged; individual job containers must not inherit that. Different knob,
+  # easy to conflate, and the whole containment story depends on the distinction.
+  privileged: false
+  # Empty allow-list: workflows cannot request arbitrary host volume mounts into their job
+  # containers. Without this a workflow could mount the daemon's own socket or /var/lib/docker
+  # and escape everything else.
+  valid_volumes: []
+  force_pull: false
+  options:
+
+host:
+  workdir_parent:
+
+server:
+  # THE IDENTITY. This replaces act_runner's registration-token dance entirely: there is no
+  # GITEA_RUNNER_REGISTRATION_TOKEN, no .runner file and therefore no PVC to hold one. v13 also
+  # ignores the deprecated GITEA_* environment variables outright, so there is no env path to
+  # configure a connection — it exists here or the daemon exits with
+  # "runner: 0 server connections configured, terminating".
+  connections:
+    lhns:
+      url: https://forgejo.example.com/
+      # Created by `forgejo forgejo-cli actions register` on the server (see README). That command
+      # is idempotent for a given secret, which is what makes re-registration a one-liner rather
+      # than act_runner's delete-the-file-and-restart recovery.
+      #
+      # This UUID is DERIVED from the secret: it is the hex encoding of the ASCII of the secret's
+      # first 16 characters. So committing it in plaintext discloses 16 of the token's 40 hex
+      # characters. The remaining 24 (96 bits) are still secret, which is why this is acceptable
+      # and stated rather than hidden. If that trade is ever unwelcome, register through the admin
+      # UI instead — there the UUID and token are independent.
+      uuid: 31353964-3932-3735-6362-666438353735
+      # The other 40 hex characters, from a SOPS Secret mounted at /secrets/token.
+      token_url: file:/secrets/token

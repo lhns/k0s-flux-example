@@ -1,0 +1,303 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: stalwart
+---
+# ===========================================================================
+# Stalwart mail server. DB-centric: all config + all mail live in the shared
+# CNPG Postgres (reached via the bootstrap /etc/stalwart/config.json). The data
+# dir is empty (nothing stored on disk). TLS is the *.example.com wildcard, reflected
+# in and mounted; ACME + the listeners' PROXY-protocol are turned off post-start
+# (MetalLB ETP Local delivers real source IPs natively). See README.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stalwart
+  namespace: stalwart
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  # Live. (Was 0 for the cutover; Swarm stopped + the 1.5G DB restored into CNPG.)
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: stalwart
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: stalwart
+        app.kubernetes.io/instance: stalwart
+        # HTTP/JMAP/admin :8080 from traefik; the raw mail ports arrive via the
+        # stalwart-lb LoadBalancer (kube-vnet auto-allows, ext.svc). Reaches the
+        # shared CNPG; mail delivery / discovery / OIDC are external egress.
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.postgres.postgres: egress
+        # reach lldap :3890 (LDAP directory backend)
+        kube-vnet/net.lldap.lldap: egress
+    spec:
+      enableServiceLinks: false
+      # Runs as root to bind the privileged mail ports (25/465/993). Config in DB,
+      # data dir is emptyDir -> no on-disk state to own.
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      containers:
+        - name: stalwart
+          image: stalwartlabs/stalwart:v0.16.18
+          env:
+            - name: STALWART_PUBLIC_URL
+              value: https://mail.example.com
+            # Pin the cluster node identity. Stalwart derives its node-id from a
+            # lease keyed on the OS hostname; without this each pod roll uses its
+            # random pod name and registers a NEW ghost node (they pile up on the
+            # admin "Cluster Nodes" page until they age out). A fixed hostname makes
+            # every pod reclaim the same lease -> one stable node. Safe with
+            # replicas:1 + Recreate (old pod is gone before the new one claims it).
+            - name: STALWART_HOSTNAME
+              value: stalwart
+            - name: STALWART_RECOVERY_ADMIN
+              valueFrom:
+                secretKeyRef:
+                  name: stalwart
+                  key: STALWART_RECOVERY_ADMIN
+            # Consistent with config.json (which is authoritative for the store).
+            - name: POSTGRES_HOST
+              value: postgres-rw.postgres.svc.cluster.local
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_USER
+              value: stalwart
+            - name: POSTGRES_DB
+              value: stalwart
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: stalwart-db
+                  key: password
+          ports:
+            - {name: http, containerPort: 8080, protocol: TCP}
+            - {name: smtp, containerPort: 25, protocol: TCP}
+            - {name: smtps, containerPort: 465, protocol: TCP}
+            - {name: imaps, containerPort: 993, protocol: TCP}
+            - {name: sieve, containerPort: 4190, protocol: TCP}
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 18
+          volumeMounts:
+            - name: config
+              mountPath: /etc/stalwart/config.json
+              subPath: config.json
+            - name: certs
+              mountPath: /etc/stalwart/certs
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/stalwart
+      volumes:
+        - name: config
+          secret:
+            secretName: stalwart
+        - name: certs
+          secret:
+            secretName: lhns-de   # reflected from the traefik ns (see infra/traefik/tls.yaml)
+        - name: data
+          emptyDir: {}
+---
+# In-cluster HTTP endpoint Traefik routes to (JMAP/admin/dav/.well-known/...).
+apiVersion: v1
+kind: Service
+metadata:
+  name: stalwart
+  namespace: stalwart
+spec:
+  selector:
+    app.kubernetes.io/name: stalwart
+  ports:
+    - {name: http, port: 8080, targetPort: http}
+---
+# Raw mail ports on a dedicated MetalLB VIP (10.20.2.8). externalTrafficPolicy:
+# Local preserves client source IPs natively (no PROXY protocol needed) — the
+# listeners' proxy-protocol is disabled post-cutover. Stalwart terminates TLS.
+apiVersion: v1
+kind: Service
+metadata:
+  name: stalwart-lb
+  namespace: stalwart
+  annotations:
+    metallb.io/loadBalancerIPs: 10.20.2.8
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: stalwart
+  ports:
+    - {name: smtp, port: 25, targetPort: smtp, protocol: TCP}
+    - {name: smtps, port: 465, targetPort: smtps, protocol: TCP}
+    - {name: imaps, port: 993, targetPort: imaps, protocol: TCP}
+    - {name: sieve, port: 4190, targetPort: sieve, protocol: TCP}
+---
+# ===========================================================================
+# Bulwark — webmail (JMAP client for Stalwart). Small state on ceph-rbd (copied).
+# Authenticates users via Stalwart's OIDC (issuer mail.example.com).
+# ===========================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bulwark-data
+  namespace: stalwart
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bulwark
+  namespace: stalwart
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: bulwark
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: bulwark
+        app.kubernetes.io/instance: stalwart
+        # :3000 from traefik; reaches Stalwart via mail.example.com (external egress).
+        kube-vnet/net.traefik.traefik: ingress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: bulwark
+          image: ghcr.io/bulwarkmail/webmail:1.8.1
+          env:
+            - name: APP_NAME
+              value: Mail
+            - name: JMAP_SERVER_URL
+              value: https://mail.example.com
+            - name: NEXT_PUBLIC_BASE_PATH
+              value: /webmail
+            - name: SETTINGS_SYNC_ENABLED
+              value: "true"
+            - name: STALWART_FEATURES
+              value: "true"
+            - name: OAUTH_ENABLED
+              value: "true"
+            - name: OAUTH_CLIENT_ID
+              value: bulwark
+            - name: OAUTH_ISSUER_URL
+              value: https://mail.example.com
+            - name: OAUTH_ONLY
+              value: "true"
+            - name: AUTO_SSO_ENABLED
+              value: "true"
+            - name: BULWARK_TELEMETRY
+              value: "off"
+            - name: SESSION_SECRET
+              valueFrom: {secretKeyRef: {name: bulwark, key: SESSION_SECRET}}
+            - name: ADMIN_PASSWORD
+              valueFrom: {secretKeyRef: {name: bulwark, key: ADMIN_PASSWORD}}
+            - name: OAUTH_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: bulwark, key: OAUTH_CLIENT_SECRET}}
+          ports:
+            - {name: http, containerPort: 3000, protocol: TCP}
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 12
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: bulwark-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bulwark
+  namespace: stalwart
+spec:
+  selector:
+    app.kubernetes.io/name: bulwark
+  ports:
+    - {name: http, port: 3000, targetPort: http}
+---
+# ===========================================================================
+# Umleiter — one-way Gmail -> Stalwart IMAP mirror. SQLite dedup state on
+# ceph-rbd (copied; NOT CephFS, per the syncthing SQLite lesson). Single replica
+# (cross-process file lock). Config (IMAP creds) from a SOPS secret.
+# ===========================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: umleiter-state
+  namespace: stalwart
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: umleiter
+  namespace: stalwart
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: umleiter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: umleiter
+        app.kubernetes.io/instance: stalwart
+        # No ingress. Egress-only: Gmail IMAP + mail.example.com IMAP (both external).
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: umleiter
+          image: ghcr.io/lhns/umleitung:sha-9d13eaf
+          volumeMounts:
+            - name: state
+              mountPath: /state
+            - name: config
+              mountPath: /config/umleiter.yaml
+              subPath: umleiter.yaml
+              readOnly: true
+      volumes:
+        - name: state
+          persistentVolumeClaim:
+            claimName: umleiter-state
+        - name: config
+          secret:
+            secretName: umleiter

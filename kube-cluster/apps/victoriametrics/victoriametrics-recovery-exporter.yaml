@@ -1,0 +1,89 @@
+# Recovery/backfill OTel collector config (reproduced from the Swarm original;
+# endpoints repointed). Dormant (deployment replicas 0). To replay: scale the
+# deployment to 1, reset the victoriametrics-recovery-exporter group offsets
+# (kafka-consumer-groups.sh --reset-offsets --to-datetime ... --execute), then
+# scale back to 0.
+#   - kafka brokers          otel_kafka:9092              -> 10.20.2.10:9092
+#   - otlp/feedback endpoint  otel_opentelemetry-collector:4317 -> the in-cluster gateway
+#   - otlphttp/victoriametrics http://victoriametrics:8428/... (in-cluster Service, unchanged)
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  prometheus/feedback:
+    config:
+      scrape_configs:
+      # Collect own metrics
+        - job_name: 'victoriametrics-recovery-exporter'
+          scrape_interval: 10s
+          static_configs:
+            - targets: ['127.0.0.1:8888']
+
+  kafka/metrics:
+    protocol_version: 2.1.0
+    brokers:
+      - otel-kafka-bootstrap.opentelemetry-gateway.svc.cluster.local:9092
+    metrics:
+      topics:
+        - otlp_metrics
+    group_id: victoriametrics-recovery-exporter
+    initial_offset: earliest
+    message_marking:
+      after: true
+      on_error: true
+    # This is a backfill/replay job, so completeness beats freshness: retry hard before
+    # giving up. (on_error: true still means it can never hit the partition-pause path,
+    # it just drops the batch once max_elapsed_time is reached.)
+    error_backoff:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 1m
+      max_elapsed_time: 5m
+
+  kafka/meta_metrics:
+    protocol_version: 2.1.0
+    brokers:
+      - otel-kafka-bootstrap.opentelemetry-gateway.svc.cluster.local:9092
+    metrics:
+      topics:
+        - otlp_meta_metrics
+    group_id: victoriametrics-recovery-exporter
+    initial_offset: earliest
+    message_marking:
+      after: true
+      on_error: true
+    # This is a backfill/replay job, so completeness beats freshness: retry hard before
+    # giving up. (on_error: true still means it can never hit the partition-pause path,
+    # it just drops the batch once max_elapsed_time is reached.)
+    error_backoff:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 1m
+      max_elapsed_time: 5m
+
+exporters:
+  otlp/feedback:
+    endpoint: opentelemetry-gateway.opentelemetry-gateway.svc.cluster.local:4317
+    tls:
+      insecure: true
+
+  otlphttp/victoriametrics:
+    #endpoint: http://vmagent:8429/opentelemetry/api/v1/push
+    metrics_endpoint: http://victoriametrics:8428/opentelemetry/api/v1/push
+    sending_queue:
+      enabled: false
+    retry_on_failure:
+      enabled: false
+
+service:
+  extensions: [health_check]
+  pipelines:
+    metrics/feedback:
+      receivers: [prometheus/feedback]
+      processors: []
+      exporters: [otlp/feedback]
+    metrics:
+      receivers: [kafka/meta_metrics, kafka/metrics]
+      processors: []
+      exporters: [otlphttp/victoriametrics]

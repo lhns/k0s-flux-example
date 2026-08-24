@@ -1,0 +1,32 @@
+---
+# Stalwart's login role in the shared CNPG cluster (spliit/miniflux precedent).
+# Password from secret/stalwart-db (postgres ns) — reuses the existing Swarm DB
+# password so the bootstrap config.json needs no secret change. retain: never drop.
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: stalwart
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: stalwart
+  ensure: present
+  login: true
+  passwordSecret:
+    name: stalwart-db
+  databaseRoleReclaimPolicy: retain
+---
+# The stalwart database (all config + all mail). A pg_dump of the old Swarm
+# Postgres (10.20.2.10:5436, ~1.5G) is restored into it once (PG 18 -> PG 18).
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: stalwart
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: stalwart
+  owner: stalwart
+  databaseReclaimPolicy: retain

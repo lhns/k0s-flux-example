@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # cert-manager issues the webhook serving cert (selfsigned Issuer +
+    # Certificate + cainjector). Read by the root generator; inert to kustomize.
+    dependsOn: infra-cert-manager
+resources:
+- namespace.yaml
+- release.yaml

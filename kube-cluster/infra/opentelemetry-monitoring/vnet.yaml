@@ -1,0 +1,84 @@
+# kube-vnet isolates INGRESS only, so kubelet/API-server dials and hostmetrics are
+# egress or host-scoped and need no rules. The node syslog arrives on a hostPort
+# (auto-allowed). TWO things do need rules: the `cluster` collector's Prometheus
+# receiver scraping in-cluster pods (that ingress into the TARGET pods is isolated),
+# and — since the OTLP export moved off the external Swarm collector onto the
+# in-cluster gateway's ClusterIP — the export itself.
+#
+# Mirror the traefik egress-vnet pattern (infra/traefik/vnet.yaml): a shared
+# egress channel the collector initiates from, that scrape targets opt into as
+# ingress receivers. Each future scrape-target namespace needs its own ingress
+# binding into this vnet (flux-system is wired below as the only live target today).
+---
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: otel-scrape
+  namespace: opentelemetry
+spec:
+  description: "otel cluster collector -> Prometheus /metrics on annotated pods (prometheus.io/scrape) across namespaces."
+  # Any namespace's pods may join as ingress receivers; they opt in explicitly via
+  # their own binding (below). Egress initiator is the collector binding.
+  allowedNamespaces:
+    all: true
+---
+# The operator-managed collector pods carry no hand-set kube-vnet label; bind them
+# by their chart label so kube-vnet injects the egress membership (same mechanism
+# as flux-webhook's binding on the operator-managed notification-controller). Both
+# collectors match; only `cluster` actually scrapes — harmless for `daemon`.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetworkBinding
+metadata:
+  name: otel-collectors-scrape-egress
+  namespace: opentelemetry
+spec:
+  virtualNetworkRef:
+    name: otel-scrape
+    namespace: opentelemetry
+  direction: egress
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: opentelemetry-operator
+---
+# Both collectors export everything to the in-cluster aggregation gateway, and that
+# is a ClusterIP — so it needs vnet membership, where the Swarm collector it replaced
+# (10.20.2.10:4317) was an external address and needed none.
+#
+# Same reason as the binding above rather than a pod label: these pods are created by
+# the OpenTelemetry operator from the HelmRelease's `config`, so there is nowhere to
+# hand-set a label without fighting the operator. Selector-bound instead.
+#
+# The otel-gateway vnet already lists this namespace (infra/opentelemetry-gateway),
+# so nothing there changes — membership was staged in advance and only takes effect
+# once something is actually bound to it, which is what this does.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetworkBinding
+metadata:
+  name: otel-collectors-gateway-egress
+  namespace: opentelemetry
+spec:
+  virtualNetworkRef:
+    name: otel-gateway
+    namespace: opentelemetry-gateway
+  direction: egress
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: opentelemetry-operator
+---
+# Scrape target: the flux controllers (all carry prometheus.io/scrape=true and the
+# shared app.kubernetes.io/part-of=flux label). Admits the collector's scrape dials
+# into flux-system. Add an equivalent binding in any other namespace whose pods
+# should be scraped.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetworkBinding
+metadata:
+  name: flux-controllers-scrape-ingress
+  namespace: flux-system
+spec:
+  virtualNetworkRef:
+    name: otel-scrape
+    namespace: opentelemetry
+  direction: ingress
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: flux

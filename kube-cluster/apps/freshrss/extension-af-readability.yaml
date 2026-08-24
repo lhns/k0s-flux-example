@@ -1,0 +1,32 @@
+# xExtension-Af_Readability — see extension-autottl.yaml for what the shape means.
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: freshrss-ext-af-readability
+  namespace: freshrss
+spec:
+  interval: 12h
+  url: https://github.com/Niehztog/freshrss-af-readability
+  ref:
+    # No tags upstream, so a commit. `vendor/` is committed in this repo, which is why there is
+    # nothing to install — the checkout is already complete.
+    commit: 7e0dc8fd82d5f13863e5121cbe0f7b1f2d194fd9
+---
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageComposition
+metadata:
+  name: freshrss-ext-af-readability
+  namespace: freshrss
+spec:
+  interval: 1h
+  layers:
+    - name: af-readability
+      sourceRef:
+        kind: GitRepository
+        name: freshrss-ext-af-readability
+      to: /
+      owner: {uid: 33, gid: 33}
+  push:
+    # No `repository` — publishes to <registry>/<namespace>/<name>. See extension-autottl.yaml.
+    history: 10

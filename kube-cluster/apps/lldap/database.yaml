@@ -1,0 +1,31 @@
+---
+# lldap's login role in the shared CNPG cluster (grafana/homebox precedent).
+# Password from secret/lldap-db (postgres ns). retain: never drop on delete.
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: lldap
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: lldap
+  ensure: present
+  login: true
+  passwordSecret:
+    name: lldap-db
+  databaseRoleReclaimPolicy: retain
+---
+# The lldap database (directory: users, groups, memberships). Migrated 1:1 from the
+# old Swarm Postgres via pg_dump. lldap runs its own migrations on startup.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: lldap
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: lldap
+  owner: lldap
+  databaseReclaimPolicy: retain

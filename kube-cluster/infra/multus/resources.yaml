@@ -1,0 +1,212 @@
+# Multus CNI v4.3.0 — a meta-CNI that gives selected pods a SECOND network interface.
+#
+# Vendored from
+#   https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/v4.3.0/deployments/multus-daemonset.yml
+# rather than installed from a chart: there is no official published chart (upstream's is
+# git-only), and the published ones are third-party repackagings of a component that sits in
+# the pod-creation path on every node.
+#
+# Upstream labels that file a "quickstart" which explicitly "does not care about ...
+# upgrade/update/uninstall scenario". Hence four deliberate deviations, marked DEVIATION
+# below. Re-vendoring on upgrade means re-applying them.
+#
+# HOW IT WORKS, because the blast radius is not obvious: the DaemonSet installs the `multus`
+# binary into /opt/cni/bin and writes /etc/cni/net.d/00-multus.conf on each node it runs on.
+# That filename sorts ahead of kube-router's 10-kuberouter.conflist, so kubelet loads Multus
+# as the primary CNI and Multus delegates to kube-router for the normal eth0. Every pod
+# created on these nodes therefore goes through Multus.
+#
+# Safe here because kube-router's CNI is the stock bridge+portmap conflist (an ordinary
+# delegate), /etc/cni/net.d holds only that one file so auto-detection is unambiguous, and
+# kube-router's routing/firewall work is controller-side — it watches the API and is not part
+# of the CNI ADD path.
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: network-attachment-definitions.k8s.cni.cncf.io
+spec:
+  group: k8s.cni.cncf.io
+  scope: Namespaced
+  names:
+    plural: network-attachment-definitions
+    singular: network-attachment-definition
+    kind: NetworkAttachmentDefinition
+    shortNames:
+      - nad
+      - net-attach-def
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          description: 'NetworkAttachmentDefinition is a CRD schema specified by the Network Plumbing
+            Working Group to express the intent for attaching pods to one or more logical or physical
+            networks. More information available at: https://github.com/k8snetworkplumbingwg/multi-net-spec'
+          type: object
+          properties:
+            apiVersion:
+              description: 'APIVersion defines the versioned schema of this represen
+                tation of an object. Servers should convert recognized schemas to the
+                latest internal value, and may reject unrecognized values. More info:
+                https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+              type: string
+            kind:
+              description: 'Kind is a string value representing the REST resource this
+                object represents. Servers may infer this from the endpoint the client
+                submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+              type: string
+            metadata:
+              type: object
+            spec:
+              description: 'NetworkAttachmentDefinition spec defines the desired state of a network attachment'
+              type: object
+              properties:
+                config:
+                  description: 'NetworkAttachmentDefinition config is a JSON-formatted CNI configuration'
+                  type: string
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: multus
+rules:
+  - apiGroups: ["k8s.cni.cncf.io"]
+    resources:
+      - '*'
+    verbs:
+      - '*'
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - pods/status
+    verbs:
+      - get
+      - update
+  - apiGroups:
+      - ""
+      - events.k8s.io
+    resources:
+      - events
+    verbs:
+      - create
+      - patch
+      - update
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: multus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: multus
+subjects:
+- kind: ServiceAccount
+  name: multus
+  namespace: kube-system
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: multus
+  namespace: kube-system
+---
+# DEVIATION 3: upstream also ships a `multus-cni-config` ConfigMap mounted at
+# /tmp/multus-conf. It is a *flannel* example, unused whenever --multus-conf-file=auto is set
+# (it is, below), and actively misleading in a kube-router cluster. Dropped, along with its
+# volume and volumeMount.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kube-multus-ds
+  namespace: kube-system
+  labels:
+    tier: node
+    app: multus
+    name: multus
+spec:
+  selector:
+    matchLabels:
+      name: multus
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        tier: node
+        app: multus
+        name: multus
+    spec:
+      # Required: it writes to the node's /opt/cni/bin and /etc/cni/net.d. kube-vnet skips
+      # hostNetwork pods, so there is no vnet wiring for this component.
+      hostNetwork: true
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+      - operator: Exists
+        effect: NoExecute
+      serviceAccountName: multus
+      containers:
+      - name: kube-multus
+        # DEVIATION 1: upstream ships `:snapshot`, a floating tag that must never be
+        # deployed. Pinned — which also lets Renovate's kubernetes manager track it.
+        image: ghcr.io/k8snetworkplumbingwg/multus-cni:v4.3.0
+        command: ["/thin_entrypoint"]
+        args:
+        - "--multus-conf-file=auto"
+        - "--multus-autoconfig-dir=/host/etc/cni/net.d"
+        - "--cni-conf-dir=/host/etc/cni/net.d"
+        # DEVIATION 2, and the one that makes this safe to manage with Flux at all: on
+        # SIGTERM each pod deletes its own /etc/cni/net.d/00-multus.conf, so removing the
+        # DaemonSet returns every node to plain kube-router by itself — no stale config, no
+        # node left unable to create pods, no manual SSH. Without it, `git revert` would
+        # delete the DaemonSet and leave every node broken.
+        # It also enables the master-config watch, so if kube-router ever rewrites its
+        # conflist, Multus regenerates 00-multus.conf from the new one.
+        - "--cleanup-config-on-exit=true"
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "50Mi"
+          limits:
+            # DEVIATION 4: upstream also sets `cpu: 100m` here. Repo rule is memory limits
+            # only — CFS throttling on something in the pod-creation path would show up as
+            # slow pod starts cluster-wide.
+            memory: "50Mi"
+        securityContext:
+          privileged: true
+        terminationMessagePolicy: FallbackToLogsOnError
+        volumeMounts:
+        - name: cni
+          mountPath: /host/etc/cni/net.d
+        - name: cnibin
+          mountPath: /host/opt/cni/bin
+      initContainers:
+        - name: install-multus-binary
+          image: ghcr.io/k8snetworkplumbingwg/multus-cni:v4.3.0
+          command: ["/install_multus"]
+          args:
+            - "--type"
+            - "thin"
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "15Mi"
+          securityContext:
+            privileged: true
+          terminationMessagePolicy: FallbackToLogsOnError
+          volumeMounts:
+            - name: cnibin
+              mountPath: /host/opt/cni/bin
+              mountPropagation: Bidirectional
+      terminationGracePeriodSeconds: 10
+      volumes:
+        - name: cni
+          hostPath:
+            path: /etc/cni/net.d
+        - name: cnibin
+          hostPath:
+            path: /opt/cni/bin

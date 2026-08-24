@@ -1,0 +1,36 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata:
+  name: postgres-pooler
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  # 2 pgbouncer pods for HA. Creates Deployment + Service `postgres-pooler` (:5432,
+  # port name "pgbouncer") — apps connect here instead of postgres-rw.
+  instances: 2
+  type: rw               # fronts the primary; add a type: ro pooler later to offload reads
+  pgbouncer:
+    # Transaction pooling = a real backend is held only for the duration of each
+    # transaction, so ~1000 short-lived client connections multiplex onto a few dozen
+    # backends. Caveat: session-scoped features (LISTEN/NOTIFY, advisory locks,
+    # session-level SET, some prepared-statement setups) don't survive transaction
+    # pooling — those apps connect directly to postgres-rw (see README).
+    poolMode: transaction
+    parameters:
+      max_client_conn: "1000"   # cheap client-side ceiling (pgbouncer just holds sockets)
+      default_pool_size: "25"   # real backends per (user,db) pair, per pooler pod
+      # 2 pods x 25 = ~50 backends per (user,db) pair — well under the cluster's 500.
+  # Auth is fully automatic: the operator creates the cnpg_pooler_pgbouncer role + a
+  # user_search() function and uses TLS client-cert auth pgbouncer<->Postgres. No secret.
+  template:
+    spec:
+      containers:
+        - name: pgbouncer
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "100Mi"
+            limits:
+              cpu: "500m"
+              memory: "200Mi"

@@ -1,0 +1,16 @@
+# Under pod-level kube-vnet isolation, intra-namespace ingress is denied by
+# default. The exporter writes logs to the VictoriaLogs DB (:9428) inside this
+# namespace; same-namespace membership is implicit (the vnet lives here), so
+# allowedNamespaces only lists the cross-ns consumer. Bare net.<name> = same-ns;
+# the DB carries net.victorialogs: ingress, the exporter net.victorialogs: egress.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: victorialogs
+  namespace: victorialogs
+spec:
+  description: "victorialogs-exporter -> victorialogs (:9428) intra-ns; grafana queries :9428."
+  allowedNamespaces:
+    names:
+      # Grafana (grafana ns) queries the DB :9428 as a logs datasource.
+      - grafana

@@ -1,0 +1,20 @@
+# victoriatraces.example.com -> the VictoriaTraces HTTP UI/API (:10428), behind the
+# Authelia forwardAuth middleware (reflected into every namespace). The exporter
+# writes over the in-cluster ClusterIP, so Authelia only guards human/browser
+# access. TLS via the *.example.com wildcard default store.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: victoriatraces
+  namespace: victoriatraces
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`victoriatraces.example.com`)
+      services:
+        - name: victoriatraces
+          port: 10428
+      middlewares:
+        - name: authelia
+  tls: {}

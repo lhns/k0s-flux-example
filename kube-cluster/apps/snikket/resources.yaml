@@ -1,0 +1,203 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: snikket
+---
+# Prosody's data + uploads. ceph-rbd (block) rather than cephfs: prosody is a
+# single writer with its own on-disk format, and the repo's rule sends
+# single-writer stores to block (apps/homeassistant/resources.yaml).
+# SNIKKET_UPLOAD_STORAGE_GB is set well below this so uploads cannot fill it.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: snikket-data
+  namespace: snikket
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 20Gi
+---
+# Snikket ships as four containers on `network_mode: host`, talking to each other
+# over localhost. One Pod reproduces that exactly — same network namespace, same
+# localhost — which is why this is a multi-container Pod rather than three
+# Deployments with Services between them.
+#
+# Two of upstream's four are deliberately absent:
+#   - snikket-cert-manager  -> cert-manager already issues certs here (routing.yaml)
+#   - the bundled coturn    -> SNIKKET_TWEAK_TURNSERVER=0, apps/coturn serves it
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: snikket
+  namespace: snikket
+  annotations:
+    # roll on secret rotation (the shared TURN secret is env, and env is never
+    # updated in a running pod).
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  # Single RWO volume and a stateful XMPP server: never two at once.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: snikket
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: snikket
+        app.kubernetes.io/instance: snikket
+        # Web (443, HTTPS end to end) and the raw XMPP ports (5222/5269/5000)
+        # all arrive via traefik — the raw ones as IngressRouteTCP on dedicated
+        # entrypoints.
+        kube-vnet/net.traefik.traefik: ingress
+        # Authentication goes out to lldap :3890. Needs BOTH this label and
+        # `snikket` listed in apps/lldap/vnet.yaml allowedNamespaces - the label
+        # alone does nothing.
+        kube-vnet/net.lldap.lldap: egress
+    spec:
+      # The images read SNIKKET_* from the environment; injected <SVC>_PORT vars
+      # would collide with prosody's own expectations.
+      enableServiceLinks: false
+      containers:
+        # ---- prosody + the Snikket modules: c2s, s2s, proxy65, internal HTTP ----
+        - name: server
+          image: snikket/snikket-server:stable.20260611
+          envFrom:
+            - configMapRef: {name: snikket-env}
+          env:
+            - name: SNIKKET_TWEAK_TURNSERVER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  # mirrored from the coturn ns by reflector (apps/coturn/secret.yaml)
+                  name: coturn-shared-secret
+                  key: secret
+            # Read by ldap.cfg.lua as ENV_LDAP_BIND_PASSWORD: prosody resolves
+            # ENV_<NAME> via os.getenv (configmanager.lua:216), so the bind
+            # password stays in the Secret and never lands in a config file.
+            - name: LDAP_BIND_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: snikket-ldap
+                  key: LDAP_BIND_PASSWORD
+          ports:
+            - {name: c2s, containerPort: 5222, protocol: TCP}
+            - {name: s2s, containerPort: 5269, protocol: TCP}
+            - {name: proxy65, containerPort: 5000, protocol: TCP}
+          volumeMounts:
+            - {name: data, mountPath: /snikket}
+            - {name: certs, mountPath: /snikket/letsencrypt/live/xmpp.example.com, readOnly: true}
+            - {name: ldap-config, mountPath: /etc/snikket-extra, readOnly: true}
+            # subPath, NOT a directory mount: /etc/prosody/modules holds 68
+            # symlinks into prosody-modules, and mounting over the directory
+            # would shadow every one of them and break the server. The cost of
+            # subPath is that ConfigMap updates do not propagate live, so a
+            # change needs a pod roll - which Reloader already does.
+            - name: ldap-module
+              mountPath: /etc/prosody/modules/mod_auth_lldap.lua
+              subPath: mod_auth_lldap.lua
+              readOnly: true
+            # lualdap, which the image does not ship (lualdap.yaml). This exact path is already
+            # in prosody's package.cpath, so nothing has to be told where to look. Mounting the
+            # `lib` level rather than lua/5.4 keeps the package's relative symlink resolvable:
+            # lua/5.4/lualdap.so points at ../../liblua5.4-ldap.so.0.0.0, which is only inside
+            # the artifact if the artifact root is `lib`.
+            - name: lualdap
+              mountPath: /var/lib/prosody/custom_plugins/lib
+              readOnly: true
+          readinessProbe:
+            # c2s accepting connections is the meaningful signal; the HTTP side is
+            # the proxy's business. 3s rather than the 1s default so a loaded node
+            # doesn't flap the endpoint out of the Service.
+            tcpSocket: {port: 5222}
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 20
+          # No liveness probe: first boot generates certs/state and a restart
+          # part-way through leaves prosody's store half-written.
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {memory: 2Gi}
+        # ---- TLS/HTTP front for the portal, file sharing and BOSH/websocket ----
+        - name: web-proxy
+          image: snikket/snikket-web-proxy:stable.20260611
+          envFrom:
+            - configMapRef: {name: snikket-env}
+          ports:
+            - {name: http, containerPort: 80, protocol: TCP}
+            - {name: https, containerPort: 443, protocol: TCP}
+          volumeMounts:
+            - {name: data, mountPath: /snikket}
+            - {name: certs, mountPath: /snikket/letsencrypt/live/xmpp.example.com, readOnly: true}
+            # Upstream shares an acme-challenge dir between proxy and the certs
+            # container. There is no certs container here, but the proxy still
+            # expects the path to exist.
+            - {name: acme-challenges, mountPath: /var/www/html/.well-known/acme-challenge}
+          readinessProbe:
+            tcpSocket: {port: 443}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 12
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 512Mi}
+        # ---- the invite/admin web UI, reached only through web-proxy ----
+        - name: web-portal
+          image: snikket/snikket-web-portal:stable.20260611
+          envFrom:
+            - configMapRef: {name: snikket-env}
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {memory: 512Mi}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: snikket-data
+        - name: acme-challenges
+          emptyDir: {}
+        - name: ldap-config
+          configMap:
+            name: snikket-ldap-config
+        - name: ldap-module
+          configMap:
+            name: snikket-ldap-module
+        # The reference is the ImageComposition's own name; the root generator rewrites it to the
+        # serving host and the spec-hash tag (templates/kustomizations.yaml). IfNotPresent is right
+        # on a tag here because the tag is derived from the spec, so it names content and a cached
+        # copy cannot be stale.
+        - name: lualdap
+          image:
+            reference: snikket-lualdap
+            pullPolicy: IfNotPresent
+        - name: certs
+          secret:
+            secretName: snikket-tls
+            # cert-manager writes tls.crt/tls.key; Snikket reads certbot's layout.
+            # Renaming here means no init container and no copy — the files simply
+            # appear where prosody and the proxy already look.
+            items:
+              - {key: tls.crt, path: fullchain.pem}
+              - {key: tls.key, path: privkey.pem}
+---
+# Everything traefik routes to. No LoadBalancer: with TURN split out into
+# apps/coturn, Snikket's remaining raw ports are all TCP, and traefik carries TCP
+# fine (IngressRouteTCP, see routing.yaml). That saves a second VIP.
+apiVersion: v1
+kind: Service
+metadata:
+  name: snikket
+  namespace: snikket
+spec:
+  selector:
+    app.kubernetes.io/name: snikket
+  ports:
+    - {name: https, port: 443, targetPort: https, protocol: TCP}
+    - {name: http, port: 80, targetPort: http, protocol: TCP}
+    - {name: c2s, port: 5222, targetPort: c2s, protocol: TCP}
+    - {name: s2s, port: 5269, targetPort: s2s, protocol: TCP}
+    - {name: proxy65, port: 5000, targetPort: proxy65, protocol: TCP}

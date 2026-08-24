@@ -1,0 +1,109 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nodered
+---
+# Node-RED's /data (flows.json, flows_cred.json, settings.js, .config.*, node_modules,
+# projects) — copied once from the old Swarm volume fastappdata:/docker/nodered
+# (excluding its 189M log/). File-based, single-writer -> CephFS + Recreate.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nodered-data
+  namespace: nodered
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: cephfs
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nodered
+  namespace: nodered
+spec:
+  # /data copied (see README), now live.
+  replicas: 1
+  # Single-instance only — flows, node_modules, and the LAN port bindings can't be
+  # shared, so never two writers.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nodered
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nodered
+        app.kubernetes.io/instance: nodered
+        # receive the HTTP ports (1880 editor, 3001 google-smarthome) from traefik.
+        # The raw TCP/UDP LAN ports arrive via the nodered-lb LoadBalancer, which
+        # kube-vnet auto-allows (ext.svc) — no vnet label needed for those.
+        kube-vnet/net.traefik.traefik: ingress
+    spec:
+      containers:
+        - name: nodered
+          # Runs as the image's node-red user (uid/gid 1000); /data is chowned 1000.
+          image: nodered/node-red:5.0.4
+          env:
+            - name: TZ
+              value: Europe/Berlin
+          ports:
+            - {name: http, containerPort: 1880, protocol: TCP}
+            - {name: gsh, containerPort: 3001, protocol: TCP}
+            # Google Home local fulfillment (discovery/command), exposed via nodered-lb.
+            - {name: gh-udp1, containerPort: 6987, protocol: UDP}
+            - {name: gh-udp2, containerPort: 6988, protocol: UDP}
+            - {name: gh-udp3, containerPort: 6989, protocol: UDP}
+            - {name: gh-udp4, containerPort: 8882, protocol: UDP}
+            - {name: gh-tcp, containerPort: 8882, protocol: TCP}
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 12
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: nodered-data
+---
+# In-cluster HTTP endpoints Traefik routes to (editor :1880, google-smarthome :3001).
+apiVersion: v1
+kind: Service
+metadata:
+  name: nodered
+  namespace: nodered
+spec:
+  selector:
+    app.kubernetes.io/name: nodered
+  ports:
+    - {name: http, port: 1880, targetPort: http}
+    - {name: gsh, port: 3001, targetPort: gsh}
+---
+# Raw TCP/UDP LAN ports for Google Home local fulfillment, on a dedicated MetalLB VIP
+# (10.20.2.16). externalTrafficPolicy: Local preserves the client source IP (needed for
+# UDP discovery replies); single pod so the VIP follows it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: nodered-lb
+  namespace: nodered
+  annotations:
+    metallb.io/loadBalancerIPs: 10.20.2.16
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: nodered
+  ports:
+    - {name: gh-udp1, port: 6987, targetPort: gh-udp1, protocol: UDP}
+    - {name: gh-udp2, port: 6988, targetPort: gh-udp2, protocol: UDP}
+    - {name: gh-udp3, port: 6989, targetPort: gh-udp3, protocol: UDP}
+    - {name: gh-udp4, port: 8882, targetPort: gh-udp4, protocol: UDP}
+    - {name: gh-tcp, port: 8882, targetPort: gh-tcp, protocol: TCP}

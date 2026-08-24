@@ -1,0 +1,84 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: zigbee2mqtt
+---
+# zigbee2mqtt's /app/data (database.db + state.json — the paired-device network —
+# configuration.yaml, coordinator_backup.json), copied once from the old Swarm volume
+# fastappdata:/docker/zigbee2mqtt. Single-writer (one process owns the coordinator) ->
+# ceph-rbd RWO + Recreate.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: zigbee2mqtt-data
+  namespace: zigbee2mqtt
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zigbee2mqtt
+  namespace: zigbee2mqtt
+spec:
+  # /app/data restored + Swarm instance stopped (coordinator freed), now live.
+  replicas: 1
+  # Single-writer — never two coordinator owners.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: zigbee2mqtt
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: zigbee2mqtt
+        app.kubernetes.io/instance: zigbee2mqtt
+        # frontend (:8080) reached from traefik; MQTT to the in-cluster mosquitto. The
+        # network coordinator (tcp://10.20.1.50:6638) and OTA (internet) are external
+        # egress (unrestricted under the ingress-only baseline).
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.mosquitto.mosquitto: egress
+    spec:
+      containers:
+        - name: zigbee2mqtt
+          # Runs as root; /app/data is root-owned, writable directly (no fsGroup needed).
+          image: ghcr.io/koenkk/zigbee2mqtt:2.13.0
+          env:
+            - name: TZ
+              value: Europe/Berlin
+            - name: Z2M_WATCHDOG
+              value: "1,1,1"
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 12
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: zigbee2mqtt-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zigbee2mqtt
+  namespace: zigbee2mqtt
+spec:
+  selector:
+    app.kubernetes.io/name: zigbee2mqtt
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

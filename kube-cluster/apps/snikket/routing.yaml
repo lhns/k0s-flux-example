@@ -1,0 +1,110 @@
+---
+# The wildcard *.example.com covers xmpp.example.com but NOT groups.xmpp.example.com or
+# share.xmpp.example.com — those are two labels deep, and a single-label wildcard
+# does not match them. So Snikket gets its own cert with all three as SANs.
+#
+# DNS-01 via the IONOS webhook, so issuance needs no inbound HTTP at all. That is
+# what lets Snikket's own certbot container be dropped: the cert exists before
+# anything listens.
+#
+# This one Secret serves both ends — traefik reads it for TLS termination below,
+# and the Pod mounts it for prosody's c2s/s2s listeners (resources.yaml). Same
+# namespace, so no Reflector needed.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: snikket-tls
+  namespace: snikket
+spec:
+  secretName: snikket-tls
+  issuerRef:
+    name: letsencrypt-ionos-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - xmpp.example.com
+    - groups.xmpp.example.com
+    - share.xmpp.example.com
+---
+# Web portal (invites/admin), group-chat web endpoints and HTTP file sharing.
+# tls.secretName rather than a bare `tls: {}`: the default TLSStore holds the
+# *.example.com wildcard, which would not validate the two-label hosts.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: snikket
+  namespace: snikket
+spec:
+  entryPoints: [websecure]
+  routes:
+    - match: Host(`xmpp.example.com`) || Host(`groups.xmpp.example.com`) || Host(`share.xmpp.example.com`)
+      kind: Rule
+      services:
+        - name: snikket
+          port: 443
+          # HTTPS to the backend, not plain HTTP. Snikket derives its public urls
+          # from its own listen ports, so it must serve 443 and be talked to on
+          # 443 — see snikket.env. Sending HTTP here instead produces a redirect
+          # loop, since Snikket 301s to https and traefik forwards it back as http.
+          scheme: https
+          serversTransport: snikket-backend
+  tls:
+    secretName: snikket-tls
+---
+# Verify the backend's certificate properly rather than skipping it: traefik
+# dials the pod IP, so without serverName the hostname check would fail against
+# a cert issued for xmpp.example.com. It is the same Let's Encrypt cert traefik
+# serves at the front, so the system trust store already covers the chain.
+apiVersion: traefik.io/v1alpha1
+kind: ServersTransport
+metadata:
+  name: snikket-backend
+  namespace: snikket
+spec:
+  serverName: xmpp.example.com
+---
+# Raw XMPP client-to-server. HostSNI(`*`) with no tls block = plain TCP
+# passthrough, which is REQUIRED here: XMPP starts in cleartext and negotiates
+# TLS in-band via STARTTLS, so traefik must not try to terminate. Snikket
+# presents the cert mounted into the pod.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: snikket-c2s
+  namespace: snikket
+spec:
+  entryPoints: [xmpp-c2s]
+  routes:
+    - match: HostSNI(`*`)
+      services:
+        - name: snikket
+          port: 5222
+---
+# Server-to-server federation. Same passthrough reasoning; this is the port other
+# XMPP servers dial to deliver messages to xmpp.example.com.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: snikket-s2s
+  namespace: snikket
+spec:
+  entryPoints: [xmpp-s2s]
+  routes:
+    - match: HostSNI(`*`)
+      services:
+        - name: snikket
+          port: 5269
+---
+# SOCKS5 file-transfer proxy (proxy65), used when two clients cannot open a
+# direct stream to each other.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: snikket-proxy65
+  namespace: snikket
+spec:
+  entryPoints: [xmpp-proxy65]
+  routes:
+    - match: HostSNI(`*`)
+      services:
+        - name: snikket
+          port: 5000

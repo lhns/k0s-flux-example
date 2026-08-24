@@ -1,0 +1,70 @@
+---
+# Public — Vaultwarden does its own auth (local login + OpenID SSO via Authelia). TLS
+# via the default *.example.com wildcard. The Swarm `lolhens_redirect@file` middleware has
+# no cluster equivalent and is dropped.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: bitwarden
+  namespace: bitwarden
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`bitwarden.example.com`)
+      services:
+        - name: bitwarden
+          port: 80
+  tls: {}
+---
+# The /admin panel is gated by the reflected `authelia` forwardAuth middleware (the
+# app itself has no ADMIN_TOKEN set). Higher priority so it wins over the catch-all
+# above for /admin(/*). Authelia's `Bitwarden` access rule limits it to admin/bitwarden.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: bitwarden-admin
+  namespace: bitwarden
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      priority: 100
+      match: Host(`bitwarden.example.com`) && PathPrefix(`/admin`)
+      services:
+        - name: bitwarden
+          port: 80
+      middlewares:
+        - name: authelia
+  tls: {}
+---
+# bitwarden.kube.example.com redirects to the canonical bitwarden.example.com (default *.example.com
+# wildcard cert). The Authelia vaultwarden OIDC client already lists both hosts' callback
+# URIs, so an SSO login started on the kube host still works.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: bitwarden-kube-redirect
+  namespace: bitwarden
+spec:
+  redirectRegex:
+    regex: "^https://bitwarden.kube.example.com/(.*)"
+    replacement: "https://bitwarden.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: bitwarden-kube-redirect
+  namespace: bitwarden
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`bitwarden.kube.example.com`)
+      services:
+        - name: bitwarden
+          port: 80
+      middlewares:
+        - name: bitwarden-kube-redirect
+  tls: {}

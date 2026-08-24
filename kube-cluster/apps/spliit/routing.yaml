@@ -1,0 +1,130 @@
+---
+# The app is internet-facing now: it authenticates natively (better-auth + Authelia OIDC), so the
+# forward-auth middleware is gone -- keeping it would lock out exactly the people this is for,
+# invited friends with no lldap account. That makes a rate limit the only brute-force protection
+# in front of the login and the magic-link endpoint. Same reasoning as the freshrss API rule in
+# the Authelia config, which trades a forward-auth challenge for a rateLimit.
+#
+# average/burst are per source IP, which only works because the api runs with TRUST_PROXY=true
+# and traefik sets X-Forwarded-For -- otherwise every request looks like it comes from traefik.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: spliit-ratelimit
+  namespace: spliit
+spec:
+  rateLimit:
+    average: 50
+    burst: 100
+---
+# spliit-cloud. Traefik talks only to the web pod (nginx): it serves the SPA and reverse proxies
+# /trpc, /auth, /health and friends to the api Service. The api is deliberately not routable from
+# outside.
+#
+# No authelia middleware: the app authenticates natively (better-auth + Authelia OIDC), and a
+# forward-auth challenge in front would defeat the point -- invited friends have no lldap account,
+# and a shared view-only link is meant to open without one. Sign-up is invite_only, which is now
+# in force because an account exists (the gate is skipped only while the table is empty, so the
+# middleware stayed on until the first OIDC sign-in claimed it).
+#
+# What still restricts SSO is the client's authorization_policy in the Authelia config
+# (group:admin / group:spliit). TLS via the default *.example.com wildcard.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: spliit
+  namespace: spliit
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`spliit.example.com`)
+      services:
+        - name: web
+          port: 80
+      middlewares:
+        - name: spliit-ratelimit
+  tls: {}
+---
+# Refuses everything. ipAllowList against a range that can never match (TEST-NET-1, RFC 5737)
+# is the idiom for "return 403 here" -- traefik has no explicit deny middleware.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: spliit-deny
+  namespace: spliit
+spec:
+  ipAllowList:
+    sourceRange:
+      - 192.0.2.1/32
+---
+# No password accounts. SSO, magic link and anonymous.
+#
+# SIGNUP_MODE=open makes the app create an account for whoever completes a sign-in, which is what
+# SSO needs -- Authelia has already checked them against group:admin/group:spliit -- and what
+# anonymous accounts need too. But `open` applies to every method, and the fork has no setting
+# that distinguishes them (emailAndPassword is hard-coded enabled, magicLink is an unconditional
+# plugin), so the email ones are refused here instead.
+#
+# Denied -- the password account, which nothing here should ever create:
+#   sign-up/email       registration with a password
+#   sign-in/email       password login
+#
+# Deliberately NOT denied, all three of which create accounts on purpose:
+#   sign-in/oauth2      Authelia SSO -- the intended route for lhns people
+#   sign-in/magic-link  how a friend without an lldap account signs in
+#   sign-in/anonymous   no email at all, recovery link instead
+#
+# Note what this does NOT achieve: magic link both signs in AND registers, and
+# `disableSignUp: false` is hard-coded in the fork, so anyone who can receive mail at any
+# address can get a writable account. The only lever that would stop that is
+# SIGNUP_MODE=invite_only, which gates OIDC registration too and so defeats the point.
+# See README, "Getting in".
+#
+# priority beats the catch-all Host rule, whose computed priority is just its rule length.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: spliit-deny-local-signup
+  namespace: spliit
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      priority: 100
+      match: Host(`spliit.example.com`) && PathRegexp(`^/auth/(sign-up/email|sign-in/email)`)
+      services:
+        - name: web
+          port: 80
+      middlewares:
+        - name: spliit-deny
+  tls: {}
+---
+# spliit.kube.example.com redirects to the canonical spliit.example.com.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: spliit-kube-redirect
+  namespace: spliit
+spec:
+  redirectRegex:
+    regex: "^https://spliit.kube.example.com/(.*)"
+    replacement: "https://spliit.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: spliit-kube-redirect
+  namespace: spliit
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`spliit.kube.example.com`)
+      services:
+        - name: web
+          port: 80
+      middlewares:
+        - name: spliit-kube-redirect
+  tls: {}

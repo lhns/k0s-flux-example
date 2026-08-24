@@ -1,0 +1,20 @@
+#!/bin/sh
+# Runs the musl-linked socat straight out of a read-only image volume, under its own loader, so
+# the OTBR image's ancient glibc (Ubuntu 18.04, glibc 2.27) is never involved.
+#
+# This replaced an initContainer whose entire job was copying six files out of alpine/socat into
+# an emptyDir and writing this script. The kubelet already had that image mounted in order to run
+# the initContainer at all, so the copy bought nothing.
+#
+# Paths are the image's own layout rather than the flat directory the copy produced:
+#   /opt/socat/lib/ld-musl-x86_64.so.1   the loader   (a real file, not a symlink)
+#   /opt/socat/usr/bin/socat1            the binary
+#   /opt/socat/usr/lib/*.so              readline, ssl, crypto, ncursesw
+#
+# The library symlinks in the image (libreadline.so.8 -> libreadline.so.8.3) are RELATIVE and
+# resolve within the same directory, so they survive being mounted rather than copied — verified
+# against the image before this change. An absolute symlink would have dangled here, because
+# nothing outside /opt/socat exists from musl's point of view.
+exec /opt/socat/lib/ld-musl-x86_64.so.1 \
+  --library-path /opt/socat/usr/lib:/opt/socat/lib \
+  /opt/socat/usr/bin/socat1 "$@"

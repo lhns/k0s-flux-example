@@ -1,0 +1,62 @@
+---
+# Guacamole's webapp is served under the /guacamole context path. addPrefix lets
+# users hit the clean root URL (guacamole.example.com) while Traefik maps it onto
+# the backend's /guacamole context (replicates the Swarm guacamole_prefix). First
+# addPrefix in the repo.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: guacamole-prefix
+  namespace: guacamole
+spec:
+  addPrefix:
+    prefix: /guacamole
+---
+# Public — Guacamole does its own auth (OpenID SSO via Authelia). TLS via the
+# default *.kube.example.com wildcard.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: guacamole
+  namespace: guacamole
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`guacamole.example.com`)
+      services:
+        - name: guacamole
+          port: 8080
+      middlewares:
+        - name: guacamole-prefix
+  tls: {}
+---
+# guacamole.kube.example.com redirects to the canonical guacamole.example.com (default
+# *.example.com wildcard cert). Also matches the OIDC redirect origin.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: guacamole-kube-redirect
+  namespace: guacamole
+spec:
+  redirectRegex:
+    regex: "^https://guacamole.kube.example.com/(.*)"
+    replacement: "https://guacamole.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: guacamole-kube-redirect
+  namespace: guacamole
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`guacamole.kube.example.com`)
+      services:
+        - name: guacamole
+          port: 8080
+      middlewares:
+        - name: guacamole-kube-redirect
+  tls: {}

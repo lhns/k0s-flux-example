@@ -1,0 +1,244 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: homeassistant
+---
+# /config holds .storage (JSON state, including long-lived access tokens),
+# custom_components and blueprints. History is NOT here — the recorder writes to Postgres
+# — so there is no SQLite on this volume and it stays small.
+#
+# cephfs, not ceph-rbd: the repo's rule is "single-writer SQLite -> block" (navidrome),
+# and the counter-case is grafana, which uses cephfs precisely BECAUSE its database is
+# Postgres and the volume holds only files. Home Assistant with a Postgres recorder is
+# the grafana case. RWO bought nothing here and cost the Multi-Attach stall that RBD
+# hits whenever the pod moves nodes.
+#
+# RWX does NOT mean this can roll. `strategy: Recreate` below is what keeps a single
+# writer, and it must stay: two Home Assistant instances would both write .storage and
+# both connect to MQTT and the recorder.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: homeassistant-config
+  namespace: homeassistant
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: cephfs
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: homeassistant
+  namespace: homeassistant
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): the initContainer renders
+    # /config/secrets.yaml from them at startup, so a rotated Secret only takes effect on
+    # a restart.
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  # Recreate is mandatory, not stylistic — and note it is NOT implied by the volume any
+  # more: the PVC is RWX, so Kubernetes would happily run two pods. Two Home Assistant
+  # instances writing .storage concurrently corrupts it, so this is the only thing
+  # keeping a single writer.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: homeassistant
+  template:
+    metadata:
+      annotations:
+        # Attach the LAN interface as net1 so mDNS/SSDP multicast reaches Home Assistant.
+        # After this lands, pick net1 in Settings > System > Network — HA auto-detects its
+        # discovery adapter from the route to 224.0.0.251, which resolves via eth0, so it
+        # will otherwise listen on the wrong interface and discovery will look broken.
+        k8s.v1.cni.cncf.io/networks: lan
+      labels:
+        app.kubernetes.io/name: homeassistant
+        app.kubernetes.io/instance: homeassistant
+        # UI via Traefik. The LoadBalancer ports need no label — kube-vnet auto-allows
+        # LoadBalancer traffic as ext.svc.
+        kube-vnet/net.traefik.traefik: ingress
+        # MQTT broker (zigbee2mqtt devices) and the recorder database.
+        kube-vnet/net.mosquitto.mosquitto: egress
+        kube-vnet/net.postgres.postgres: egress
+        # The Matter controller's websocket, ws://matter-server.matter-server:5580.
+        # Label form is net.<namespace>.<vnetName> — namespace first.
+        kube-vnet/net.matter-server.matter-server: egress
+        # The Thread border router's REST API, http://otbr.otbr:8081 — what the
+        # OpenThread Border Router integration polls for mesh state and the dataset.
+        kube-vnet/net.otbr.otbr: egress
+    spec:
+      # HA reads plain env vars; the injected <SVC>_PORT variables are a known collision
+      # source and nothing here needs them.
+      enableServiceLinks: false
+      # No securityContext: the image expects to run as root and manages /config itself.
+      initContainers:
+        # Everything here is idempotent — safe on every restart, does real work only once.
+        - name: seed-config
+          image: alpine/git:2.54.0
+          env:
+            - name: HA_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: homeassistant-db
+                  key: password
+            - name: HA_OIDC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: homeassistant-secrets
+                  key: oidc-client-secret
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              cd /config
+
+              # 1. HACS, the community package manager. Custom components are installed
+              #    THROUGH HACS from here on (auth_oidc included), so this bootstraps the
+              #    installer and nothing else.
+              #    This tag is a floor, not the running version: HACS updates itself from
+              #    its own UI, and everything installed through it lives in the volume
+              #    rather than in git. That is the accepted trade — a rebuild from an
+              #    empty PVC gets HACS but none of the components installed through it,
+              #    so /config is restore-from-backup territory, not reproducible-from-git.
+              if [ -d custom_components/hacs ]; then
+                echo "== hacs present"
+              else
+                echo "== installing hacs @ 2.0.5"
+                mkdir -p custom_components/hacs
+                wget -qO /tmp/hacs.zip \
+                  https://github.com/hacs/integration/releases/download/2.0.5/hacs.zip
+                unzip -q /tmp/hacs.zip -d custom_components/hacs
+                rm -f /tmp/hacs.zip
+              fi
+
+              # 2. secrets.yaml, rendered from the mounted Secrets on EVERY start so a
+              #    rotation takes effect (Reloader restarts us). HA resolves !secret by
+              #    walking up from the including file to the config dir, so one file here
+              #    covers packages/gitops.yaml. Single-quoted with '' escaping so a
+              #    password containing quotes cannot break the YAML.
+              #    NOTE: recorder_db_url is a URL, and the password is NOT url-encoded —
+              #    keep the db password url-safe (alphanumeric). A '@' or ':' in it would
+              #    silently produce a malformed DSN.
+              esc() { printf '%s' "$1" | sed "s/'/''/g"; }
+              cat > secrets.yaml <<EOF
+              recorder_db_url: 'postgresql://homeassistant:$(esc "$HA_DB_PASSWORD")@postgres-rw.postgres.svc.cluster.local:5432/homeassistant'
+              oidc_client_secret: '$(esc "$HA_OIDC_SECRET")'
+              EOF
+              chmod 600 secrets.yaml
+
+              # 3. configuration.yaml. HA writes a default one on first start; seeding it
+              #    ourselves is what makes the packages include reproducible instead of a
+              #    manual post-install step. The include line is added exactly once, so
+              #    hand edits to the rest of the file survive.
+              [ -f automations.yaml ] || echo "[]" > automations.yaml
+              [ -f scripts.yaml ]    || echo "{}" > scripts.yaml
+              [ -f scenes.yaml ]     || echo "[]" > scenes.yaml
+              if [ ! -f configuration.yaml ]; then
+                echo "== seeding configuration.yaml"
+                cat > configuration.yaml <<'EOF'
+              # Seeded once by the initContainer. Home Assistant and the UI may add to
+              # this file; the git-managed settings live in packages/ (see the repo).
+              default_config:
+
+              automation: !include automations.yaml
+              script: !include scripts.yaml
+              scene: !include scenes.yaml
+              EOF
+              fi
+              if grep -q "packages: !include_dir_named packages" configuration.yaml; then
+                echo "== packages include present"
+              else
+                echo "== adding packages include"
+                printf '\nhomeassistant:\n  packages: !include_dir_named packages\n' >> configuration.yaml
+              fi
+              ls -1
+          volumeMounts:
+            - name: config
+              mountPath: /config
+      containers:
+        - name: homeassistant
+          image: ghcr.io/home-assistant/home-assistant:2026.8.2
+          env:
+            - name: TZ
+              value: Europe/Berlin
+          ports:
+            - name: http
+              containerPort: 8123
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 12
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            # Nested inside the PVC mount. HA's directory loader skips dot-prefixed
+            # entries, so the ConfigMap's ..data symlink farm is ignored and only
+            # gitops.yaml is read.
+            - name: packages
+              mountPath: /config/packages
+              readOnly: true
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: homeassistant-config
+        - name: packages
+          configMap:
+            name: homeassistant-packages
+---
+# For Traefik.
+apiVersion: v1
+kind: Service
+metadata:
+  name: homeassistant
+  namespace: homeassistant
+spec:
+  selector:
+    app.kubernetes.io/name: homeassistant
+  ports:
+    - name: http
+      port: 8123
+      targetPort: http
+---
+# The LAN attachment, for DISCOVERY ONLY. mDNS and SSDP are multicast, which never reaches a
+# normal pod — a MetalLB VIP is unicast and NAT'd, which is why the 10.20.2.7 VIP that used to
+# be here was deleted rather than kept: it could not do this, and everything else it carried
+# is served by Traefik over TLS.
+#
+# Home Assistant's HTTP server is not exposed here, but it IS reachable on this address: HA
+# binds every interface since server_host had to be dropped (see packages.yaml). Closing that
+# again is a TODO.md item — an iptables rule dropping TCP 8123 on net1.
+#
+# No gateway in the ipam block (see matter-server for the full reasoning): it would install a
+# default route via net1 and hijack egress away from eth0.
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: lan
+  namespace: homeassistant
+spec:
+  config: |
+    {
+      "cniVersion": "0.3.1",
+      "name": "lan",
+      "plugins": [
+        {
+          "type": "macvlan",
+          "master": "ens18",
+          "mode": "bridge",
+          "ipam": {
+            "type": "static",
+            "addresses": [{"address": "10.20.3.9/16"}]
+          }
+        }
+      ]
+    }

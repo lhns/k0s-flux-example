@@ -1,0 +1,42 @@
+---
+# The CNPG operator loads the plugin by dialing its gRPC Service (app: barman-cloud,
+# :9090) inside cnpg-system. Under pod-level kube-vnet isolation, intra-namespace ingress
+# is denied, so give the plugin a private channel that ONLY the operator may use — a
+# dedicated vnet + selector-scoped bindings (not a whole-namespace mesh).
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: barman-cloud
+  namespace: cnpg-system
+spec:
+  description: "CNPG operator -> barman-cloud plugin gRPC (:9090)."
+---
+# The plugin accepts ingress from members of the channel.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetworkBinding
+metadata:
+  name: barman-cloud-plugin
+  namespace: cnpg-system
+spec:
+  virtualNetworkRef:
+    name: barman-cloud
+    namespace: cnpg-system
+  direction: ingress
+  podSelector:
+    matchLabels:
+      app: barman-cloud
+---
+# The operator may reach the plugin (egress only: it initiates the gRPC).
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetworkBinding
+metadata:
+  name: barman-cloud-operator
+  namespace: cnpg-system
+spec:
+  virtualNetworkRef:
+    name: barman-cloud
+    namespace: cnpg-system
+  direction: egress
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: cloudnative-pg

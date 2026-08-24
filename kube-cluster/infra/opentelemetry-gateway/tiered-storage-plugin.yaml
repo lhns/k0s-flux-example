@@ -1,0 +1,78 @@
+# The Aiven tiered-storage plugin, composed into one OCI artifact and mounted on the brokers as an
+# image volume (kafka.yaml). This replaces a static CephFS PV that pointed at a directory somebody
+# unpacked by hand for the Swarm broker — see the repo README, "Getting files into a workload".
+#
+# What that bought: the version is IN GIT, with a content hash, and reproducible from this file
+# alone. Before, it lived in two directory names on Ceph and appeared nowhere except inside a
+# classpath string; nothing recorded where the jars came from or what they hashed to. It also takes
+# Ceph out of the broker startup path, which matters — a broker restarting during a Ceph incident
+# could not mount its plugins and would not start.
+#
+# This is a RELOCATION, not an upgrade. Verified before the switch: the two archives contain 124 +
+# 52 = 176 jars, and the jar sets are byte-for-byte identical to what was on Ceph. 1.1.1 is also
+# still the current Aiven release.
+#
+# UPGRADING is now a four-line edit here — the two url/digest pairs — and nothing else. The
+# directory names deliberately carry no version (`to: /core`, not `/core-1.1.1`), so `classPath` in
+# kafka.yaml is a constant and cannot fall out of step with what is mounted.
+---
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageComposition
+metadata:
+  name: kafka-tiered-storage
+  namespace: opentelemetry-gateway
+spec:
+  interval: 1h
+  # No `base`: this is a bundle of jars mounted into the Strimzi Kafka container, which keeps its
+  # own upstream image. A Kafka or Strimzi release therefore changes nothing here.
+  layers:
+    # TWO layers, kept in SEPARATE directories, and that separation is load-bearing rather than
+    # tidy: both archives ship commons-*.jar and httpclient, with DIFFERENT commons-codec versions
+    # (1.17.0 in core, 1.17.1 in s3). Flattening them into one directory would silently pick one.
+    # This is why the classpath in kafka.yaml is two wildcard entries and not one.
+    - name: core
+      fetch:
+        # renovate: datasource=github-releases depName=Aiven-Open/tiered-storage-for-apache-kafka
+        url: https://github.com/Aiven-Open/tiered-storage-for-apache-kafka/releases/download/v1.1.1/core-1.1.1.tgz
+        # DECLARED, not resolved — an arbitrary URL is not content-addressed by anything else, so
+        # this is the only thing making the fetch reproducible. A mismatch is TERMINAL, which is
+        # also why renovate.json gates this dependency behind dashboard approval: Renovate can bump
+        # the version in the URL but has no way to recompute the digest, and an automerged bump
+        # would break the artifact.
+        digest: sha256:053480aa4ea5d3b667df824b4c4425f469243df3c89fa8c50edbf9ec88300e4f
+        unpack: tar.gz
+        # The archive wraps everything in a version-named directory (verified: `core-1.1.1/…`).
+        # Stripping it is what lets `to:` below be version-free.
+        subpath: core-1.1.1
+      to: /core
+      # 1001:0 is the Strimzi Kafka container's user. Cosmetic in practice — image volumes are
+      # always mounted read-only and the default mode is world-readable — but it means the process
+      # owns what it reads rather than relying on that.
+      owner: {uid: 1001, gid: 0}
+    - name: s3
+      fetch:
+        # renovate: datasource=github-releases depName=Aiven-Open/tiered-storage-for-apache-kafka
+        url: https://github.com/Aiven-Open/tiered-storage-for-apache-kafka/releases/download/v1.1.1/s3-1.1.1.tgz
+        digest: sha256:3e0ea6ce17033c1fcf74e0f6f292411cb3e2afcc1798b51125bb15e5b7500017
+        unpack: tar.gz
+        subpath: s3-1.1.1
+      to: /s3
+      owner: {uid: 1001, gid: 0}
+  # ONE composition with two layers rather than two compositions: core and s3 are one Aiven release
+  # and always move together. (apps/freshrss splits per extension because those version
+  # independently — the split there is about lifecycle, not about file layout.)
+  push:
+    # No `repository` — publishes to <registry>/<namespace>/<name>. See apps/freshrss.
+    history: 10
+    # No `tags` here, and there must not be any. The root generator hashes the build-determining
+    # part of this spec and drives both ends from that one value: a patch setting push.tags, and
+    # an `images:` entry rewriting the volume reference in kafka.yaml. Edit a url/digest above and
+    # the hash moves, so artifact and broker template change in the same commit.
+    #
+    # Every layer here `fetch`es a pinned url+digest INLINE, so this spec contains its own inputs
+    # and the hash is complete as it stands. Compositions whose layers use `sourceRef` only name
+    # their input, so for those the generator also folds the referenced object's spec in — see
+    # apps/freshrss, where hashing the composition alone once missed a version bump entirely.
+    #
+    # `onConflict` defaults to Fail and is left alone: a spec-hash tag can only mean one thing, so if
+    # it ever resolved to different content something is genuinely wrong and failing loudly is right.

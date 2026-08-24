@@ -1,0 +1,32 @@
+---
+# Outline's login role in the shared CNPG cluster (miniflux/mealie precedent).
+# Password from secret/outline-db (postgres ns). retain: never auto-drop.
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: outline
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: outline
+  ensure: present
+  login: true
+  passwordSecret:
+    name: outline-db
+  databaseRoleReclaimPolicy: retain
+---
+# The outline database, owned by that role. A pg_dump of the old Swarm Postgres
+# (10.20.2.10:5436, PG 18) is restored into it once, before Outline first boots
+# (same major, PG 18 -> PG 18.4 -> clean dump/restore). See README.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: outline
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: outline
+  owner: outline
+  databaseReclaimPolicy: retain

@@ -1,0 +1,236 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gitea-runner
+  labels:
+    # Nothing enforces PodSecurity in this cluster today (only a `warn` on flux-system), so these
+    # change no behaviour. They are here to state the exception AT the namespace boundary: this is
+    # the one namespace that legitimately runs a privileged container, so when enforcement is
+    # turned on cluster-wide, every OTHER namespace can be tightened without touching this one.
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: privileged
+---
+# No RBAC is attached to this ServiceAccount, and the token is not mounted (below). A workflow
+# author has root inside the dind container; the least we can do is not hand them a credential
+# for the API server on the way in.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gitea-runner
+  namespace: gitea-runner
+automountServiceAccountToken: false
+---
+# ===========================================================================
+# Gitea Actions runner + its own Docker daemon.
+#
+# The Swarm version needed a `swarm-launcher` sidecar (Swarm cannot run
+# privileged containers), a socat UNIX->TCP shim (the daemon lived in another
+# network namespace), `LAUNCH_NETWORK_MODE: container:` to share that namespace,
+# and `--storage-driver=fuse-overlayfs` because /var/lib/docker sat on NFS.
+# Every one of those is scaffolding around a limitation Kubernetes does not
+# have: a Pod already shares a netns, privileged is a field, and the volume
+# here is not NFS. So this is two containers and nothing else.
+#
+# THIS IS THE CLUSTER'S FIRST PRIVILEGED APPLICATION WORKLOAD. Read the README
+# before changing it — in particular, the real perimeter is who can trigger a
+# workflow, not anything in this file.
+# ===========================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: gitea-runner
+  namespace: gitea-runner
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  # StatefulSet for a STABLE NAME, not for storage. GITEA_RUNNER_NAME comes from
+  # metadata.name below; under a Deployment every roll would produce a new random
+  # name and therefore register a brand-new runner in Gitea, leaving the old rows
+  # behind as permanently-offline entries. This is the honest analogue of Swarm's
+  # {{.Task.Slot}}.
+  serviceName: gitea-runner
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gitea-runner
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gitea-runner
+        app.kubernetes.io/instance: gitea-runner
+        # No vnet labels: the runner reaches Gitea over its PUBLIC url, which
+        # resolves to the edge and arrives at Traefik's LoadBalancer Service —
+        # and kube-vnet auto-allows LoadBalancer/NodePort ingress. Egress is
+        # unrestricted under the ingress-only baseline. See README for why the
+        # public URL rather than the in-cluster one.
+    spec:
+      serviceAccountName: gitea-runner
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # Split-horizon for one pod. GITEA_INSTANCE_URL must be the PUBLIC hostname
+      # because it propagates into every job as the clone URL — but resolving it
+      # publicly sends traffic out to the edge and back for two endpoints sitting
+      # in the same cluster. This points it straight at Traefik's MetalLB VIP.
+      #
+      # TLS still validates: Traefik serves the *.example.com wildcard, and the
+      # hostname the client asks for is unchanged. It also means the runner can
+      # register BEFORE public DNS for gitea.example.com is moved off the old Swarm
+      # edge, which is the state today.
+      #
+      # Caveat: containers started by the dind daemon do NOT inherit this — they
+      # get their resolver from dockerd. So a workflow that clones
+      # gitea.example.com still needs public DNS to be correct.
+      hostAliases:
+        - ip: "10.20.2.15"
+          hostnames:
+            - gitea.example.com
+      # Long, because a drain must let running jobs finish rather than killing
+      # builds. Paired with runner.shutdown_timeout in config.yaml.
+      terminationGracePeriodSeconds: 3600
+      initContainers:
+        # A NATIVE SIDECAR (restartPolicy: Always on an initContainer, k8s >=1.29;
+        # this cluster is 1.36). Two things that an ordinary container would not
+        # give: dockerd is up BEFORE act_runner starts, so there is no startup
+        # race, and it terminates AFTER act_runner exits, so in-flight jobs drain.
+        - name: dind
+          restartPolicy: Always
+          # Pinned to a real patch tag. The Swarm stack tracked a floating
+          # `docker:28-dind`; 29.x is current. Docker 29 changed firewall
+          # handling, so the post-deploy check verifies the listener binding and
+          # that overlay2 (not vfs) was selected — see README.
+          image: docker:29.7.2-dind
+          securityContext:
+            # The one privileged container in the cluster outside kube-system and
+            # the CSI plugins. dockerd needs it to manage cgroups, netfilter and
+            # overlay mounts. Note this is root on the NODE, not merely in the
+            # pod — see the README's containment section.
+            privileged: true
+          args:
+            # `dockerd` FIRST, and that word is load-bearing. dockerd-entrypoint.sh
+            # injects its own `--host=tcp://0.0.0.0:2375` whenever the first
+            # argument starts with a dash — so passing bare flags does not
+            # override the default, it ADDS to it: dockerd bound 0.0.0.0 first,
+            # then died with "port is already allocated" on 127.0.0.1. Naming
+            # `dockerd` explicitly skips that injection while still letting the
+            # entrypoint wrap us in /usr/local/bin/dind, which does the cgroup
+            # setup a nested daemon needs.
+            - dockerd
+            # Bound to LOOPBACK, deliberately: an unauthenticated Docker API is
+            # root-equivalent, and 0.0.0.0 would expose it to every pod that can
+            # route here. The shared pod netns makes loopback sufficient.
+            - --host=unix:///var/run/docker.sock
+            - --host=tcp://127.0.0.1:2375
+            # overlay2 natively: /var/lib/docker is an emptyDir on the node's own
+            # filesystem, not the NFS that forced fuse-overlayfs on Swarm.
+            - --storage-driver=overlay2
+          env:
+            # Must be present AND empty — that is what disables TLS on the TCP
+            # listener. Absent is not the same thing.
+            - name: DOCKER_TLS_CERTDIR
+              value: ""
+            - name: TZ
+              value: Europe/Berlin
+          volumeMounts:
+            - name: docker-lib
+              mountPath: /var/lib/docker
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+            limits:
+              cpu: "8"
+              memory: 12Gi
+      containers:
+        - name: act-runner
+          # 0.6.1 is current; the Swarm runner was still on 0.2.13, and the
+          # stale runner rows in Gitea show 0.2.13/0.4.1.
+          image: gitea/act_runner:0.6.1
+          securityContext:
+            # act_runner itself needs no privileges at all — it talks to the
+            # daemon over loopback and writes two volumes. Only the daemon above
+            # is privileged. (No seccompProfile on the dind container on purpose:
+            # `privileged` forces seccomp and AppArmor unconfined at the CRI
+            # level regardless, so writing one there would mislead review.)
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: TZ
+              value: Europe/Berlin
+            - name: CONFIG_FILE
+              value: /config/config.yaml
+            # The public URL, not the in-cluster Service. It propagates into every
+            # job as the clone URL and GITHUB_SERVER_URL, so an in-cluster name
+            # would produce URLs that only resolve inside the pod network. Costs a
+            # hairpin out to the edge and back. See README.
+            - name: GITEA_INSTANCE_URL
+              value: https://gitea.example.com
+            - name: GITEA_RUNNER_REGISTRATION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: gitea-runner
+                  key: GITEA_RUNNER_REGISTRATION_TOKEN
+            # Stable across restarts thanks to the StatefulSet ordinal, so a
+            # restart re-uses the existing runner registration instead of
+            # creating a new row.
+            - name: GITEA_RUNNER_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            # Reaches the sidecar over the shared network namespace. Set here as
+            # well as in config.yaml because the two disagree in some versions.
+            - name: DOCKER_HOST
+              value: tcp://127.0.0.1:2375
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: cache
+              mountPath: /cache
+            - name: config
+              mountPath: /config
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 2Gi
+      volumes:
+        # Disposable by definition — image layers and build caches regenerate
+        # from their sources. On the node's own disk rather than Ceph, which is
+        # HEALTH_ERR with OSDs at ~95%: 40Gi of RBD would be ~120Gi raw at 3x
+        # replication, for a cache, over the network, unbacked-up.
+        #
+        # sizeLimit is the containment that matters: a runaway build evicts THIS
+        # POD rather than filling the node and taking its neighbours with it,
+        # which is exactly how five unrelated pods died on kube-worker-03.
+        #
+        # Cost: a cold cache after every restart. Spegel does not help — it
+        # mirrors containerd, and this is a separate image store. If that hurts,
+        # move to `local-path` (node-local, no Ceph); never to ceph-rbd.
+        - name: docker-lib
+          emptyDir:
+            sizeLimit: 40Gi
+        - name: cache
+          emptyDir:
+            sizeLimit: 10Gi
+        - name: config
+          configMap:
+            name: gitea-runner-config
+  volumeClaimTemplates:
+    # Only the .runner registration identity (about 1 KB) lives here, which is
+    # why 1Gi on Ceph is justifiable where 40Gi for the image cache was not.
+    # Without it, every pod recreation would register a NEW runner and leave the
+    # old one offline in the admin UI forever.
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: ceph-rbd
+        resources:
+          requests:
+            storage: 1Gi

@@ -1,0 +1,1533 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: matrix
+---
+# ===========================================================================
+# Storage
+#  - synapse /data (media_store, signing key, logging config, registration/*):
+#    BIG media -> mounted in place from CephFS (jellyfin/immich static-PV
+#    pattern), never copied. The original homeserver.yaml lives here untouched;
+#    only the DB block is overridden via a second --config-path (secret).
+#  - mas /config, whatsapp /data: small -> COPIED into fresh CephFS PVCs by the
+#    migration pod (their DB URIs are sed-edited in the copy; Swarm originals
+#    untouched).
+#  - baibot: its matrix-sdk SQLite session/crypto store -> COPIED into a fresh
+#    ceph-rbd PVC (block storage for SQLite; preserves the bot's device session).
+# ===========================================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: matrix-synapse-data
+spec:
+  accessModes: [ReadWriteMany]
+  capacity:
+    storage: 1Gi
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: matrix-synapse-data
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: fastappdata
+      staticVolume: "true"
+      rootPath: /docker/matrix/synapse
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: matrix-synapse-data
+  namespace: matrix
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: matrix-synapse-data
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Working directory for the media sweep: cache.db, the sqlite index the tool
+# builds from synapse's media tables. Persisted between runs purely so a rerun
+# does not rebuild it from scratch over 199k files.
+#
+# ceph-rbd, not cephfs: it is SQLite, and the rule in this repo is single-writer
+# SQLite -> block storage (baibot, telegram's data.db). Network-filesystem
+# locking is exactly where SQLite corruption comes from, as the telegram bridge
+# demonstrated in Aug 2026. RWO also pairs with concurrencyPolicy: Forbid --
+# a second concurrent run could not attach the volume from another node anyway.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: synapse-media-sweep
+  namespace: matrix
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Replacement for the static matrix-synapse-data PV above, so synapse stops
+# depending on the inherited Swarm path /docker/matrix/synapse and becomes
+# snapshottable like everything else. A new PVC is unavoidable: storageClassName
+# and volumeName are both immutable, so the existing claim cannot be converted.
+#
+# 64Gi against 32.1 GiB of real data (99.6% of it media_store). The size is
+# deliberate: the static PV declares capacity 1Gi and holds 32 GiB because static
+# CephFS volumes carry no quota, whereas a provisioned one DOES enforce it -- ask
+# for too little and synapse hits a limit it has never had.
+#
+# Same `cephfs` class, i.e. the same fsName (fastappdata) it already lives on, so
+# performance is unchanged and the copy is intra-filesystem. RWX as before.
+# homeserver.yaml needs no edit: media_store_path is /data/media_store and the
+# mount point does not move.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: synapse-pymods
+  namespace: matrix
+spec:
+  # RWX because synapse's rollout is not Recreate -- the new pod's initContainer
+  # mounts this while the old pod still holds it.
+  accessModes: [ReadWriteMany]
+  storageClassName: cephfs
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: synapse-data
+  namespace: matrix
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: cephfs
+  resources:
+    requests:
+      storage: 64Gi
+---
+# Fresh CephFS PVC — the migration pod copies the Swarm mas/ config in and
+# sed-edits its database.uri. mas reads config only; no writes.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mas-config
+  namespace: matrix
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: cephfs
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Fresh CephFS PVC — the migration pod copies the Swarm bridges/whatsapp/ dir in
+# and sed-edits config.yaml's database.uri. (Bridge state lives in Postgres.)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: whatsapp-data
+  namespace: matrix
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: cephfs
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Fresh ceph-rbd PVC — the migration pod copies the Swarm baibot/ dir in
+# (config/config.yml + data/ with the SQLite crypto/session store).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: baibot
+  namespace: matrix
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 2Gi
+---
+# ===========================================================================
+# Synapse — the homeserver. The image's /start.py is bypassed so we can pass a
+# second --config-path (the DB override) that deep-merges over the in-place
+# homeserver.yaml. Runs as uid 991 (owns /data on CephFS). Single-writer ->
+# Recreate.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: synapse
+  namespace: matrix
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: synapse
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: synapse
+        app.kubernetes.io/instance: matrix
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.postgres.postgres: egress
+        kube-vnet/net.matrix-redis: egress
+        kube-vnet/net.matrix-mas: egress
+        kube-vnet/net.matrix-synapse: ingress
+        kube-vnet/net.matrix-bridges: egress
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        runAsUser: 991
+        runAsGroup: 991
+      # TEMPORARY, pending an ImageComposition. The stock synapse image has no
+      # boto3, so the s3 media storage provider cannot be imported without help.
+      # pip runs against a PERSISTENT volume and skips when the module is already
+      # there, so PyPI is only needed on a version change -- not on every restart.
+      # An emptyDir here would make a PyPI outage during any node drain into a
+      # homeserver outage.
+      #
+      # Same image as synapse itself, so the interpreter that resolves the
+      # dependencies is the one that will import them (python 3.13, and
+      # site-packages is /usr/local/lib/python3.13, not Debian dist-packages).
+      initContainers:
+        - name: install-s3-provider
+          image: matrixdotorg/synapse:v1.158.0
+          # Root only for this container, and only to write the freshly-provisioned
+          # PVC (which comes up root-owned) before chowning it to synapse's 991.
+          # Pod-level fsGroup would do it too, but fsGroup applies to EVERY volume
+          # and would recursively chown the 32 GiB / 315k-inode media store.
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              # Marker includes the extras, so adding one forces a reinstall.
+              want=1.6.1+cli
+              if [ "$(cat /pymods/.version 2>/dev/null)" = "$want" ]; then
+                echo "s3 storage provider $want already present, skipping"
+                exit 0
+              fi
+              rm -rf /pymods/* /pymods/.version
+              # --no-deps is load-bearing. pip --target ignores what is already in
+              # site-packages, so a plain install tries to build psycopg2 from
+              # source and dies: there is no compiler in this image. psycopg2,
+              # Twisted and PyYAML are declared deps of the provider but are only
+              # needed by the s3_media_upload CLI, and all three are already in the
+              # image. boto3 is installed separately WITH its deps -- those are
+              # pure-python wheels and resolve fine.
+              pip install --no-cache-dir --target=/pymods --no-deps \
+                "synapse-s3-storage-provider==1.6.1"
+              pip install --no-cache-dir --target=/pymods boto3
+              # humanize and tqdm are used only by the s3_media_upload CLI, which
+              # the sweep CronJob runs from this same bundle. psycopg2 and PyYAML,
+              # its other CLI deps, are already in the image.
+              pip install --no-cache-dir --target=/pymods humanize tqdm
+              python -c "import sys; sys.path.insert(0,'/pymods'); import s3_storage_provider, boto3; print('import check ok')"
+              echo "$want" > /pymods/.version
+              chown -R 991:991 /pymods
+          volumeMounts:
+            - name: pymods
+              mountPath: /pymods
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {memory: 512Mi}
+      containers:
+        - name: synapse
+          image: matrixdotorg/synapse:v1.158.0
+          command: ["python", "-m", "synapse.app.homeserver"]
+          args:
+            - "--config-path"
+            - "/data/homeserver.yaml"
+            - "--config-path"
+            - "/secrets/database.yaml"
+            # TURN/VoIP, pointing at the shared apps/coturn. Plaintext on purpose:
+            # the secret itself is read from a file (turn_shared_secret_path), so
+            # nothing sensitive lives in this config.
+            - "--config-path"
+            - "/config/synapse-turn.yaml"
+            # The appservice registration list. Replaces homeserver.yaml's copy
+            # wholesale (last-value-wins per top-level key), so it must always name
+            # every bridge -- the files come from the registrations secret below.
+            - "--config-path"
+            - "/config-appservices/synapse-appservices.yaml"
+            # Media storage provider -> s3.example.com. SOPS, because it carries the
+            # S3 secret key. Additive: homeserver.yaml leaves
+            # media_storage_providers commented out.
+            - "--config-path"
+            - "/media-s3/media-s3.yaml"
+            # trusted_key_servers: [] -- fetch other servers' signing keys directly
+            # instead of via the matrix.org notary, which rate-limits us (429).
+            - "--config-path"
+            - "/config-keyservers/synapse-keyservers.yaml"
+          env:
+            - name: TZ
+              value: Europe/Berlin
+            # Where the s3 media storage provider and its dependencies live. The
+            # base image is stock upstream and has no boto3; see the initContainer.
+            - name: PYTHONPATH
+              value: /pymods
+            # boto3 reads path-style addressing from here; the provider has no
+            # config key for it. See synapse-aws-config.ini.
+            - name: AWS_CONFIG_FILE
+              value: /aws/config
+          ports:
+            - name: http
+              containerPort: 8008
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 30
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: db-override
+              mountPath: /secrets
+              readOnly: true
+            - name: turn-config
+              mountPath: /config
+              readOnly: true
+            # Its own mount point rather than a subdirectory of an existing one:
+            # mounting one volume inside another is needlessly fragile.
+            - name: appservices-config
+              mountPath: /config-appservices
+              readOnly: true
+            - name: keyservers-config
+              mountPath: /config-keyservers
+              readOnly: true
+            - name: registrations
+              mountPath: /registrations
+              readOnly: true
+            - name: pymods
+              mountPath: /pymods
+            - name: media-s3
+              mountPath: /media-s3
+              readOnly: true
+            - name: aws-config
+              mountPath: /aws
+              readOnly: true
+            # NOT nested under /secrets: that path is already the db-override
+            # secret volume, and mounting inside another volume is needlessly
+            # fragile.
+            - name: turn-secret
+              mountPath: /turn
+              readOnly: true
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: matrix-synapse-data
+        - name: db-override
+          secret:
+            secretName: synapse-db-override
+        - name: turn-config
+          configMap:
+            name: synapse-turn
+        - name: appservices-config
+          configMap:
+            name: synapse-appservices
+        - name: keyservers-config
+          configMap:
+            name: synapse-keyservers
+        - name: registrations
+          secret:
+            secretName: synapse-appservice-registrations
+        - name: pymods
+          persistentVolumeClaim:
+            claimName: synapse-pymods
+        - name: media-s3
+          secret:
+            secretName: synapse-media-s3
+        - name: aws-config
+          configMap:
+            name: synapse-aws-config
+        - name: turn-secret
+          secret:
+            # apps/coturn's shared secret, mirrored here by Reflector. Mounted as
+            # a file rather than an env var because that is what
+            # turn_shared_secret_path expects.
+            secretName: coturn-shared-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: synapse
+  namespace: matrix
+spec:
+  selector:
+    app.kubernetes.io/name: synapse
+  ports:
+    - name: http
+      port: 8008
+      targetPort: http
+---
+# ===========================================================================
+# synapse-redis — Synapse's replication pub/sub. Ephemeral (no persistence).
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: synapse-redis
+  namespace: matrix
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: synapse-redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: synapse-redis
+        app.kubernetes.io/instance: matrix
+        kube-vnet/net.matrix-redis: ingress
+    spec:
+      containers:
+        - name: redis
+          image: valkey/valkey:9
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            tcpSocket:
+              port: redis
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: synapse-redis
+  namespace: matrix
+spec:
+  selector:
+    app.kubernetes.io/name: synapse-redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+---
+# ===========================================================================
+# MAS (matrix-authentication-service). Config copied into mas-config (CephFS)
+# with its DB URI repointed to the shared CNPG. Auto-runs migrations on start.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mas
+  namespace: matrix
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mas
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mas
+        app.kubernetes.io/instance: matrix
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.postgres.postgres: egress
+        kube-vnet/net.matrix-mas: ingress
+        kube-vnet/net.matrix-synapse: egress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: mas
+          image: ghcr.io/element-hq/matrix-authentication-service:1.22.0
+          args: ["-c", "/config/config.yaml"]
+          env:
+            - name: TZ
+              value: Europe/Berlin
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 18
+          volumeMounts:
+            - name: config
+              mountPath: /config
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: mas-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mas
+  namespace: matrix
+spec:
+  selector:
+    app.kubernetes.io/name: mas
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+# ===========================================================================
+# lk-jwt-service — signs LiveKit access tokens for Element Call, verifying the
+# caller against the homeserver's federation OpenID endpoint.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lk-jwt
+  namespace: matrix
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: lk-jwt
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: lk-jwt
+        app.kubernetes.io/instance: matrix
+        kube-vnet/net.traefik.traefik: ingress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: lk-jwt
+          image: ghcr.io/element-hq/lk-jwt-service:0.5.0
+          env:
+            - name: LIVEKIT_URL
+              value: https://matrix-rtc.example.com/livekit/sfu
+            - name: LIVEKIT_FULL_ACCESS_HOMESERVERS
+              value: example.com
+            - name: LIVEKIT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: livekit
+                  key: LIVEKIT_KEY
+            - name: LIVEKIT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: livekit
+                  key: LIVEKIT_SECRET
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lk-jwt
+  namespace: matrix
+spec:
+  selector:
+    app.kubernetes.io/name: lk-jwt
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+# ===========================================================================
+# LiveKit SFU — Element Call media. Signaling (:7880) via Traefik; ICE/media on
+# a dedicated MetalLB VIP (10.20.2.19): TCP 7881 + UDP 50100-50120.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: livekit
+  namespace: matrix
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: livekit
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: livekit
+        app.kubernetes.io/instance: matrix
+        kube-vnet/net.traefik.traefik: ingress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: livekit
+          image: livekit/livekit-server:v1.13.5
+          args: ["--config", "/etc/livekit.yaml"]
+          ports:
+            - name: signal
+              containerPort: 7880
+            - name: rtc-tcp
+              containerPort: 7881
+          readinessProbe:
+            tcpSocket:
+              port: signal
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: config
+              mountPath: /etc/livekit.yaml
+              subPath: livekit.yaml
+              readOnly: true
+      volumes:
+        - name: config
+          secret:
+            secretName: livekit
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: livekit
+  namespace: matrix
+spec:
+  selector:
+    app.kubernetes.io/name: livekit
+  ports:
+    - name: signal
+      port: 7880
+      targetPort: signal
+---
+# Dedicated MetalLB VIP for LiveKit ICE/media (raw ports Traefik can't carry).
+# externalTrafficPolicy: Local preserves client source IPs for WebRTC.
+apiVersion: v1
+kind: Service
+metadata:
+  name: livekit-lb
+  namespace: matrix
+  annotations:
+    metallb.io/loadBalancerIPs: 10.20.2.19
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: livekit
+  ports:
+    - {name: rtc-tcp, port: 7881, targetPort: 7881, protocol: TCP}
+    - {name: u50100, port: 50100, targetPort: 50100, protocol: UDP}
+    - {name: u50101, port: 50101, targetPort: 50101, protocol: UDP}
+    - {name: u50102, port: 50102, targetPort: 50102, protocol: UDP}
+    - {name: u50103, port: 50103, targetPort: 50103, protocol: UDP}
+    - {name: u50104, port: 50104, targetPort: 50104, protocol: UDP}
+    - {name: u50105, port: 50105, targetPort: 50105, protocol: UDP}
+    - {name: u50106, port: 50106, targetPort: 50106, protocol: UDP}
+    - {name: u50107, port: 50107, targetPort: 50107, protocol: UDP}
+    - {name: u50108, port: 50108, targetPort: 50108, protocol: UDP}
+    - {name: u50109, port: 50109, targetPort: 50109, protocol: UDP}
+    - {name: u50110, port: 50110, targetPort: 50110, protocol: UDP}
+    - {name: u50111, port: 50111, targetPort: 50111, protocol: UDP}
+    - {name: u50112, port: 50112, targetPort: 50112, protocol: UDP}
+    - {name: u50113, port: 50113, targetPort: 50113, protocol: UDP}
+    - {name: u50114, port: 50114, targetPort: 50114, protocol: UDP}
+    - {name: u50115, port: 50115, targetPort: 50115, protocol: UDP}
+    - {name: u50116, port: 50116, targetPort: 50116, protocol: UDP}
+    - {name: u50117, port: 50117, targetPort: 50117, protocol: UDP}
+    - {name: u50118, port: 50118, targetPort: 50118, protocol: UDP}
+    - {name: u50119, port: 50119, targetPort: 50119, protocol: UDP}
+    - {name: u50120, port: 50120, targetPort: 50120, protocol: UDP}
+---
+# ===========================================================================
+# nginx serving the server-side well-known (federation delegation).
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: well-known
+  namespace: matrix
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: well-known
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: well-known
+        app.kubernetes.io/instance: matrix
+        kube-vnet/net.traefik.traefik: ingress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: nginx
+          image: nginx:1.31-alpine
+          ports:
+            - name: http
+              containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: conf
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+              readOnly: true
+            - name: www
+              mountPath: /www/index.json
+              subPath: index.json
+              readOnly: true
+      volumes:
+        - name: conf
+          configMap:
+            name: well-known
+        - name: www
+          configMap:
+            name: well-known
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: well-known
+  namespace: matrix
+spec:
+  selector:
+    app.kubernetes.io/name: well-known
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+# ===========================================================================
+# Media sweep: uploads local media to S3 and (optionally) reclaims the disk.
+#
+# This one job covers three cases, because it does not care WHY a file is on
+# disk without being in S3 -- it HEADs each object first and uploads only what
+# is missing:
+#   - the historical media store, which the storage provider never sees
+#   - uploads whose async background PUT failed (the provider logs and forgets,
+#     so this IS the retry path -- with store_synchronous: false it is required)
+#   - nothing, for files already uploaded; those are just candidates for --delete
+#
+# SUSPENDED on creation. The first run reads ~200k files and pushes tens of GB
+# out over the internet, so it is enabled deliberately, not by merging a commit.
+#
+# NOTE the volume: still matrix-synapse-data. Repoint to synapse-data together
+# with the synapse Deployment when that migration happens.
+# ===========================================================================
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: synapse-media-sweep
+  namespace: matrix
+spec:
+  schedule: "23 4 * * *"
+  suspend: true
+  # Forbid, not Allow: two runs would race on cache.db and on the same S3 keys.
+  # A run that overshoots its window is skipped rather than doubled up.
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # No retries: a failed sweep is resumable by design (already-uploaded
+      # objects are skipped on the next run), so thrashing gains nothing.
+      backoffLimit: 0
+      # Without this a hung run would block every future one, because Forbid has
+      # no timeout of its own.
+      activeDeadlineSeconds: 21600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: synapse-media-sweep
+            app.kubernetes.io/instance: matrix
+            # Reads synapse's media tables; S3 egress needs no rule, kube-vnet
+            # isolates ingress only.
+            kube-vnet/net.postgres.postgres: egress
+        spec:
+          restartPolicy: Never
+          enableServiceLinks: false
+          # Root because it deletes files owned by 991 and writes cache.db to a
+          # freshly-provisioned root-owned PVC. fsGroup would be the alternative
+          # but applies to every volume -- including a recursive chown of the
+          # 32 GiB media store.
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          containers:
+            - name: sweep
+              image: matrixdotorg/synapse:v1.158.0
+              workingDir: /work
+              env:
+                - name: PYTHONPATH
+                  value: /pymods
+                # Path-style, same reason as synapse itself.
+                - name: AWS_CONFIG_FILE
+                  value: /aws/config
+                - name: AWS_DEFAULT_REGION
+                  value: us-east-1
+                # Files not ACCESSED within this window are uploaded. Not "created
+                # before" -- media still being viewed stays on local NVMe, which is
+                # the tiering we want.
+                - name: SWEEP_AGE
+                  value: "30d"
+                # Set to "--delete" to reclaim local disk after a verified upload.
+                # Empty until the first backfill has been eyeballed.
+                - name: SWEEP_DELETE
+                  value: ""
+              command: ["sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  # Credentials come out of the same secret synapse uses, so there
+                  # is exactly one copy of them. The CLI is a separate process and
+                  # cannot see synapse's config, so it needs them in the env.
+                  python - <<'PY' > /tmp/s3.env
+                  import shlex, yaml
+                  c = yaml.safe_load(open('/media-s3/media-s3.yaml'))['media_storage_providers'][0]['config']
+                  for var, key in (('AWS_ACCESS_KEY_ID','access_key_id'),
+                                   ('AWS_SECRET_ACCESS_KEY','secret_access_key'),
+                                   ('BUCKET','bucket'), ('ENDPOINT','endpoint_url')):
+                      print('export %s=%s' % (var, shlex.quote(str(c[key]))))
+                  PY
+                  . /tmp/s3.env
+                  rm -f /tmp/s3.env
+
+                  echo "== update: indexing media not accessed in $SWEEP_AGE =="
+                  python /pymods/bin/s3_media_upload update /data/media_store "$SWEEP_AGE" \
+                    --homeserver-config-path /secrets/database.yaml
+
+                  echo "== upload to $BUCKET (delete='${SWEEP_DELETE}') =="
+                  python /pymods/bin/s3_media_upload upload /data/media_store "$BUCKET" \
+                    --endpoint-url "$ENDPOINT" --no-progress $SWEEP_DELETE
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+                - name: pymods
+                  mountPath: /pymods
+                  readOnly: true
+                - name: media-s3
+                  mountPath: /media-s3
+                  readOnly: true
+                - name: db-override
+                  mountPath: /secrets
+                  readOnly: true
+                - name: aws-config
+                  mountPath: /aws
+                  readOnly: true
+                - name: work
+                  mountPath: /work
+              resources:
+                requests: {cpu: 100m, memory: 256Mi}
+                limits: {memory: 1Gi}
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: matrix-synapse-data
+            - name: pymods
+              persistentVolumeClaim:
+                claimName: synapse-pymods
+            - name: media-s3
+              secret:
+                secretName: synapse-media-s3
+            - name: db-override
+              secret:
+                secretName: synapse-db-override
+            - name: aws-config
+              configMap:
+                name: synapse-aws-config
+            - name: work
+              persistentVolumeClaim:
+                claimName: synapse-media-sweep
+---
+# ===========================================================================
+# mautrix-whatsapp bridge. Appservice reached by Synapse at :29318. Config
+# copied into whatsapp-data (CephFS) with its DB URI repointed; state in Postgres.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: whatsapp-bridge
+  namespace: matrix
+spec:
+  # Set replicas here, never with `kubectl scale` -- Flux reconciles the
+  # Deployment and puts the git value straight back, which it already did once
+  # during the Aug 2026 telegram revival.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: whatsapp-bridge
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: whatsapp-bridge
+        app.kubernetes.io/instance: matrix
+        kube-vnet/net.matrix-bridges: ingress
+        kube-vnet/net.matrix-synapse: egress
+        kube-vnet/net.postgres.postgres: egress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: whatsapp
+          image: dock.mau.dev/mautrix/whatsapp:v0.2608.0
+          ports:
+            - name: appservice
+              containerPort: 29318
+          readinessProbe:
+            tcpSocket:
+              port: appservice
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: whatsapp-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: whatsapp-bridge
+  namespace: matrix
+spec:
+  selector:
+    app.kubernetes.io/name: whatsapp-bridge
+  ports:
+    - name: appservice
+      port: 29318
+      targetPort: appservice
+---
+# ===========================================================================
+# mautrix-telegram. Revived Aug 2026 after being down since 19 Nov 2025.
+#
+# It broke on a config/registration mismatch, not a lost token: config.yaml asked
+# for msc4190 device management that the registration Synapse loaded (a 2022-era
+# backup restored by mistake) never granted. The matching pair -- config,
+# registration and data.db together -- was recovered from bridges/telegram-old on
+# the Swarm host.
+#
+# The database is SQLite and stays SQLite. It carries the 38 portals and 407
+# puppets that make this a revival rather than a fresh setup, and mautrix keeps
+# separate per-dialect migration sets with no supported SQLite->Postgres path, so
+# converting it is exactly how the portals would get duplicated. ceph-rbd, not
+# cephfs: SQLite over a network filesystem is where locking corruption comes from.
+# Same reasoning as the baibot PVC above.
+#
+# The image is pinned by digest, and choosing it was not obvious. v0.15.3 (the
+# release current when the bridge last ran) matches the BRIDGE schema, v18, and
+# applies no migration -- but it refuses to start:
+#
+#   UnsupportedDatabaseVersion: Unsupported matrix state cache schema version v4
+#   (latest known is v3)
+#
+# There are two schemas in the one SQLite file. The bridge's own is v18; the
+# mautrix state cache is v4, which only a newer build knows. The swarm compose
+# pinned no tag, so it ran `latest`, which by Nov 2025 was ahead of the July
+# release -- no published version matches both numbers, so a forward migration is
+# unavoidable rather than optional.
+#
+# That is acceptable: a migration rewrites the schema and KEEPS the rows. The
+# portal-duplication risk was only ever about starting against an empty database,
+# which the replicas: 0 above prevents. The pre-migration copy of data.db lives
+# off-cluster on the jumphost if this ever has to be redone.
+# ===========================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: telegram-data
+  namespace: matrix
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 2Gi
+---
+# The telegram bridge's volume, on CephFS like the other three bridges.
+#
+# `telegram-data` above is the ORIGINAL ceph-rbd volume and is deliberately kept.
+# Block storage was required only while the bridge ran on SQLite -- SQLite over a
+# network filesystem is where locking corruption comes from -- and that stopped
+# being true when it was ported to Postgres (database.type: postgres). With no
+# SQLite open, CephFS is safe and the bridge matches signal/whatsapp.
+#
+# The old volume is RETAINED, not deleted: it still holds data.db and
+# data.db.pre-ts.bak, the rollback for that port. Deleting its PV would hand the
+# subvolume to pv-reaper (deleting a PV is what reclaims it -- deleting a PVC is
+# not), so it is left bound and untouched until the rollback is no longer wanted.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: telegram-bridge-data
+  namespace: matrix
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: cephfs
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telegram-bridge
+  namespace: matrix
+spec:
+  # Was 0 while the PVC was loaded and the config hardened -- a bridge started
+  # against an empty /data would build a fresh database and create new portals,
+  # the one outcome this exercise exists to avoid. Now 1: the legacy database
+  # migrated cleanly, all 38 portals kept their original Matrix room IDs, and the
+  # ghost count held at exactly 407.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: telegram-bridge
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: telegram-bridge
+        app.kubernetes.io/instance: matrix
+        # Synapse pushes appservice transactions in; the bridge calls the client API
+        # back out. Telegram itself needs no rule: kube-vnet isolates ingress only.
+        #
+        # Postgres egress since the Aug 2026 port off SQLite. The SQLite file is still
+        # on the PVC as the rollback -- switching back is an edit to the database block
+        # in config.yaml (which lives on the volume, not in git) plus dropping this label.
+        kube-vnet/net.matrix-bridges: ingress
+        kube-vnet/net.matrix-synapse: egress
+        kube-vnet/net.postgres.postgres: egress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: telegram
+          image: dock.mau.dev/mautrix/telegram:v0.2608.0@sha256:a4f94f8e47fb946f64f6145c08f797d28700a6bea6fa64b8111c8a454d966229
+          ports:
+            - name: appservice
+              containerPort: 29317
+          readinessProbe:
+            tcpSocket:
+              port: appservice
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 50m, memory: 192Mi}
+            limits: {memory: 1Gi}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: telegram-bridge-data
+---
+# The name is load-bearing: the registration says `url: http://telegram-bridge:29317`,
+# which is what Synapse dials. It happens to be the old Swarm service name too, so
+# the recovered registration works unedited -- rename this and Synapse silently
+# cannot reach the bridge.
+apiVersion: v1
+kind: Service
+metadata:
+  name: telegram-bridge
+  namespace: matrix
+spec:
+  selector:
+    app.kubernetes.io/name: telegram-bridge
+  ports:
+    - name: appservice
+      port: 29317
+      targetPort: appservice
+---
+# ===========================================================================
+# mautrix-signal bridge. Appservice reached by Synapse at :29328. Unlike the
+# other two this was a fresh install, so it went onto CNPG immediately and has
+# no legacy SQLite behind it -- the PVC holds only config.yaml and the
+# generated registration.
+#
+# Backfill on Signal is a one-shot: Signal keeps no server-side history, so the
+# only history the bridge can ever import is what the phone transfers when the
+# device is linked. backfill.enabled in config.yaml is what makes the bridge
+# advertise that capability at pairing time, so it has to be true BEFORE the QR
+# code is scanned. There is no later recovery -- see the README.
+# ===========================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: signal-data
+  namespace: matrix
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: cephfs
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: signal-bridge
+  namespace: matrix
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: signal-bridge
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: signal-bridge
+        app.kubernetes.io/instance: matrix
+        # Synapse pushes appservice transactions in; the bridge calls the client API
+        # back out and talks to CNPG. Signal itself needs no rule: kube-vnet
+        # isolates ingress only.
+        kube-vnet/net.matrix-bridges: ingress
+        kube-vnet/net.matrix-synapse: egress
+        kube-vnet/net.postgres.postgres: egress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: signal
+          image: dock.mau.dev/mautrix/signal:v0.2608.0@sha256:4b08c9e556196d5cdd9d99704f64bd9c343ed16729f26bb4e7cf29fbe931835c
+          ports:
+            - name: appservice
+              containerPort: 29328
+          readinessProbe:
+            tcpSocket:
+              port: appservice
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 50m, memory: 192Mi}
+            limits: {memory: 1Gi}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: signal-data
+---
+# Same load-bearing name rule as the other bridges: the registration says
+# `url: http://signal-bridge:29328`, and that is what Synapse dials.
+apiVersion: v1
+kind: Service
+metadata:
+  name: signal-bridge
+  namespace: matrix
+spec:
+  selector:
+    app.kubernetes.io/name: signal-bridge
+  ports:
+    - name: appservice
+      port: 29328
+      targetPort: appservice
+---
+# ===========================================================================
+# mautrix-meta bridge, INSTAGRAM build. Appservice reached by Synapse at :29330.
+# Fresh install like signal: CNPG from the start, so the PVC holds only
+# config.yaml and the generated registration.
+#
+# The `ig-` tag prefix is load-bearing. mautrix/meta ships TWO bridges from one
+# image -- the default tags are Facebook Messenger, the ig- tags are Instagram
+# (upstream README: "this repo contains two bridges ... different docker tags").
+# They are genuinely different images, not aliases: ig-v0.2608.0 is
+# sha256:4b2704de... while v0.2608.0 is sha256:662f3d52.... Drop the prefix and
+# you get Messenger pointed at an Instagram database. renovate.json carries a
+# rule so an update can never strip it.
+#
+# Backfill: Instagram history is OFF by default (thread_backfill.batch_count: 0)
+# and is set to -1 (unlimited) in config.yaml on the PVC. Unlike signal's
+# pairing-time one-shot this is RE-RUNNABLE, so it can be tuned down and redone
+# if Meta starts rate-limiting.
+#
+# Bridging a personal account is against Meta's ToS and accounts do get disabled
+# for it -- see the README. Deliberate.
+# ===========================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: instagram-data
+  namespace: matrix
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: cephfs
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: instagram-bridge
+  namespace: matrix
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: instagram-bridge
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: instagram-bridge
+        app.kubernetes.io/instance: matrix
+        # Synapse pushes appservice transactions in; the bridge calls the client API
+        # back out and talks to CNPG. Instagram itself needs no rule: kube-vnet
+        # isolates ingress only.
+        kube-vnet/net.matrix-bridges: ingress
+        kube-vnet/net.matrix-synapse: egress
+        kube-vnet/net.postgres.postgres: egress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: instagram
+          image: dock.mau.dev/mautrix/meta:ig-v0.2608.0@sha256:4b2704de94809351884da2640b1b1421920980a60269aa871fa870a8d50e7eb0
+          ports:
+            - name: appservice
+              containerPort: 29330
+          readinessProbe:
+            tcpSocket:
+              port: appservice
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 50m, memory: 192Mi}
+            limits: {memory: 1Gi}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: instagram-data
+---
+# Same load-bearing name rule as the other bridges: the registration says
+# `url: http://instagram-bridge:29330`, and that is what Synapse dials.
+apiVersion: v1
+kind: Service
+metadata:
+  name: instagram-bridge
+  namespace: matrix
+spec:
+  selector:
+    app.kubernetes.io/name: instagram-bridge
+  ports:
+    - name: appservice
+      port: 29330
+      targetPort: appservice
+---
+# ===========================================================================
+# mautrix-discord bridge. Appservice reached by Synapse at :29334.
+#
+# FORKED IMAGE, built from the `fork` integration branch of
+# github.com/lhns/mautrix-discord. Two patches on top of upstream v0.7.7:
+#
+#   backfill throttle + retry (see the README for the four diffs). Reasons:
+#
+#   1. discordgo's 429 handler does `json.Unmarshal(response, &rl)` and returns
+#      the unmarshal error on failure -- so when Discord's EDGE rate limiter
+#      answers with a Cloudflare HTML page instead of JSON, the retry is skipped
+#      entirely and the error propagates up as a failed fetch.
+#   2. Initial backfill is a ONE-SHOT per portal (upstream #89: "you can only
+#      backfill right after room creation"). A fetch that fails mid-crawl leaves
+#      that channel permanently truncated -- the room has to be deleted and
+#      recreated to try again. Upstream #157 reports exactly this.
+#
+# The patch adds bridge.backfill.{fetch_delay_ms,retry_interval_ms,max_retries}
+# and wraps the ChannelMessages call in a retry loop. Values on the PVC:
+# 1000 / 60000 / 60 -- i.e. pace one request per second per portal, and tolerate
+# up to an hour of edge throttling before giving up on a chunk. Slow is fine;
+# truncated is not, because it is not retryable.
+#
+#   DM relay. `set-relay` is webhook-based and Discord has no webhook API for
+#   direct messages or group DMs, so upstream refuses both outright. The patch
+#   makes `set-relay` work there by sending other users' messages through the
+#   relay user's own Discord session, name-prefixed -- the mautrix-whatsapp model.
+#
+#   Group DM naming. Discord leaves most group DMs untitled and renders them
+#   from their members; passing that empty name through left the Matrix room
+#   unnamed, so clients built a title from the members -- including the bridge
+#   bot, which cannot leave (it is MainIntent() in group DMs). The patch adds a
+#   `.Participants` template variable, derived from the state store.
+#   Opt-in per room, gated behind `bridge.relay.enabled` on the PVC. Relayed
+#   messages appear on Discord as sent BY the relay user, which a DM makes
+#   unavoidable.
+#
+#   The relay user is stored in `lhns_dm_relay`, a table the fork creates
+#   itself rather than a schema migration, so the database stays at upstream's
+#   version 24 and reverting to the unforked image is a pure image swap.
+#   Verified: upstream v0.7.7 reports "Database is up to date" against it.
+#
+# NOT bridgev2 (mautrix-go v0.16.3), so unlike telegram/signal/whatsapp/instagram
+# the database is configured under `appservice.database`, not a top-level
+# `database` block, and there is no `unknown_error_auto_reconnect`.
+#
+# memory limit 6Gi, not the 1Gi the other bridges get: collectBackfillMessages
+# appends every fetched message into one slice and bridges nothing until the
+# whole channel is collected, so an effectively unlimited limit holds a whole
+# channel in RAM -- times however many portals crawl at once. Raised from 2Gi
+# when bridging a guild, where ~21 channels are created together. It is a
+# ceiling, not a reservation: nothing is consumed unless a crawl needs it, and
+# an OOM-kill mid-crawl would permanently truncate those portals, since initial
+# backfill is one-shot.
+#
+# Bridging a personal Discord account is against Discord's ToS (self-bots) and
+# accounts do get disabled for it -- see the README. Deliberate.
+# ===========================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: discord-data
+  namespace: matrix
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: cephfs
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: discord-bridge
+  namespace: matrix
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: discord-bridge
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: discord-bridge
+        app.kubernetes.io/instance: matrix
+        kube-vnet/net.matrix-bridges: ingress
+        kube-vnet/net.matrix-synapse: egress
+        kube-vnet/net.postgres.postgres: egress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: discord
+          image: ghcr.io/lhns/mautrix-discord:v0.7.7-lhns.4@sha256:b7e2066bd1c3036ea802a01c423b61cf64bcc3deacb7a51d97b7e1e467e894d0
+          ports:
+            - name: appservice
+              containerPort: 29334
+          readinessProbe:
+            tcpSocket:
+              port: appservice
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 50m, memory: 256Mi}
+            limits: {memory: 6Gi}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: discord-data
+---
+# Same load-bearing name rule as the other bridges: the registration says
+# `url: http://discord-bridge:29334`, and that is what Synapse dials.
+apiVersion: v1
+kind: Service
+metadata:
+  name: discord-bridge
+  namespace: matrix
+spec:
+  selector:
+    app.kubernetes.io/name: discord-bridge
+  ports:
+    - name: appservice
+      port: 29334
+      targetPort: appservice
+---
+# ===========================================================================
+# Element Web client (static, public config from ConfigMap).
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: element-web
+  namespace: matrix
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: element-web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: element-web
+        app.kubernetes.io/instance: matrix
+        kube-vnet/net.traefik.traefik: ingress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: element-web
+          image: vectorim/element-web:v1.12.26
+          ports:
+            - name: http
+              containerPort: 80
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.json
+              subPath: config.json
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: element-web-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: element-web
+  namespace: matrix
+spec:
+  selector:
+    app.kubernetes.io/name: element-web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+# ===========================================================================
+# baibot — AI chat bot. Logs in as a normal user via the public homeserver.
+# Config + SQLite session/crypto store copied into the ceph-rbd PVC.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: baibot
+  namespace: matrix
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: baibot
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: baibot
+        app.kubernetes.io/instance: matrix
+        kube-vnet/net.matrix-synapse: egress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: baibot
+          image: ghcr.io/etkecc/baibot:v1.25.0
+          env:
+            - name: TZ
+              value: Europe/Berlin
+            - name: BAIBOT_PERSISTENCE_DATA_DIR_PATH
+              value: /data
+          volumeMounts:
+            - name: baibot
+              mountPath: /app/config.yml
+              subPath: config/config.yml
+              readOnly: true
+            - name: baibot
+              mountPath: /data
+              subPath: data
+      volumes:
+        - name: baibot
+          persistentVolumeClaim:
+            claimName: baibot
+---
+# ===========================================================================
+# synapse-admin — admin UI (static, public config from ConfigMap).
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: synapse-admin
+  namespace: matrix
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: synapse-admin
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: synapse-admin
+        app.kubernetes.io/instance: matrix
+        kube-vnet/net.traefik.traefik: ingress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: synapse-admin
+          image: ghcr.io/etkecc/synapse-admin:v0.11.4-etke54
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.json
+              subPath: config.json
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: synapse-admin-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: synapse-admin
+  namespace: matrix
+spec:
+  selector:
+    app.kubernetes.io/name: synapse-admin
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

@@ -1,0 +1,60 @@
+# Public HTTPS. NO Authelia — Nextcloud owns its auth. Served at nextcloud.example.com
+# (wildcard cert); nextcloud.example.net (outside the wildcard, own cert) 301s to
+# the canonical host (restic/miniflux pattern). Large uploads: Traefik doesn't cap
+# request bodies by default + Nextcloud chunks uploads, so no body-size middleware
+# is needed; PHP_UPLOAD_LIMIT is set on the app.
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: nextcloud-lolhens
+  namespace: nextcloud
+spec:
+  secretName: nextcloud-lolhens
+  issuerRef:
+    name: letsencrypt-ionos-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - nextcloud.example.net
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: nextcloud
+  namespace: nextcloud
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`nextcloud.example.com`)
+      services:
+        - {name: nextcloud, port: 80}
+  tls: {}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: nextcloud-lolhens-redirect
+  namespace: nextcloud
+spec:
+  redirectRegex:
+    regex: "^https://nextcloud.example.net/(.*)"
+    replacement: "https://nextcloud.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: nextcloud-lolhens
+  namespace: nextcloud
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`nextcloud.example.net`)
+      services:
+        - {name: nextcloud, port: 80}
+      middlewares:
+        - name: nextcloud-lolhens-redirect
+  tls:
+    secretName: nextcloud-lolhens

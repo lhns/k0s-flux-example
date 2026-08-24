@@ -1,0 +1,346 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: notesnook
+---
+# ===========================================================================
+# MongoDB — single instance run as a 1-member replica set `rs0` (Notesnook needs
+# multi-document transactions, which require an RS). StatefulSet + headless
+# Service give a stable member FQDN. Data on ceph-rbd. No auth (compose has none;
+# kube-vnet isolates it). RS is initiated by the readiness probe on first run,
+# pinned to the stable FQDN so the driver can reach the member.
+# ===========================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: notesnook-db
+  namespace: notesnook
+spec:
+  clusterIP: None            # headless -> stable pod DNS notesnook-db-0.notesnook-db...
+  selector:
+    app.kubernetes.io/name: notesnook-db
+  ports:
+    - {name: mongo, port: 27017, targetPort: 27017}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: notesnook-db
+  namespace: notesnook
+spec:
+  serviceName: notesnook-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: notesnook-db
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: notesnook-db
+        app.kubernetes.io/instance: notesnook
+        # identity + sync connect to mongo (in-ns).
+        kube-vnet/net.notesnook-db: ingress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: mongo
+          # MongoDB 5.0+ REQUIRES AVX (mongod aborts on non-AVX CPUs). The worker
+          # VMs expose AVX via the Proxmox CPU type `IvyBridge` (the oldest host is
+          # a Xeon E5-2680 v2 = Ivy Bridge: has AVX but not AVX2, so x86-64-v3 won't
+          # work; IvyBridge is migration-safe across all hosts). If a worker ever
+          # shows AVX-NO, mongo will crash-loop -> fix the VM CPU type, not the image.
+          image: mongo:8.3.8
+          args: ["--replSet", "rs0", "--bind_ip_all"]
+          ports:
+            - {name: mongo, containerPort: 27017}
+          readinessProbe:
+            exec:
+              command:
+                - bash
+                - -c
+                - >
+                  mongosh --quiet --eval 'try { rs.status().ok } catch (e) {
+                  rs.initiate({_id:"rs0",members:[{_id:0,host:"notesnook-db-0.notesnook-db.notesnook.svc.cluster.local:27017"}]}) };
+                  db.runCommand({ping:1}).ok' | tail -1 | grep -q 1
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 12
+            # mongosh (Node-based) cold-starts in >1s, so the default 1s probe
+            # timeout fails forever (surfaced by the 7.0.12 -> 7.0.39 bump, which
+            # ships a slower mongosh 2.9.2). Give it room.
+            timeoutSeconds: 15
+          volumeMounts:
+            - {name: data, mountPath: /data/db}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: ceph-rbd
+        resources:
+          requests:
+            storage: 10Gi
+---
+# ===========================================================================
+# identity-server — Notesnook's own accounts (signup/login/JWT/2FA/email). Sends
+# mail via the in-cluster msmtpd relay. :8264.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: identity-server
+  namespace: notesnook
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: identity-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: identity-server
+        app.kubernetes.io/instance: notesnook
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.notesnook-db: egress
+        kube-vnet/net.identity: ingress
+        kube-vnet/net.msmtpd.msmtpd: egress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: identity-server
+          image: streetwriters/identity:v1.0-beta.32
+          ports:
+            - {name: http, containerPort: 8264}
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          env:
+            - {name: MONGODB_CONNECTION_STRING, value: "mongodb://notesnook-db-0.notesnook-db.notesnook.svc.cluster.local:27017/identity?replSet=rs0"}
+            - {name: MONGODB_DATABASE_NAME, value: identity}
+            - {name: SELF_HOSTED, value: "1"}
+            - {name: NOTESNOOK_SERVER_HOST, value: notesnook-server}
+            - {name: NOTESNOOK_SERVER_PORT, value: "5264"}
+            - {name: IDENTITY_SERVER_HOST, value: identity-server}
+            - {name: IDENTITY_SERVER_PORT, value: "8264"}
+            - {name: SSE_SERVER_HOST, value: sse-server}
+            - {name: SSE_SERVER_PORT, value: "7264"}
+            - {name: IDENTITY_SERVER_URL, value: https://notes-auth.example.com}
+            - {name: AUTH_SERVER_PUBLIC_URL, value: https://notes-auth.example.com}
+            - {name: NOTESNOOK_APP_HOST, value: https://notes.example.com}
+            - {name: NOTESNOOK_APP_PUBLIC_URL, value: https://notes.example.com}
+            - {name: NOTESNOOK_API_SECRET, valueFrom: {secretKeyRef: {name: notesnook, key: NOTESNOOK_API_SECRET}}}
+            - {name: SMTP_HOST, value: msmtpd.msmtpd.svc.cluster.local}
+            - {name: SMTP_PORT, value: "2500"}
+            - {name: SMTP_USERNAME, valueFrom: {secretKeyRef: {name: notesnook, key: SMTP_USERNAME}}}
+            - {name: SMTP_PASSWORD, valueFrom: {secretKeyRef: {name: notesnook, key: SMTP_PASSWORD}}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: identity-server
+  namespace: notesnook
+spec:
+  selector:
+    app.kubernetes.io/name: identity-server
+  ports:
+    - {name: http, port: 8264, targetPort: http}
+---
+# ===========================================================================
+# notesnook-server (sync API) — stores encrypted notes, mints presigned S3 URLs
+# for attachments. :5264.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notesnook-server
+  namespace: notesnook
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: notesnook-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: notesnook-server
+        app.kubernetes.io/instance: notesnook
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.notesnook-db: egress
+        kube-vnet/net.identity: egress
+        kube-vnet/net.notesnook-server: ingress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: notesnook-server
+          image: streetwriters/notesnook-sync:v1.0-beta.32
+          ports:
+            - {name: http, containerPort: 5264}
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          env:
+            - {name: MONGODB_CONNECTION_STRING, value: "mongodb://notesnook-db-0.notesnook-db.notesnook.svc.cluster.local:27017/?replSet=rs0"}
+            - {name: MONGODB_DATABASE_NAME, value: notesnook}
+            - {name: SELF_HOSTED, value: "1"}
+            - {name: NOTESNOOK_SERVER_HOST, value: notesnook-server}
+            - {name: NOTESNOOK_SERVER_PORT, value: "5264"}
+            - {name: IDENTITY_SERVER_HOST, value: identity-server}
+            - {name: IDENTITY_SERVER_PORT, value: "8264"}
+            - {name: SSE_SERVER_HOST, value: sse-server}
+            - {name: SSE_SERVER_PORT, value: "7264"}
+            - {name: IDENTITY_SERVER_URL, value: https://notes-auth.example.com}
+            - {name: AUTH_SERVER_PUBLIC_URL, value: https://notes-auth.example.com}
+            - {name: NOTESNOOK_APP_HOST, value: https://notes.example.com}
+            - {name: NOTESNOOK_APP_PUBLIC_URL, value: https://notes.example.com}
+            - {name: MONOGRAPH_PUBLIC_URL, value: https://notes.example.com}
+            - {name: NOTESNOOK_API_SECRET, valueFrom: {secretKeyRef: {name: notesnook, key: NOTESNOOK_API_SECRET}}}
+            # S3 -> Ceph RGW (path-style, SigV4). Public URL used for presigned URLs the client hits.
+            - {name: S3_SERVICE_URL, value: https://s3.example.com}
+            - {name: S3_INTERNAL_SERVICE_URL, value: https://s3.example.com}
+            - {name: S3_REGION, value: us-east-1}
+            - {name: S3_BUCKET_NAME, value: notesbook}
+            - {name: S3_INTERNAL_BUCKET_NAME, value: notesbook}
+            - {name: ATTACHMENTS_SERVER_PUBLIC_URL, value: https://s3.example.com}
+            - {name: S3_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: notesnook, key: S3_ACCESS_KEY_ID}}}
+            - {name: S3_ACCESS_KEY, valueFrom: {secretKeyRef: {name: notesnook, key: S3_ACCESS_KEY}}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notesnook-server
+  namespace: notesnook
+spec:
+  selector:
+    app.kubernetes.io/name: notesnook-server
+  ports:
+    - {name: http, port: 5264, targetPort: http}
+---
+# ===========================================================================
+# sse-server — realtime push (Server-Sent Events). :7264.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sse-server
+  namespace: notesnook
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sse-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sse-server
+        app.kubernetes.io/instance: notesnook
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.identity: egress
+        kube-vnet/net.notesnook-server: egress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: sse-server
+          image: streetwriters/sse:v1.0-beta.32
+          ports:
+            - {name: http, containerPort: 7264}
+          readinessProbe:
+            httpGet: {path: /health, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          env:
+            - {name: SELF_HOSTED, value: "1"}
+            - {name: NOTESNOOK_SERVER_HOST, value: notesnook-server}
+            - {name: NOTESNOOK_SERVER_PORT, value: "5264"}
+            - {name: IDENTITY_SERVER_HOST, value: identity-server}
+            - {name: IDENTITY_SERVER_PORT, value: "8264"}
+            - {name: SSE_SERVER_HOST, value: sse-server}
+            - {name: SSE_SERVER_PORT, value: "7264"}
+            - {name: IDENTITY_SERVER_URL, value: https://notes-auth.example.com}
+            - {name: NOTESNOOK_APP_HOST, value: https://notes.example.com}
+            - {name: NOTESNOOK_API_SECRET, valueFrom: {secretKeyRef: {name: notesnook, key: NOTESNOOK_API_SECRET}}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sse-server
+  namespace: notesnook
+spec:
+  selector:
+    app.kubernetes.io/name: sse-server
+  ports:
+    - {name: http, port: 7264, targetPort: http}
+---
+# ===========================================================================
+# web client — self-hosted Notesnook web SPA. Community image (E2E keys are
+# client-side; flagged in README). Server URLs set at runtime via the app's
+# Settings -> Servers. Port verified at deploy (nginx-served SPA).
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notesnook-web
+  namespace: notesnook
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: notesnook-web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: notesnook-web
+        app.kubernetes.io/instance: notesnook
+        kube-vnet/net.traefik.traefik: ingress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: notesnook-web
+          # heyfworld/notesnook-web:latest — community build of upstream apps/web,
+          # rebuilt 2026-07-24 from the current fork (github.com/heyfworld/notesnook).
+          # Newer than dyw770:3.0.23, which read the OLD subscription.type field and
+          # showed Basic; this tracks the new `plan` field so self-hosted Pro renders.
+          # Only :latest is published, so we pin the digest for reproducibility.
+          #
+          # This build points the SPA at our servers via NN_* env vars: its
+          # entrypoint runs envsubst over config.js.template -> config.js, which the
+          # app reads at startup (window.__notesnook_hosts__). If these are unset the
+          # app falls back to the hardcoded cloud URLs (api.notesnook.com) — which is
+          # what made a test account land on the PUBLIC instance as Free. (The older
+          # dyw770 image instead read /urls.json; this build ignores that file.)
+          image: heyfworld/notesnook-web:latest@sha256:2bb3b0273e787829c632d3d33b82f995a5e4bc1a0efa0001d2e01d5e91ec76cd
+          env:
+            - {name: NN_API_HOST, value: "https://notes-sync.example.com"}
+            - {name: NN_AUTH_HOST, value: "https://notes-auth.example.com"}
+            - {name: NN_SSE_HOST, value: "https://notes-events.example.com"}
+            - {name: NN_MONOGRAPH_HOST, value: "https://notes.example.com"}
+          ports:
+            - {name: http, containerPort: 80}
+          readinessProbe:
+            httpGet: {path: /, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notesnook-web
+  namespace: notesnook
+spec:
+  selector:
+    app.kubernetes.io/name: notesnook-web
+  ports:
+    - {name: http, port: 80, targetPort: http}

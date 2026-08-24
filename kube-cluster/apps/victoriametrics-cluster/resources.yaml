@@ -1,0 +1,326 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: victoriametrics-cluster
+---
+# ===========================================================================
+# vmstorage data dir — 94G on the appdata CephFS, MOUNTED in place (static-PV
+# pattern), NOT copied. capacity 1Gi is a dummy (ignored for static cephfs);
+# bound by volumeName. rootPath is the Swarm Task.Slot=1 dir.
+# ===========================================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: vmstorage-data
+spec:
+  accessModes: [ReadWriteMany]
+  capacity:
+    storage: 1Gi
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: vmstorage-data
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: appdata
+      staticVolume: "true"
+      rootPath: /docker/observability/victoriametrics-cluster/storage-1
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vmstorage-data
+  namespace: victoriametrics-cluster
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: vmstorage-data
+  resources:
+    requests:
+      storage: 1Gi
+---
+# ===========================================================================
+# vmstorage — the stateful cluster store. RPC on :8400 (vminsert) / :8401
+# (vmselect), http/metrics on :8482. root-owned data on CephFS -> run as root,
+# NO fsGroup (avoids a recursive chown of the 94G tree). Single-writer ->
+# Recreate. The 94G store can open slowly off the HDD tier; generous readiness
+# failureThreshold and no liveness probe (won't crash-loop while opening).
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vmstorage
+  namespace: victoriametrics-cluster
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vmstorage
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vmstorage
+        app.kubernetes.io/instance: victoriametrics-cluster
+        app.kubernetes.io/part-of: victoriametrics-cluster
+        # receives RPC/scrape from vminsert, vmselect and the exporter (in-ns).
+        kube-vnet/net.vmstorage: ingress
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/part-of: victoriametrics-cluster
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: vmstorage
+          image: victoriametrics/vmstorage:v1.150.0-cluster
+          args:
+            - -retentionPeriod=12
+            - -storageDataPath=/storage
+          ports:
+            - {name: vminsert-rpc, containerPort: 8400}
+            - {name: vmselect-rpc, containerPort: 8401}
+            - {name: http, containerPort: 8482}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 90 # 94G may open slowly on the HDD tier
+          resources:
+            requests:
+              memory: 1Gi
+            limits:
+              memory: 12Gi
+          volumeMounts:
+            - name: data
+              mountPath: /storage
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: vmstorage-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vmstorage
+  namespace: victoriametrics-cluster
+spec:
+  selector:
+    app.kubernetes.io/name: vmstorage
+  ports:
+    - {name: vminsert-rpc, port: 8400, targetPort: vminsert-rpc}
+    - {name: vmselect-rpc, port: 8401, targetPort: vmselect-rpc}
+    - {name: http, port: 8482, targetPort: http}
+---
+# ===========================================================================
+# vminsert — stateless ingest. Fans writes to vmstorage:8400. http/insert on
+# :8480.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vminsert
+  namespace: victoriametrics-cluster
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vminsert
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vminsert
+        app.kubernetes.io/instance: victoriametrics-cluster
+        app.kubernetes.io/part-of: victoriametrics-cluster
+        # reaches vmstorage:8400 (in-ns); receives writes/scrape from the exporter.
+        kube-vnet/net.vmstorage: egress
+        kube-vnet/net.vminsert: ingress
+    spec:
+      enableServiceLinks: false
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/part-of: victoriametrics-cluster
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: vminsert
+          image: victoriametrics/vminsert:v1.150.0-cluster
+          args:
+            - -storageNode=vmstorage:8400
+            - -maxLabelsPerTimeseries=50
+            - -maxLabelValueLen=32768
+            - -replicationFactor=1
+          ports:
+            - {name: http, containerPort: 8480}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: 200Mi
+            limits:
+              memory: 4Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vminsert
+  namespace: victoriametrics-cluster
+spec:
+  selector:
+    app.kubernetes.io/name: vminsert
+  ports:
+    - {name: http, port: 8480, targetPort: http}
+---
+# ===========================================================================
+# vmselect — stateless query + vmui. Reads from vmstorage:8401. http/select on
+# :8481 (query API at /select/0/prometheus, vmui at /select/0/vmui).
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vmselect
+  namespace: victoriametrics-cluster
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vmselect
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vmselect
+        app.kubernetes.io/instance: victoriametrics-cluster
+        app.kubernetes.io/part-of: victoriametrics-cluster
+        # reaches vmstorage:8401 (in-ns); receives queries from grafana (cross-ns)
+        # + the exporter scrape (in-ns), and the vmui from traefik.
+        kube-vnet/net.vmstorage: egress
+        kube-vnet/net.vmselect: ingress
+        kube-vnet/net.traefik.traefik: ingress
+    spec:
+      enableServiceLinks: false
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/part-of: victoriametrics-cluster
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: vmselect
+          image: victoriametrics/vmselect:v1.150.0-cluster
+          args:
+            - -storageNode=vmstorage:8401
+            - -search.cacheTimestampOffset=120m
+            - -replicationFactor=1
+          ports:
+            - {name: http, containerPort: 8481}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: 200Mi
+            limits:
+              memory: 6Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vmselect
+  namespace: victoriametrics-cluster
+spec:
+  selector:
+    app.kubernetes.io/name: vmselect
+  ports:
+    - {name: http, port: 8481, targetPort: http}
+---
+# ===========================================================================
+# OTel collector — drains otlp_metrics/otlp_meta_metrics (groups
+# victoriametrics-cluster-exporter + -latest) and writes to vminsert:8480.
+# Stateless; config from a ConfigMap. Single consumer per group -> replicas 1.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: victoriametrics-cluster-exporter
+  namespace: victoriametrics-cluster
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: victoriametrics-cluster-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: victoriametrics-cluster-exporter
+        app.kubernetes.io/instance: victoriametrics-cluster
+        # writes to vminsert:8480 + scrapes vmstorage:8482 / vminsert:8480 /
+        # vmselect:8481 (all in-ns). Kafka 10.20.2.10:9092 + collector
+        # 10.20.2.10:4317 was external egress; both are in-cluster now.
+        kube-vnet/net.vmstorage: egress
+        kube-vnet/net.vminsert: egress
+        kube-vnet/net.vmselect: egress
+        # consumes the in-cluster Kafka (otel-kafka-bootstrap.opentelemetry-gateway).
+        kube-vnet/net.opentelemetry-gateway.kafka: egress
+        # sends its OWN self-monitoring metrics (otlp/feedback) to the gateway's
+        # ClusterIP. Needed because that is an in-cluster Service: it used to be the
+        # Swarm collector at 10.20.2.10:4317, which was external egress and needed no
+        # label. Drop this label and the feedback pipeline silently stops.
+        kube-vnet/net.opentelemetry-gateway.otel-gateway: egress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: otelcol
+          image: otel/opentelemetry-collector-contrib:0.159.0
+          ports:
+            - {name: metrics, containerPort: 8888}
+            - {name: health, containerPort: 13133}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otelcol-contrib/config.yaml
+              subPath: config.yaml
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: victoriametrics-cluster-exporter-config

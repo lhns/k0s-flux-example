@@ -1,0 +1,22 @@
+# The authoritative list of appservice registrations, as a fourth --config-path.
+#
+# Synapse deep-merges every --config-path last-value-wins PER TOP-LEVEL KEY, so this
+# replaces the app_service_config_files in /data/homeserver.yaml wholesale. That
+# replacement is whole-key, not element-wise: whatever is listed here is exactly what
+# Synapse loads, and anything omitted is silently unregistered. Never write a partial
+# list into this file.
+#
+# homeserver.yaml (on the CephFS PV, not in git) still has its original three-entry
+# list pointing at /data/registration/*.yaml. Those files are deliberately left in
+# place as the rollback -- delete this --config-path and Synapse falls straight back
+# to them -- but the list itself is now dead config. Adding a bridge there has no
+# effect; add it here and to secret-registrations.yaml.
+#
+# The files themselves come from secret-registrations.yaml, mounted read-only at
+# /registrations.
+app_service_config_files:
+  - /registrations/telegram.yaml
+  - /registrations/whatsapp.yaml
+  - /registrations/discord.yaml
+  - /registrations/signal.yaml
+  - /registrations/instagram.yaml

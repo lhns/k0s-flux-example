@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # CNPG (db) + Reflector (db secret) + cert-manager (the miniflux.example.net cert).
+    # Read by the root generator; inert to kustomize. No `namespace:` transformer here
+    # — database.yaml/db-role-secret.yaml live in the postgres ns.
+    dependsOn: infra-postgres,infra-reflector,infra-cert-manager
+resources:
+- resources.yaml
+- routing.yaml
+- database.yaml
+- db-role-secret.yaml

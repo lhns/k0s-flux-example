@@ -1,0 +1,198 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: opentelemetry-gateway
+---
+# ===========================================================================
+# The ingest gateway. A plain Deployment, not an OpenTelemetryCollector CR:
+#   * the CR would put ingest behind the MONITORING stack's operator, inverting the
+#     dependency (a monitoring upgrade could then break ingest),
+#   * the operator's port plumbing fights a hand-written mixed TCP/UDP LoadBalancer,
+#   * every other standalone collector in this repo (the three Victoria exporters) is
+#     a plain Deployment + configMapGenerator.
+#
+# 2 replicas, spread across nodes. MetalLB L2 elects ONE node for the VIP and
+# externalTrafficPolicy: Local means only the pod on that node serves external
+# traffic — so this is hot-standby with instant failover rather than load sharing.
+# Its value is removing the blackhole window that replicas: 1 + ETP-Local would have
+# during a rollout.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opentelemetry-gateway
+  namespace: opentelemetry-gateway
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: opentelemetry-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: opentelemetry-gateway
+        app.kubernetes.io/instance: opentelemetry-gateway
+        # Accept in-cluster senders on the ClusterIP (external senders arrive via the
+        # LoadBalancer, which kube-vnet auto-allows as ext.svc — no label for that).
+        kube-vnet/net.otel-gateway: ingress
+        # Produce to the brokers.
+        kube-vnet/net.kafka: egress
+    spec:
+      enableServiceLinks: false
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: opentelemetry-gateway
+      containers:
+        - name: otelcol
+          image: otel/opentelemetry-collector-contrib:0.159.0
+          args:
+            - --config=/conf/config.yaml
+            # Required by transform/docker-logs-resource-attributes (flatten_data).
+            - --feature-gates=transform.flatten.logs
+          env:
+            - name: TZ
+              value: Europe/Berlin
+          ports:
+            - {name: otlp-grpc, containerPort: 4317, protocol: TCP}
+            - {name: otlp-http, containerPort: 4318, protocol: TCP}
+            - {name: carbon, containerPort: 2003, protocol: TCP}
+            - {name: fluentforward, containerPort: 8006, protocol: TCP}
+            - {name: influxdb, containerPort: 8086, protocol: TCP}
+            - {name: jaeger-grpc, containerPort: 14250, protocol: TCP}
+            - {name: jaeger-thttp, containerPort: 14268, protocol: TCP}
+            - {name: jaeger-tbin, containerPort: 6832, protocol: UDP}
+            - {name: jaeger-tcomp, containerPort: 6831, protocol: UDP}
+            - {name: syslog-tcp, containerPort: 54526, protocol: TCP}
+            - {name: syslog-udp, containerPort: 54526, protocol: UDP}
+            - {name: metrics, containerPort: 8888, protocol: TCP}
+            - {name: health, containerPort: 13133, protocol: TCP}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: opentelemetry-gateway-config
+---
+# ===========================================================================
+# Kafka broker/topic/consumer scraper. SINGLETON on purpose: kafkametrics is a
+# cluster-wide scraper, so running it in both gateway replicas would double-count
+# every metric it emits. Same daemon-vs-cluster split the monitoring stack uses.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: opentelemetry-gateway-kafkametrics
+  namespace: opentelemetry-gateway
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: opentelemetry-gateway-kafkametrics
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: opentelemetry-gateway-kafkametrics
+        app.kubernetes.io/instance: opentelemetry-gateway
+        # Scrapes and produces to the brokers; nothing dials it.
+        kube-vnet/net.kafka: egress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: otelcol
+          image: otel/opentelemetry-collector-contrib:0.159.0
+          args:
+            - --config=/conf/config.yaml
+          env:
+            - name: TZ
+              value: Europe/Berlin
+          ports:
+            - {name: metrics, containerPort: 8888, protocol: TCP}
+            - {name: health, containerPort: 13133, protocol: TCP}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: opentelemetry-gateway-kafkametrics-config
+---
+# In-cluster senders reach the gateway here by DNS. 8888/13133 are deliberately
+# absent — pod-local only.
+apiVersion: v1
+kind: Service
+metadata:
+  name: opentelemetry-gateway
+  namespace: opentelemetry-gateway
+spec:
+  selector:
+    app.kubernetes.io/name: opentelemetry-gateway
+  ports:
+    - {name: otlp-grpc, port: 4317, targetPort: otlp-grpc, protocol: TCP}
+    - {name: otlp-http, port: 4318, targetPort: otlp-http, protocol: TCP}
+    - {name: carbon, port: 2003, targetPort: carbon, protocol: TCP}
+    - {name: fluentforward, port: 8006, targetPort: fluentforward, protocol: TCP}
+    - {name: influxdb, port: 8086, targetPort: influxdb, protocol: TCP}
+    - {name: jaeger-grpc, port: 14250, targetPort: jaeger-grpc, protocol: TCP}
+    - {name: jaeger-thttp, port: 14268, targetPort: jaeger-thttp, protocol: TCP}
+    - {name: jaeger-tbin, port: 6832, targetPort: jaeger-tbin, protocol: UDP}
+    - {name: jaeger-tcomp, port: 6831, targetPort: jaeger-tcomp, protocol: UDP}
+    - {name: syslog-tcp, port: 54526, targetPort: syslog-tcp, protocol: TCP}
+    - {name: syslog-udp, port: 54526, targetPort: syslog-udp, protocol: UDP}
+---
+# The estate's ingest VIP. Replaces 10.20.2.10's published ports; senders outside the
+# cluster point here. externalTrafficPolicy: Local preserves the real client source IP,
+# which syslog and carbon rely on to identify the sender.
+# Note syslog occupies 54526 on BOTH TCP and UDP — two entries, distinct names, same
+# port. Mixed-protocol LoadBalancers are fine on MetalLB L2.
+apiVersion: v1
+kind: Service
+metadata:
+  name: opentelemetry-gateway-lb
+  namespace: opentelemetry-gateway
+  annotations:
+    metallb.io/loadBalancerIPs: 10.20.2.14
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: opentelemetry-gateway
+  ports:
+    - {name: otlp-grpc, port: 4317, targetPort: otlp-grpc, protocol: TCP}
+    - {name: otlp-http, port: 4318, targetPort: otlp-http, protocol: TCP}
+    - {name: carbon, port: 2003, targetPort: carbon, protocol: TCP}
+    - {name: fluentforward, port: 8006, targetPort: fluentforward, protocol: TCP}
+    - {name: influxdb, port: 8086, targetPort: influxdb, protocol: TCP}
+    - {name: jaeger-grpc, port: 14250, targetPort: jaeger-grpc, protocol: TCP}
+    - {name: jaeger-thttp, port: 14268, targetPort: jaeger-thttp, protocol: TCP}
+    - {name: jaeger-tbin, port: 6832, targetPort: jaeger-tbin, protocol: UDP}
+    - {name: jaeger-tcomp, port: 6831, targetPort: jaeger-tcomp, protocol: UDP}
+    - {name: syslog-tcp, port: 54526, targetPort: syslog-tcp, protocol: TCP}
+    - {name: syslog-udp, port: 54526, targetPort: syslog-udp, protocol: UDP}

@@ -1,0 +1,189 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: teamspeak
+---
+# ===========================================================================
+# MariaDB — TeamSpeak's DB backend (ts3db_mariadb; TeamSpeak supports only SQLite
+# or MariaDB, no Postgres/CNPG). Self-managed StatefulSet on ceph-rbd. The old
+# Swarm DB (10.20.2.10:3306) is dumped in logically once before TeamSpeak first
+# boots (see README). kube-vnet isolates it (only the teamspeak pod gets egress).
+# ===========================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: teamspeak-db
+  namespace: teamspeak
+spec:
+  selector:
+    app.kubernetes.io/name: teamspeak-db
+  ports:
+    - {name: mysql, port: 3306, targetPort: 3306}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: teamspeak-db
+  namespace: teamspeak
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  serviceName: teamspeak-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: teamspeak-db
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: teamspeak-db
+        app.kubernetes.io/instance: teamspeak
+        kube-vnet/net.teamspeak-db: ingress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: mariadb
+          image: mariadb:12.3.2
+          ports:
+            - {name: mysql, containerPort: 3306}
+          env:
+            - {name: MARIADB_DATABASE, value: teamspeak}
+            - {name: MARIADB_ROOT_PASSWORD, valueFrom: {secretKeyRef: {name: teamspeak, key: DB_ROOT_PASSWORD}}}
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "mariadb-admin ping -h 127.0.0.1 -u root -p\"$MARIADB_ROOT_PASSWORD\" --silent"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 12
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/mysql}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: ceph-rbd
+        resources:
+          requests:
+            storage: 5Gi
+---
+# ===========================================================================
+# TeamSpeak file store (/var/ts3server, 4.4G of file transfers + logs) — MOUNTED
+# in place off the existing appdata CephFS dir (jellyfin/victoriametrics static-PV
+# pattern), NOT copied. capacity 1Gi is a dummy (ignored for static cephfs); bound
+# by volumeName. The server/channels/users/perms are all in MariaDB, not here.
+# ===========================================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: teamspeak-data
+spec:
+  accessModes: [ReadWriteMany]
+  capacity: {storage: 1Gi}
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef: {name: csi-cephfs-secret, namespace: ceph-csi-cephfs}
+    volumeHandle: teamspeak-data
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: appdata
+      staticVolume: "true"
+      rootPath: /docker/teamspeak/data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: teamspeak-data
+  namespace: teamspeak
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: teamspeak-data
+  resources:
+    requests:
+      storage: 1Gi
+---
+# ===========================================================================
+# TeamSpeak 3 server. Raw ports only (no HTTP/Traefik). The one-time DB restore
+# ran into the empty MariaDB (existing virtual server preserved) and the Swarm
+# server is stopped, so we're live at replicas: 1 (single writer of the in-place
+# /var/ts3server). Runs as uid/gid 9987 (matches the existing data owner); no
+# fsGroup -> no recursive chown of 56k files.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: teamspeak
+  namespace: teamspeak
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy: {type: Recreate}        # single writer of the in-place file store
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: teamspeak
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: teamspeak
+        app.kubernetes.io/instance: teamspeak
+        # The raw voice/query/filetransfer ports arrive via the teamspeak-lb
+        # LoadBalancer (kube-vnet auto-allows, ext.svc) — no ingress label needed.
+        kube-vnet/net.teamspeak-db: egress
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        runAsUser: 9987
+        runAsGroup: 9987
+      containers:
+        - name: teamspeak
+          image: teamspeak:3.13.8
+          ports:
+            - {name: voice, containerPort: 9987, protocol: UDP}
+            - {name: query, containerPort: 10011, protocol: TCP}
+            - {name: filetransfer, containerPort: 30033, protocol: TCP}
+          env:
+            - {name: TS3SERVER_LICENSE, value: accept}
+            - {name: TS3SERVER_DB_PLUGIN, value: ts3db_mariadb}
+            - {name: TS3SERVER_DB_SQLCREATEPATH, value: create_mariadb}
+            - {name: TS3SERVER_DB_HOST, value: teamspeak-db}
+            - {name: TS3SERVER_DB_PORT, value: "3306"}
+            - {name: TS3SERVER_DB_USER, value: root}
+            - {name: TS3SERVER_DB_PASSWORD, valueFrom: {secretKeyRef: {name: teamspeak, key: DB_ROOT_PASSWORD}}}
+            - {name: TS3SERVER_DB_NAME, value: teamspeak}
+            - {name: TS3SERVER_DB_WAITUNTILREADY, value: "30"}
+            - {name: TS3SERVER_DB_CONNECTIONS, value: "1"}
+          volumeMounts:
+            - {name: data, mountPath: /var/ts3server}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: teamspeak-data
+---
+# Raw voice (UDP 9987) + ServerQuery (TCP 10011) + file transfer (TCP 30033) on a
+# dedicated MetalLB VIP (syncthing/nodered pattern: one Service, mixed protocols,
+# metallb.io/loadBalancerIPs annotation). externalTrafficPolicy: Local preserves
+# client source IPs; single pod so the VIP follows it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: teamspeak-lb
+  namespace: teamspeak
+  annotations:
+    metallb.io/loadBalancerIPs: 10.20.2.9
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: teamspeak
+  ports:
+    - {name: voice, port: 9987, targetPort: voice, protocol: UDP}
+    - {name: query, port: 10011, targetPort: query, protocol: TCP}
+    - {name: filetransfer, port: 30033, targetPort: filetransfer, protocol: TCP}

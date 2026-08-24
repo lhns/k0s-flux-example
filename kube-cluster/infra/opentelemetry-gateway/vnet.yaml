@@ -1,0 +1,78 @@
+---
+# (a) EXTERNAL senders -> the MetalLB VIP 10.20.2.14 need NOTHING here: kube-vnet
+# auto-allows LoadBalancer ingress (ext.svc). Stated explicitly so nobody "adds a rule
+# to be safe" — a vnet would not make that path any more permitted than it already is.
+#
+# (b) Kafka. Brokers talk to each other (:9091 replication, :9090 controller) and serve
+# clients on :9092; the Strimzi cluster operator dials brokers for rolling updates and
+# the kafka-agent (:8443); the Topic Operator dials :9092.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: kafka
+  namespace: opentelemetry-gateway
+spec:
+  description: "Kafka brokers: :9092 clients, :9091 replication, :9090 controller, :8443 kafka-agent."
+  allowedNamespaces:
+    names:
+      # The Strimzi cluster operator lives here and must reach every broker.
+      - strimzi
+      # The Victoria exporters. This is now their only Kafka: they briefly consumed the
+      # Swarm broker as well, to drain the backlog their guaranteed groups still held
+      # when the Swarm gateway was repointed here. That reached lag 0 and the
+      # *_swarm_drain receivers are gone.
+      - victorialogs
+      - victoriametrics
+      # The cluster exporter lives in its own namespace, not in `victoriametrics`.
+      - victoriametrics-cluster
+      - victoriatraces
+---
+# (c) IN-CLUSTER senders -> the gateway's ClusterIP. External senders use the VIP and
+# need nothing; this is only for pods dialling the cluster DNS name, which is NOT
+# covered by the ext.svc auto-allow.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: otel-gateway
+  namespace: opentelemetry-gateway
+spec:
+  description: "In-cluster senders -> opentelemetry-gateway OTLP/protocol ports via ClusterIP."
+  allowedNamespaces:
+    names:
+      # All of these have been repointed off the Swarm collector (10.20.2.10:4317) onto
+      # this gateway. Membership alone permits nothing — the sender must ALSO be a
+      # member, by carrying `kube-vnet/net.opentelemetry-gateway.otel-gateway: egress`
+      # or via a VirtualNetworkBinding.
+      #
+      # The four Victoria exporters send their own self-monitoring metrics here
+      # (otlp/feedback); the rest send their real telemetry.
+      - victorialogs
+      - victoriametrics
+      - victoriametrics-cluster
+      - victoriatraces
+      - mosquitto
+      - mqtt-monitoring
+      # Operator-managed collectors, so they join by selector rather than pod label —
+      # see infra/opentelemetry-monitoring/vnet.yaml.
+      - opentelemetry
+---
+# The Strimzi cluster operator is a third-party chart's pod, so join it by selector
+# rather than editing its template (same mechanism as the existing
+# otel-collectors-scrape-egress binding in infra/opentelemetry-monitoring).
+#
+# This object lives in the `strimzi` namespace but SHIPS FROM THIS DIRECTORY on
+# purpose: putting it in infra/strimzi would make infra-strimzi depend on
+# infra-opentelemetry-gateway, which already dependsOn infra-strimzi — a cycle.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetworkBinding
+metadata:
+  name: strimzi-operator-kafka-egress
+  namespace: strimzi
+spec:
+  virtualNetworkRef:
+    name: kafka
+    namespace: opentelemetry-gateway
+  direction: egress
+  podSelector:
+    matchLabels:
+      strimzi.io/kind: cluster-operator

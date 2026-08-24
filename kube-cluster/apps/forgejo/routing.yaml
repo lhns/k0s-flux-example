@@ -1,0 +1,84 @@
+---
+# The local login form redirects straight to the Authelia OIDC source, so there
+# is one way in. Same shape as apps/gitea.
+#
+# Host-agnostic on purpose ([^/]+ rather than a literal host) so it works on
+# forgejo.kube.example.com during setup and forgejo.example.com after.
+#
+# The redirect target is /user/oauth2/<login source name>, and the login source
+# is created out of band by `forgejo admin auth add-oauth --name authelia`. The
+# name in that command and the path here must agree — see README.
+#
+# NOTE the escape hatch this removes: with this attached there is no way to
+# reach /user/login in a browser. If Authelia is down, recovery is
+# `kubectl -n forgejo exec deploy/forgejo -- su git -c 'forgejo admin user ...'`,
+# or temporarily dropping the middleware from the route below.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: forgejo-login-redirect
+  namespace: forgejo
+spec:
+  redirectRegex:
+    regex: "^(https?://[^/]+)/user/login(\\?.*)?$"
+    replacement: "${1}/user/oauth2/authelia${2}"
+    permanent: false
+---
+# Forgejo owns its own auth — an OIDC login source for humans, plus tokens for
+# the API, the Actions runner and git-over-HTTPS. So NO `authelia` forwardAuth
+# middleware here: it would break every git client and the runner, which cannot
+# complete an interactive SSO flow.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: forgejo
+  namespace: forgejo
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`forgejo.example.com`)
+      services:
+        - name: forgejo
+          port: 3000
+      middlewares:
+        - name: forgejo-login-redirect
+  tls: {}
+---
+# forgejo.kube.example.com 301-redirects to the canonical forgejo.example.com, matching
+# every other app here (see apps/miniflux, apps/gitea).
+#
+# It SERVED the app during setup instead — the staging URL that SSO, mail and
+# the runner were verified on before anything was published under the canonical
+# name. Authelia has
+# `https://forgejo.kube.example.com/user/oauth2/authelia/callback` registered as a
+# redirect URI, which is what made that possible without touching Authelia
+# twice. That callback is now unused but harmless, and worth keeping if this
+# host is ever pressed into service as a staging URL again.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: forgejo-kube-redirect
+  namespace: forgejo
+spec:
+  redirectRegex:
+    regex: "^https://forgejo.kube.example.com/(.*)"
+    replacement: "https://forgejo.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: forgejo-kube
+  namespace: forgejo
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`forgejo.kube.example.com`)
+      services:
+        - name: forgejo
+          port: 3000
+      middlewares:
+        - name: forgejo-kube-redirect
+  tls: {}

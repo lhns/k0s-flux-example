@@ -1,0 +1,174 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: traefik
+  namespace: traefik
+spec:
+  interval: 1h0m0s
+  url: https://traefik.github.io/charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: traefik
+  namespace: traefik
+spec:
+  interval: 10m0s
+  # releaseName/storageNamespace default to name/namespace (traefik/traefik),
+  # matching the release k0s installed -> helm-controller adopts it in place.
+  chart:
+    spec:
+      chart: traefik
+      version: "41.2.0"
+      interval: 1h0m0s
+      sourceRef:
+        kind: HelmRepository
+        name: traefik
+  # Values copied verbatim from k0sctl.yaml so the rendered manifests are
+  # identical to what k0s deployed (adoption = a no-op upgrade, no pod churn).
+  values:
+    # The subsonic-basicauth plugin converts Subsonic auth query params into a
+    # Basic Authorization header (used by navidrome's /rest router).
+    experimental:
+      plugins:
+        subsonic-basicauth:
+          moduleName: github.com/crazygolem/traefik-subsonic-basicauth
+          version: v0.2.0
+    # No cross-namespace middleware references anymore: traefik-reflector mirrors the
+    # authelia middlewares into every namespace, so routers reference them locally.
+    # (Dropped providers.kubernetesIngress.crossProviderNamespaces and
+    # providers.kubernetesCRD.allowCrossNamespace.)
+    deployment:
+      kind: DaemonSet
+    service:
+      type: LoadBalancer
+      annotations:
+        metallb.io/loadBalancerIPs: 10.20.2.15
+      spec:
+        externalTrafficPolicy: Local
+    ingressRoute:
+      dashboard:
+        enabled: true
+        matchRule: Host(`traefik.kube.example.com`)
+        entryPoints:
+          - web
+          - websecure
+        # Gate the dashboard behind Authelia SSO (the reflected `authelia` forwardAuth
+        # middleware, local to the traefik ns via traefik-reflector). Access is further
+        # restricted to the traefik/admin groups by Authelia's access_control rules.
+        middlewares:
+          - name: authelia
+    ports:
+      web:
+        port: 8000
+        exposedPort: 80
+        # NOT a default entrypoint: Ingresses bind to websecure only, so port 80
+        # carries just the catch-all HTTP->HTTPS redirect (see redirect.yaml).
+        asDefault: false
+        # Trust the X-Forwarded-* the Swarm edge sends. These three are the docker swarm
+        # nodes running the traefik that sits in front of this one; every external request
+        # arrives from one of them.
+        #
+        # Without this, traefik v3 defaults to trusting NOBODY, which does not mean "ignore
+        # the header" -- it means DISCARD it and rewrite X-Forwarded-For with the peer
+        # address. So every external user reached the apps as 10.20.2.31/.32/.33 and the real
+        # client IP was thrown away one hop short. jellyfin logged the swarm node, guacamole's
+        # brute-force extension banned it, and a per-IP rateLimit became one shared bucket
+        # for the entire internet.
+        #
+        # /32 each, deliberately, not 10.20.2.0/24: trusting an address means letting it assert
+        # any client IP it likes, and a LAN client reaching the VIP directly must stay an
+        # ordinary untrusted peer.
+        forwardedHeaders:
+          trustedIPs:
+            - 10.20.2.31/32
+            - 10.20.2.32/32
+            - 10.20.2.33/32
+      websecure:
+        port: 8443
+        exposedPort: 443
+        expose:
+          default: true
+        asDefault: true
+        # Trust the X-Forwarded-* the Swarm edge sends. These three are the docker swarm
+        # nodes running the traefik that sits in front of this one; every external request
+        # arrives from one of them.
+        #
+        # Without this, traefik v3 defaults to trusting NOBODY, which does not mean "ignore
+        # the header" -- it means DISCARD it and rewrite X-Forwarded-For with the peer
+        # address. So every external user reached the apps as 10.20.2.31/.32/.33 and the real
+        # client IP was thrown away one hop short. jellyfin logged the swarm node, guacamole's
+        # brute-force extension banned it, and a per-IP rateLimit became one shared bucket
+        # for the entire internet.
+        #
+        # /32 each, deliberately, not 10.20.2.0/24: trusting an address means letting it assert
+        # any client IP it likes, and a LAN client reaching the VIP directly must stay an
+        # ordinary untrusted peer.
+        forwardedHeaders:
+          trustedIPs:
+            - 10.20.2.31/32
+            - 10.20.2.32/32
+            - 10.20.2.33/32
+      # Raw MQTT/TCP entrypoint for the mosquitto broker, on the same VIP
+      # (10.20.2.15:1883). A HostSNI(`*`) IngressRouteTCP in the mosquitto namespace
+      # forwards it to mosquitto:1883 (plain TCP, no TLS termination here). NOT an
+      # HTTP default entrypoint.
+      mqtt:
+        port: 1883
+        exposedPort: 1883
+        expose:
+          default: true
+        asDefault: false
+      # Raw TCP entrypoint for Authelia's forwardAuth (10.20.2.15:9091). A HostSNI(`*`)
+      # IngressRouteTCP forwards it to authelia:9091 as plain TCP — no HTTP proxying,
+      # so the X-Forwarded-* headers forwardAuth needs are preserved (external proxies
+      # like the Swarm Traefik can call it directly without the header-stripping that a
+      # Traefik-through-Traefik HTTP hop causes). NOT an HTTP default entrypoint.
+      authelia:
+        port: 9091
+        exposedPort: 9091
+        expose:
+          default: true
+        asDefault: false
+      # Raw TCP entrypoint for the lldap LDAP port (10.20.2.15:3890). A HostSNI(`*`)
+      # IngressRouteTCP in the lldap namespace forwards it to lldap:3890 as plain TCP
+      # (no TLS termination here), so external clients can bind against the in-cluster
+      # directory. NOT an HTTP default entrypoint.
+      ldap:
+        port: 3890
+        exposedPort: 3890
+        expose:
+          default: true
+        asDefault: false
+      # The three raw XMPP entrypoints for apps/snikket, all plain-TCP passthrough
+      # via HostSNI(`*`) IngressRouteTCP. Passthrough is REQUIRED rather than
+      # convenient: XMPP opens in cleartext and negotiates TLS in-band with
+      # STARTTLS, so Traefik must not terminate — prosody presents its own cert.
+      #
+      # Snikket needs no VIP of its own because of these: its only non-TCP need
+      # (STUN/TURN, which Traefik cannot carry) was split out into apps/coturn.
+      # Each entrypoint is 1:1 with one backend, so a second XMPP server would
+      # need SNI routing or its own address.
+      #
+      # client-to-server (10.20.2.15:5222)
+      xmpp-c2s:
+        port: 5222
+        exposedPort: 5222
+        expose:
+          default: true
+        asDefault: false
+      # server-to-server federation (10.20.2.15:5269)
+      xmpp-s2s:
+        port: 5269
+        exposedPort: 5269
+        expose:
+          default: true
+        asDefault: false
+      # SOCKS5 file-transfer proxy, proxy65 (10.20.2.15:5000)
+      xmpp-proxy65:
+        port: 5000
+        exposedPort: 5000
+        expose:
+          default: true
+        asDefault: false

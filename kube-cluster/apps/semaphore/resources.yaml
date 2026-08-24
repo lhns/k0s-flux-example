@@ -1,0 +1,112 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: semaphore
+---
+# Semaphore's config (/etc/semaphore/config.json — holds access_key_encryption,
+# the key that decrypts the BoltDB keystore) + data (/var/lib/semaphore, the
+# embedded BoltDB). Both copied once from the Swarm volume
+# fastappdata:/docker/semaphore (see README). BoltDB is mmap-based + single-writer
+# -> ceph-rbd (block) + Recreate. One PVC, two subPaths.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: semaphore-data
+  namespace: semaphore
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: semaphore
+  namespace: semaphore
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  # Live. (Shipped as 0 for the cutover; the Swarm semaphore was stopped and
+  # config/ + data/ were copied into the PVC — see README.)
+  replicas: 1
+  # Embedded BoltDB (single-writer) -> Recreate, never two.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: semaphore
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: semaphore
+        app.kubernetes.io/instance: semaphore
+        # :3000 arrives from traefik. Ansible/SSH to managed hosts + git clones are
+        # external egress (unrestricted). No in-cluster dep (BoltDB is embedded).
+        kube-vnet/net.traefik.traefik: ingress
+    spec:
+      enableServiceLinks: false
+      # Runs as root so it can read+write the copied config/data (source files are
+      # owned by an `ansible` uid) and run ansible/clone repos. No fsGroup needed.
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      containers:
+        - name: semaphore
+          # Pinned to v2.17.39 (NOT latest). The whole v2.18.x line's closed
+          # pro_impl terraform store panics "unknown store type" on the bolt DB
+          # backend (bolt is deprecated upstream from v2.18). v2.17.39 is the last
+          # bolt-compatible release; it opens + forward-migrates this db cleanly
+          # (verified). Renovate holds it at <2.18.0 (see renovate.json). Needs the
+          # root securityContext + enableServiceLinks:false below to boot.
+          image: semaphoreui/semaphore:v2.17.39
+          env:
+            - name: SEMAPHORE_DB_DIALECT
+              value: bolt
+            - name: SEMAPHORE_ADMIN
+              value: admin
+            - name: SEMAPHORE_ADMIN_NAME
+              value: admin
+            - name: SEMAPHORE_ADMIN_EMAIL
+              value: admin@localhost
+            - name: SEMAPHORE_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: semaphore-admin
+                  key: password
+            - name: TZ
+              value: Europe/Berlin
+          ports:
+            - {name: http, containerPort: 3000, protocol: TCP}
+          readinessProbe:
+            httpGet:
+              path: /api/ping
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 12
+          volumeMounts:
+            - name: data
+              mountPath: /etc/semaphore
+              subPath: config
+            - name: data
+              mountPath: /var/lib/semaphore
+              subPath: data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: semaphore-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: semaphore
+  namespace: semaphore
+spec:
+  selector:
+    app.kubernetes.io/name: semaphore
+  ports:
+    - {name: http, port: 3000, targetPort: http}

@@ -1,0 +1,31 @@
+---
+# feishin.kube.example.com redirects to the canonical feishin.example.com. Served by the
+# default *.example.com wildcard cert (tls: {}); the route still needs a service even
+# though the middleware 308-redirects before the backend is reached.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: feishin-kube-redirect
+  namespace: feishin
+spec:
+  redirectRegex:
+    regex: "^https://feishin.kube.example.com/(.*)"
+    replacement: "https://feishin.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: feishin-kube-redirect
+  namespace: feishin
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`feishin.kube.example.com`)
+      services:
+        - name: feishin
+          port: 9180
+      middlewares:
+        - name: feishin-kube-redirect
+  tls: {}

@@ -1,0 +1,20 @@
+---
+# MQTT (:1883) is reached by in-cluster clients (mqtt-monitoring, zigbee2mqtt, and
+# later node-red). Under pod-level kube-vnet isolation, cross-namespace ingress is
+# denied by default, so expose a vnet those namespaces may join. Members opt in with the
+# egress label kube-vnet/net.mosquitto.mosquitto; mosquitto itself carries
+# kube-vnet/net.mosquitto: ingress. (Traefik still reaches it via net.traefik.traefik
+# for the external listeners.)
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: mosquitto
+  namespace: mosquitto
+spec:
+  description: "In-cluster MQTT clients -> mosquitto :1883."
+  allowedNamespaces:
+    names:
+      - mqtt-monitoring
+      - zigbee2mqtt
+      # Home Assistant consumes the zigbee2mqtt discovery topics from here.
+      - homeassistant

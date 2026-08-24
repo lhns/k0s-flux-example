@@ -1,0 +1,233 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: victoriametrics
+---
+# ===========================================================================
+# VictoriaMetrics data dir — 744G on the appdata CephFS, MOUNTED in place
+# (jellyfin/syncthing static-PV pattern), NOT copied. capacity 1Gi is a dummy
+# (ignored for static cephfs); bound by volumeName.
+# ===========================================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: victoriametrics-data
+spec:
+  accessModes: [ReadWriteMany]
+  capacity:
+    storage: 1Gi
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: victoriametrics-data
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: appdata
+      staticVolume: "true"
+      rootPath: /docker/observability/victoriametrics
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: victoriametrics-data
+  namespace: victoriametrics
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: victoriametrics-data
+  resources:
+    requests:
+      storage: 1Gi
+---
+# ===========================================================================
+# VictoriaMetrics DB (metrics store + HTTP API/vmui on :8428). The data dir is
+# root-owned on CephFS, so run as root (matches Swarm; NO fsGroup — avoids a
+# recursive chown of the 744G tree). Single-writer -> Recreate. The 744G store
+# can open slowly off the appdata HDD tier; readiness has a generous
+# failureThreshold and there is no liveness probe, so it won't crash-loop while
+# opening.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: victoriametrics
+  namespace: victoriametrics
+spec:
+  replicas: 1 # live (Swarm single-node VM stack stopped; data + Kafka groups freed)
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: victoriametrics
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: victoriametrics
+        app.kubernetes.io/instance: victoriametrics
+        # vmui/API from Traefik; the exporters write to :8428 over the in-ns vnet.
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.victoriametrics: ingress
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      containers:
+        - name: victoriametrics
+          image: victoriametrics/victoria-metrics:v1.150.0
+          args:
+            - -retentionPeriod=12
+            - -maxLabelsPerTimeseries=50
+            - -search.cacheTimestampOffset=15m
+            - -maxLabelValueLen=8192
+            - -storageDataPath=/victoria-metrics-data
+          ports:
+            - name: http
+              containerPort: 8428
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 180 # 744G may open slowly on the HDD tier (~30m budget)
+          volumeMounts:
+            - name: data
+              mountPath: /victoria-metrics-data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: victoriametrics-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: victoriametrics
+  namespace: victoriametrics
+spec:
+  selector:
+    app.kubernetes.io/name: victoriametrics
+  ports:
+    - name: http
+      port: 8428
+      targetPort: http
+---
+# ===========================================================================
+# OTel collector — drains the otlp_metrics/otlp_meta_metrics Kafka topics (two
+# groups: victoriametrics-exporter + -latest) and writes them into
+# VictoriaMetrics. Stateless; config from a ConfigMap. Single consumer per
+# group -> replicas 1, Recreate.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: victoriametrics-exporter
+  namespace: victoriametrics
+spec:
+  replicas: 1 # live
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: victoriametrics-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: victoriametrics-exporter
+        app.kubernetes.io/instance: victoriametrics
+        # writes to + scrapes victoriametrics:8428 (in-ns). Nothing external any more:
+        # both the Kafka it consumes and the collector it reports itself to are
+        # in-cluster now.
+        kube-vnet/net.victoriametrics: egress
+        # consumes the in-cluster Kafka (otel-kafka-bootstrap.opentelemetry-gateway).
+        kube-vnet/net.opentelemetry-gateway.kafka: egress
+        # sends its OWN self-monitoring metrics (otlp/feedback) to the gateway's
+        # ClusterIP. Needed because that is an in-cluster Service: it used to be the
+        # Swarm collector at 10.20.2.10:4317, which was external egress and needed no
+        # label. Drop this label and the feedback pipeline silently stops.
+        kube-vnet/net.opentelemetry-gateway.otel-gateway: egress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: otelcol
+          image: otel/opentelemetry-collector-contrib:0.159.0
+          ports:
+            - name: metrics
+              containerPort: 8888
+            - name: health
+              containerPort: 13133
+          readinessProbe:
+            httpGet:
+              path: /
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otelcol-contrib/config.yaml
+              subPath: config.yaml
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: victoriametrics-exporter-config
+---
+# ===========================================================================
+# Recovery exporter — dormant (replicas 0). On-demand backfill/replay: scale to
+# 1 and reset the victoriametrics-recovery-exporter Kafka group offsets
+# (kafka-consumer-groups.sh --reset-offsets), then scale back to 0.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: victoriametrics-recovery-exporter
+  namespace: victoriametrics
+spec:
+  replicas: 0 # dormant — scale up on demand for offset-reset replays
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: victoriametrics-recovery-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: victoriametrics-recovery-exporter
+        app.kubernetes.io/instance: victoriametrics
+        kube-vnet/net.victoriametrics: egress
+        # consumes the in-cluster Kafka (otel-kafka-bootstrap.opentelemetry-gateway).
+        kube-vnet/net.opentelemetry-gateway.kafka: egress
+        # sends its OWN self-monitoring metrics (otlp/feedback) to the gateway's
+        # ClusterIP. Needed because that is an in-cluster Service: it used to be the
+        # Swarm collector at 10.20.2.10:4317, which was external egress and needed no
+        # label. Drop this label and the feedback pipeline silently stops.
+        kube-vnet/net.opentelemetry-gateway.otel-gateway: egress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: otelcol
+          image: otel/opentelemetry-collector-contrib:0.159.0
+          ports:
+            - name: metrics
+              containerPort: 8888
+            - name: health
+              containerPort: 13133
+          readinessProbe:
+            httpGet:
+              path: /
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otelcol-contrib/config.yaml
+              subPath: config.yaml
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: victoriametrics-recovery-exporter-config

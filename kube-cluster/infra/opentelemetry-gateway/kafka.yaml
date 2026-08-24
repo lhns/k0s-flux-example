@@ -1,0 +1,167 @@
+---
+# Three KRaft nodes carrying both roles (broker + controller in one pool). RF=2 on every
+# topic means a partition keeps a leader through a rolling restart, so producers never
+# block — writes are the thing that must stay available here; reads can wait.
+#
+# The pool is named `kafka` because Strimzi builds pod and PVC names from it:
+# `<cluster>-<pool>-<ordinal>` gives otel-kafka-0, matching the otel-kafka-bootstrap and
+# otel-kafka-brokers Services. It was briefly `dual` (after the dual-role nodes), which
+# named an implementation detail nobody reading `otel-dual-0` benefits from and never said
+# Kafka at all.
+# NOTE: renaming this pool is NOT a rename — Strimzi derives PVC names from it, so a new
+# name means new empty volumes and a cluster rebuild. Doing it later means moving real data
+# with Cruise Control instead.
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaNodePool
+metadata:
+  name: kafka
+  namespace: opentelemetry-gateway
+  labels:
+    strimzi.io/cluster: otel
+spec:
+  replicas: 3
+  roles: [controller, broker]
+  storage:
+    # JBOD with a single volume even though there's only one disk: it is the only
+    # storage type that can later gain a disk without recreating the cluster.
+    type: jbod
+    volumes:
+      - id: 0
+        type: persistent-claim
+        # LOCAL tier only. Topics keep a 2 GB hot window (local.retention.bytes) and
+        # tier the rest to S3, so this does not need to hold 10 days of telemetry.
+        size: 20Gi
+        class: ceph-rbd
+        deleteClaim: false
+        kraftMetadata: shared
+  template:
+    pod:
+      metadata:
+        labels:
+          # Brokers accept clients on :9092 and talk to each other (:9091 replication,
+          # :9090 controller) -> both directions.
+          kube-vnet/net.kafka: both
+      volumes:
+        # The Aiven plugin jars, as an OCI image volume composed from the upstream release
+        # archives (tiered-storage-plugin.yaml). Was a static CephFS PV over a directory
+        # unpacked by hand for the Swarm broker — which put Ceph in the broker startup path
+        # and kept the plugin version out of git entirely.
+        #
+        # The reference is a bare PLACEHOLDER matching the ImageComposition's name. The root
+        # generator rewrites it to <publicHost>/<namespace>/<name>:<spec-hash> and patches the same hash
+        # into that composition's push.tags, so the volume and its artifact cannot disagree.
+        #
+        # It needs kustomizeconfig.yaml to work. kustomize's builtin image fieldspecs are
+        # path-anchored and cover spec/volumes[] and spec/template/spec/volumes[] — Strimzi's
+        # path is spec/template/pod/volumes[], which is in neither, so without that fieldspec
+        # the placeholder is left verbatim and the kubelet tries to pull an image literally
+        # named "kafka-tiered-storage".
+        - name: tiered-storage-plugin
+          image:
+            reference: kafka-tiered-storage
+            # The image is pulled by the KUBELET, not by this pod, and is cached node-locally
+            # plus mirrored between nodes by Spegel. Always would put oci-composer in the path
+            # of every broker start; IfNotPresent means only a changed spec-hash pulls at all.
+            pullPolicy: IfNotPresent
+    kafkaContainer:
+      volumeMounts:
+        # Strimzi HARD-ENFORCES that additional mount paths start with /mnt — anything
+        # else and the Kafka CR silently stays NotReady with no pods created at all.
+        - name: tiered-storage-plugin
+          mountPath: /mnt/tiered-storage
+          readOnly: true
+      env:
+        # The Aiven S3 backend falls back to the AWS SDK default credential chain when
+        # storage.aws.access.key.id / secret.access.key are unset, and that chain reads
+        # these env vars. This keeps the credentials OUT of the Kafka CR, whose
+        # remoteStorageManager.config is a plain string map that would land in git in
+        # cleartext. (${strimzisecrets:...} is not an option: the Kafka pod Role is
+        # resourceNames-scoped to cert secrets, so it would be RBAC-denied.)
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: opentelemetry-gateway-s3
+              key: AWS_ACCESS_KEY_ID
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: opentelemetry-gateway-s3
+              key: AWS_SECRET_ACCESS_KEY
+---
+apiVersion: kafka.strimzi.io/v1
+kind: Kafka
+metadata:
+  name: otel
+  namespace: opentelemetry-gateway
+spec:
+  kafka:
+    # Strimzi 1.1.0 supports exactly [4.2.0, 4.2.1, 4.3.0] — 4.1.x (what Swarm runs)
+    # was dropped. Harmless here because this cluster starts empty. If the Aiven 1.1.1
+    # plugin (released before 4.2/4.3) trips with NoSuchMethodError/LinkageError, drop
+    # to 4.2.1 before changing anything else.
+    # The operator validates this and refuses to create ANY pod on a bad value, so a
+    # typo here surfaces as Kafka NotReady/UnsupportedKafkaVersionException, not a
+    # half-built cluster.
+    version: 4.3.0
+    metadataVersion: 4.3-IV0
+    listeners:
+      # Internal only. External senders reach the GATEWAY on 10.20.2.14; nothing
+      # outside the cluster talks to Kafka, so there is no external listener and no
+      # advertised-address juggling.
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+    config:
+      # RF=2 everywhere. Tiered storage means this costs ~2x only the small local hot
+      # window — remote segments are uploaded by the LEADER ONLY and are not
+      # replicated (KIP-405), so the 10 days in S3 is stored exactly once.
+      default.replication.factor: 2
+      offsets.topic.replication.factor: 2
+      transaction.state.log.replication.factor: 2
+      # min.isr 1 (not 2) so losing a broker degrades reads but NEVER blocks writes.
+      min.insync.replicas: 1
+      transaction.state.log.min.isr: 1
+      # Parity with the Swarm broker: topics are declared as KafkaTopic CRs below,
+      # never conjured into existence by a producer typo.
+      auto.create.topics.enable: false
+      # The remote-log metadata topic. Losing it makes S3 segments unreadable even
+      # though the objects still exist, so it gets RF=2 like everything else.
+      rlmm.config.remote.log.metadata.topic.replication.factor: 2
+      rlmm.config.remote.log.metadata.topic.num.partitions: 50
+    tieredStorage:
+      type: custom
+      remoteStorageManager:
+        className: io.aiven.kafka.tieredstorage.RemoteStorageManager
+        # TWO colon-separated wildcard entries, exactly as the Swarm broker has them.
+        # Do NOT flatten into one directory: both dirs ship commons-*.jar, httpclient
+        # and DIFFERENT commons-codec versions (1.17.0 in core vs 1.17.1 in s3).
+        #
+        # Version-free, and now a constant: the version lives in the fetch URLs and digests
+        # in tiered-storage-plugin.yaml, so an upgrade never touches this line. It used to
+        # read core-1.1.1/*:s3-1.1.1/*, which made the classpath the only place the plugin
+        # version was written down anywhere in this repo.
+        classPath: /mnt/tiered-storage/core/*:/mnt/tiered-storage/s3/*
+        config:
+          storage.backend.class: io.aiven.kafka.tieredstorage.storage.s3.S3Storage
+          storage.s3.bucket.name: otel
+          storage.s3.endpoint.url: https://s3.example.com
+          # 'default' is what the Swarm broker sets against the Ceph RGW — not a real
+          # AWS region, and not us-east-1.
+          storage.s3.region: default
+          storage.s3.path.style.access.enabled: "true"
+          chunk.size: "4194304"
+          # The Swarm cluster sets no prefix, so its objects sit at the bucket root.
+          # Namespacing this cluster keeps the two separable while both run, and makes
+          # the old objects trivially identifiable for cleanup after Swarm retires.
+          key.prefix: kube/
+  entityOperator:
+    # Reconciles the KafkaTopic CRs in topics.yaml.
+    topicOperator: {}
+    # userOperator omitted: the internal listener has no TLS/SCRAM auth, so there are
+    # no KafkaUsers to manage.
+    template:
+      pod:
+        metadata:
+          labels:
+            kube-vnet/net.kafka: egress

@@ -1,0 +1,61 @@
+---
+# Ports the Swarm "jellyfin-pg_redirect_home" middleware: bare /web -> /web/index.html.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: jellyfin-redirect-home
+  namespace: jellyfin
+spec:
+  redirectRegex:
+    regex: "^(https?://[^/]+)/web$"
+    replacement: "${1}/web/index.html"
+---
+# Public — Jellyfin does its own login (no Authelia, matching Swarm). Canonical host
+# is jellyfin-pg.example.com (the original Swarm domain). TLS via the default *.example.com
+# wildcard (Traefik TLSStore), so tls: {} needs no secret.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: jellyfin
+  namespace: jellyfin
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`jellyfin-pg.example.com`)
+      services:
+        - name: jellyfin
+          port: 8096
+      middlewares:
+        - name: jellyfin-redirect-home
+  tls: {}
+---
+# jellyfin.kube.example.com redirects to the canonical jellyfin-pg.example.com (default
+# *.kube.example.com wildcard cert; the middleware 308-redirects before the backend).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: jellyfin-kube-redirect
+  namespace: jellyfin
+spec:
+  redirectRegex:
+    regex: "^https://jellyfin.kube.example.com/(.*)"
+    replacement: "https://jellyfin-pg.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: jellyfin-kube-redirect
+  namespace: jellyfin
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`jellyfin.kube.example.com`)
+      services:
+        - name: jellyfin
+          port: 8096
+      middlewares:
+        - name: jellyfin-kube-redirect
+  tls: {}

@@ -1,0 +1,32 @@
+# xExtension-LlmClassification — see extension-autottl.yaml for what the shape means, and
+# extension-image-proxy.yaml for why the monorepo is declared twice.
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: freshrss-ext-llm-classification
+  namespace: freshrss
+spec:
+  interval: 12h
+  url: https://github.com/FreshRSS/Extensions
+  ref:
+    commit: 7630bee1f9267d540f2a3cc12d49f54393b68e7a
+---
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageComposition
+metadata:
+  name: freshrss-ext-llm-classification
+  namespace: freshrss
+spec:
+  interval: 1h
+  layers:
+    - name: llm-classification
+      sourceRef:
+        kind: GitRepository
+        name: freshrss-ext-llm-classification
+        subpath: xExtension-LlmClassification
+      to: /
+      owner: {uid: 33, gid: 33}
+  push:
+    # No `repository` — publishes to <registry>/<namespace>/<name>. See extension-autottl.yaml.
+    history: 10

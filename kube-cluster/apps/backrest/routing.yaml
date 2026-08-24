@@ -1,0 +1,49 @@
+---
+# backrest — behind Authelia (covered by the *.example.com -> group:admin / two_factor
+# catch-all in the Authelia config). backrest also has its own login. TLS via the
+# default *.example.com wildcard.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: backrest
+  namespace: backrest
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`backrest.example.com`)
+      services:
+        - name: backrest
+          port: 9898
+      middlewares:
+        - name: authelia
+  tls: {}
+---
+# backrest.kube.example.com -> canonical backrest.example.com.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: backrest-kube-redirect
+  namespace: backrest
+spec:
+  redirectRegex:
+    regex: "^https://backrest.kube.example.com/(.*)"
+    replacement: "https://backrest.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: backrest-kube-redirect
+  namespace: backrest
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`backrest.kube.example.com`)
+      services:
+        - name: backrest
+          port: 9898
+      middlewares:
+        - name: backrest-kube-redirect
+  tls: {}

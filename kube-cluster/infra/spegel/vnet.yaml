@@ -1,0 +1,24 @@
+---
+# Spegel is peer-to-peer: the libp2p router (containerPort 5001, tcp+quic) is
+# pod-to-pod *within* the spegel namespace. Under pod-level ingress isolation that
+# intra-namespace traffic is default-denied. Since the P2P mesh is purely
+# intra-namespace, we just re-enable this namespace's built-in `namespace` vnet as
+# `both` (every spegel pod becomes a mutual client+server) via a per-namespace
+# baseline — no bespoke VirtualNetwork/binding needed. The cluster-baseline's
+# `cluster: default-egress` still applies (DNS etc. keep working); this only raises
+# the `namespace` membership for spegel. The registry on hostPort 30020 is
+# host->pod and is auto-allowed by kube-vnet.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetworkBaseline
+metadata:
+  name: default
+  namespace: spegel
+spec:
+  memberships:
+    - virtualNetworkRef:
+        # The `namespace` system vnet resolves to the pod's own namespace (here
+        # spegel's per-namespace vnet). As of kube-vnet 0.6.0 ref.namespace is
+        # honored (no longer ignored) and the recommended form for a system vnet
+        # is to omit it — otherwise a wrong namespace drops the membership.
+        name: namespace
+      direction: both

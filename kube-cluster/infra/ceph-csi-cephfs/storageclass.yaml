@@ -1,0 +1,34 @@
+---
+# Dynamic CephFS provisioning. Each PVC -> a subvolume under
+# /volumes/kube/csi-vol-<uuid> on the fastappdata filesystem.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: cephfs
+provisioner: cephfs.csi.ceph.com
+parameters:
+  clusterID: ceph-cluster
+  fsName: fastappdata
+  # `pool` intentionally omitted: not needed — new subvolumes use the
+  # filesystem's default data pool. (It would add an unnecessary
+  # --pool_layout; harmless, just superfluous.)
+  # subvolumeGroup is NOT a StorageClass param — it comes from csiConfig
+  # (cephFS.subvolumeGroup: kube) in the HelmRelease values.
+  csi.storage.k8s.io/provisioner-secret-name: csi-cephfs-secret
+  csi.storage.k8s.io/provisioner-secret-namespace: ceph-csi-cephfs
+  csi.storage.k8s.io/controller-expand-secret-name: csi-cephfs-secret
+  csi.storage.k8s.io/controller-expand-secret-namespace: ceph-csi-cephfs
+  csi.storage.k8s.io/node-stage-secret-name: csi-cephfs-secret
+  csi.storage.k8s.io/node-stage-secret-namespace: ceph-csi-cephfs
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+# The `cephfs-appdata` StorageClass (HDD tier, fsName: appdata) used to live
+# here and was served by this same driver. It now lives in
+# ../ceph-csi-cephfs-appdata/storageclass.yaml and is served by its own driver
+# (cephfs-appdata.csi.ceph.com), so that a hang on the `appdata` filesystem can
+# no longer kill this driver's process and unmount every `fastappdata` volume on
+# the node. See that directory's release.yaml for the full reasoning.
+#
+# This driver therefore now serves `fastappdata` only -- with the exception of
+# pre-existing appdata PVs, which stay on it: PersistentVolume.spec.csi.driver
+# is immutable, so they move one at a time by recreating the PV.

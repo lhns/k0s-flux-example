@@ -1,0 +1,21 @@
+# victoriametrics.example.com -> the VictoriaMetrics vmui/API (:8428), behind the
+# normal Authelia forwardAuth (SSO) middleware (reflected into every namespace).
+# The exporters write over the in-cluster ClusterIP, so Authelia only guards
+# human/browser access. No external port (ClusterIP only). TLS via the *.example.com
+# wildcard default store.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: victoriametrics
+  namespace: victoriametrics
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`victoriametrics.example.com`)
+      services:
+        - name: victoriametrics
+          port: 8428
+      middlewares:
+        - name: authelia
+  tls: {}

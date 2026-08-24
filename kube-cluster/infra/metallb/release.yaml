@@ -1,0 +1,56 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: metallb
+  namespace: metallb-system
+spec:
+  interval: 1h0m0s
+  url: https://metallb.github.io/metallb
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: metallb
+  namespace: metallb-system
+spec:
+  interval: 10m0s
+  # releaseName/storageNamespace default to name/namespace (metallb /
+  # metallb-system), matching the release k0s installed -> adopted in place.
+  chart:
+    spec:
+      chart: metallb
+      version: "0.16.1"
+      interval: 1h0m0s
+      sourceRef:
+        kind: HelmRepository
+        name: metallb
+  # No chart values (k0sctl installed metallb with chart defaults).
+  # The frr-k8s controller/frr liveness (and frr startup) probes default to a 1s
+  # timeout the chart doesn't expose. Under momentary control-plane slowness the
+  # health endpoint exceeds 1s -> false liveness failures -> pod restarts. Bump the
+  # timeout to 5s via a post-render patch.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: DaemonSet
+              name: metallb-frr-k8s
+            patch: |
+              apiVersion: apps/v1
+              kind: DaemonSet
+              metadata:
+                name: metallb-frr-k8s
+                namespace: metallb-system
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: frr
+                        livenessProbe:
+                          timeoutSeconds: 5
+                        startupProbe:
+                          timeoutSeconds: 5
+                      - name: controller
+                        livenessProbe:
+                          timeoutSeconds: 5

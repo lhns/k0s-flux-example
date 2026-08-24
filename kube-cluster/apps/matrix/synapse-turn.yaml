@@ -1,0 +1,38 @@
+# A third --config-path that Synapse deep-merges on top of homeserver.yaml and
+# the database override, adding only VoIP/TURN.
+#
+# Element Call (LiveKit, matrix-rtc.example.com) is unaffected — it is a separate SFU
+# path. This is for the legacy 1:1 WebRTC calls that older clients still use, and
+# for any client that cannot reach its peer directly.
+#
+# THIS FILE IS DELIBERATELY NOT ENCRYPTED. The shared secret is read from a file
+# via turn_shared_secret_path (synapse/config/voip.py), which lets the actual
+# secret stay in the reflected Kubernetes Secret and keeps this reviewable.
+# Setting both turn_shared_secret and turn_shared_secret_path is a startup error.
+turn_uris:
+  - "turn:turn.example.com:3478?transport=udp"
+  - "turn:turn.example.com:3478?transport=tcp"
+  - "turns:turn.example.com:5349?transport=tcp"
+
+# The Swarm-era homeserver.yaml still carries a turn_shared_secret from when it
+# ran its own coturn, and synapse refuses to start with both forms set:
+#
+#   Error in configuration:
+#     You have configured both `turn_shared_secret` and `turn_shared_secret_path`.
+#
+# Clearing it here wins, because this file is a later --config-path and the merge
+# takes the last value. An empty string is falsy, which is exactly what the check
+# in synapse/config/voip.py tests, so the path form below is then used.
+turn_shared_secret: ""
+
+# apps/coturn's shared secret, mirrored into this namespace by Reflector. Its own
+# mount point rather than under /secrets, which is already the db-override volume.
+turn_shared_secret_path: /turn/secret
+
+# How long a derived TURN credential stays valid. Synapse's default; long enough
+# for a call to start, short enough that a leaked credential expires.
+turn_user_lifetime: 1h
+
+# Default is true. Relay bandwidth is a real resource and this server does not
+# offer guest access anyway, so only real users get credentials.
+turn_allow_guests: false

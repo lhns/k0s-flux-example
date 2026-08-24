@@ -1,0 +1,82 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: miniflux
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: miniflux
+  namespace: miniflux
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  # DB restored (see README), now live.
+  replicas: 1
+  # Stateless (all state in Postgres, no volume) -> start-first rolling updates are
+  # trivially safe: new pod up before old down, zero-downtime.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: miniflux
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: miniflux
+        app.kubernetes.io/instance: miniflux
+        # receive from traefik; reach the CNPG primary. Feed fetching over the
+        # internet is external egress (unrestricted under the ingress-only baseline).
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.postgres.postgres: egress
+    spec:
+      containers:
+        - name: miniflux
+          image: miniflux/miniflux:2.3.3
+          env:
+            # Canonical host — drives generated links, the PWA manifest, and the API.
+            - name: BASE_URL
+              value: https://miniflux.example.com
+            # Apply any forward schema migrations on the restored DB at startup.
+            - name: RUN_MIGRATIONS
+              value: "1"
+            # DB in the shared CNPG cluster (dedicated miniflux role + db). The password
+            # (reflected CNPG role secret) is interpolated into DATABASE_URL via $(VAR);
+            # sslmode=disable (in-cluster, CNPG CA is self-signed).
+            - name: MINIFLUX_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: miniflux-db
+                  key: password
+            - name: DATABASE_URL
+              value: postgres://miniflux:$(MINIFLUX_DB_PASSWORD)@postgres-rw.postgres.svc.cluster.local:5432/miniflux?sslmode=disable
+            # No CREATE_ADMIN/ADMIN_* — the migrated DB already has the admin user (and
+            # everyone else), so no bootstrap is needed and no password lands in the repo.
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthcheck
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 6
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: miniflux
+  namespace: miniflux
+spec:
+  selector:
+    app.kubernetes.io/name: miniflux
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

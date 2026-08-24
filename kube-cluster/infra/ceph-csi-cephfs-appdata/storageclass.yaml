@@ -1,0 +1,39 @@
+---
+# Dynamic CephFS provisioning on the HDD tier. Each PVC -> a subvolume under
+# /volumes/kube/csi-vol-<uuid> on the `appdata` filesystem, whose default data
+# pool is cephfs.appdata.data.
+#
+# MOVED here from ../ceph-csi-cephfs/storageclass.yaml. The name is unchanged so
+# existing PVCs keep resolving; the only difference is `provisioner`, which now
+# points at the dedicated driver deployed alongside this file. That is the whole
+# isolation mechanism -- see release.yaml for why it has to be a separate driver
+# name rather than just another StorageClass.
+#
+# NOTE: `provisioner` is IMMUTABLE. Kubernetes cannot patch this field in place,
+# so the old StorageClass object had to be deleted before this one could be
+# created. Existing *bound* PVCs are unaffected by that (a StorageClass is only
+# consulted at provisioning time), but a PVC created during the gap would have
+# stayed Pending.
+#
+# The secret is deliberately still the one owned by the OTHER driver's
+# namespace: one cephx identity (client.kube) serves both, and its caps already
+# cover cephfs.appdata.{meta,data,data-fast}.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: cephfs-appdata
+provisioner: cephfs-appdata.csi.ceph.com
+parameters:
+  clusterID: ceph-cluster
+  fsName: appdata
+  # `pool` intentionally omitted: new subvolumes use the filesystem's default
+  # data pool. subvolumeGroup is NOT a StorageClass param -- it comes from
+  # csiConfig (cephFS.subvolumeGroup: kube) in the HelmRelease values.
+  csi.storage.k8s.io/provisioner-secret-name: csi-cephfs-secret
+  csi.storage.k8s.io/provisioner-secret-namespace: ceph-csi-cephfs
+  csi.storage.k8s.io/controller-expand-secret-name: csi-cephfs-secret
+  csi.storage.k8s.io/controller-expand-secret-namespace: ceph-csi-cephfs
+  csi.storage.k8s.io/node-stage-secret-name: csi-cephfs-secret
+  csi.storage.k8s.io/node-stage-secret-namespace: ceph-csi-cephfs
+reclaimPolicy: Retain
+allowVolumeExpansion: true

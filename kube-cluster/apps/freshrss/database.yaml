@@ -1,0 +1,31 @@
+---
+# FreshRSS's login role in the shared CNPG cluster (miniflux/mealie precedent).
+# Password from secret/freshrss-db (postgres ns). retain: never drop.
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: freshrss
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: freshrss
+  ensure: present
+  login: true
+  passwordSecret:
+    name: freshrss-db
+  databaseRoleReclaimPolicy: retain
+---
+# The freshrss database, owned by that role. Created empty — FreshRSS builds its
+# own schema on first boot via cli/do-install.php (see FRESHRSS_INSTALL).
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: freshrss
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: freshrss
+  owner: freshrss
+  databaseReclaimPolicy: retain

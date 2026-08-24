@@ -1,0 +1,88 @@
+# Git-managed Home Assistant settings.
+#
+# Mounted read-only at /config/packages/gitops.yaml and pulled in by the
+# `homeassistant: packages: !include_dir_named packages` line the initContainer seeds
+# into configuration.yaml. Everything ELSE in /config stays writable and HA-owned — the
+# UI writes .storage, automations and blueprints there and must keep being able to.
+#
+# This is a configMapGenerator source, so editing it renames the ConfigMap and rolls the
+# pod. No Reloader needed for this file (Reloader is only there for the Secrets).
+#
+# Values that must not be in git use !secret. Home Assistant has NO !env_var tag (it was
+# removed from the YAML loader years ago — verified against homeassistant/util/yaml), so
+# secrets.yaml is the only mechanism; the initContainer renders it from mounted Secrets.
+
+http:
+  # Bind the web server to the POD address only — deliberately NOT 0.0.0.0.
+  #
+  # This pod has a second interface (net1, 10.20.3.9) directly on the LAN, attached so that
+  # mDNS/SSDP multicast can reach it. Left at the default, Home Assistant would also serve
+  # its full UI and API on that address, unauthenticated at the network layer and invisible
+  # to kube-vnet, which does not police secondary interfaces.
+  #
+  # server_host USED to pin this to the pod IP for exactly that reason. It cannot any more.
+  # HA 2026.8 keeps a stable and a pending http config: a changed server_host is applied as
+  # PENDING and reverts after 5 minutes unless confirmed. The pod IP changes on every restart,
+  # so the config was pending on every start, never got confirmed, and HA reverted to a stable
+  # entry naming a DEAD pod's IP -- leaving it bound to 127.0.0.1 only, unreachable, and stuck
+  # in a five-minute restart loop. Cost 130 minutes of downtime the day 2026.8.0 landed.
+  #
+  # So: bind everything, and accept that HA's login page is reachable from the LAN on net1.
+  # Nothing here changes per restart, so the pending/confirm machinery never fires again.
+  # Restoring the boundary properly means dropping TCP 8123 on net1 with an iptables rule --
+  # see TODO.md.
+  #
+  # Discovery is unaffected either way: zeroconf and SSDP use their own multicast sockets,
+  # not this server. Traefik reaches HA on the pod IP via the Service.
+  # WITHOUT these two, every login through Traefik fails: HA sees the proxy's address as
+  # the client, rejects the forwarded request, and eventually IP-bans the proxy itself.
+  # Traefik runs as a DaemonSet in the pod network (NOT hostNetwork), so the connection
+  # arrives from a pod address, not a node address.
+  use_x_forwarded_for: true
+  trusted_proxies:
+    - 172.18.0.0/16
+  # HA is reachable from the internet with only its own login in front of it — there is
+  # deliberately no Authelia forwardAuth, because it would break the companion app. This
+  # is the compensating control.
+  ip_ban_enabled: true
+  login_attempts_threshold: 5
+
+recorder:
+  # Postgres rather than the default SQLite in /config: keeps a constant write stream off
+  # the RWO Ceph RBD volume and puts history in the cluster's Postgres backups.
+  db_url: !secret recorder_db_url
+  purge_keep_days: 30
+
+# NO `mqtt:` block here. Home Assistant removed broker configuration from YAML — the
+# `mqtt:` key now only accepts manually-defined entities, and broker/port/username/
+# password are rejected outright ("'broker' is an invalid option for 'mqtt'"). The broker
+# is a config entry, added once through the UI:
+#     mosquitto.mosquitto.svc.cluster.local : 1883, user mqtt_homeassistant
+# The password is in secret.yaml. Rotating it is a UI action, not a redeploy.
+# Devices arrive through zigbee2mqtt's discovery topics — do NOT point HA at the Zigbee
+# coordinator (tcp://10.20.1.50:6638) directly, it accepts one client at a time and z2m
+# owns it.
+
+auth_oidc:
+  # SSO against Authelia. HA has no native LDAP or OIDC, and putting Authelia's
+  # forwardAuth in front would break the companion app (it sends its own
+  # `Authorization: Bearer`, which collides with what forwardAuth wants in that header).
+  # So HA keeps its own login and treats Authelia as an OIDC provider — the same shape
+  # grafana, immich, outline and sftpgo already use in this repo.
+  #
+  # HA's native accounts stay enabled on purpose: auth_oidc is third-party and sits in
+  # the login path, so a broken upgrade must not lock you out. Do not delete the owner.
+  client_id: homeassistant
+  client_secret: !secret oidc_client_secret
+  discovery_url: https://auth.example.com/.well-known/openid-configuration
+  display_name: Authelia
+  roles:
+    # lldap groups, surfaced by Authelia's `groups` scope.
+    admin: admin
+    user: homeassistant
+  features:
+    automatic_person_creation: true
+    # Go straight to Authelia instead of showing auth_oidc's own welcome page with a
+    # couple of bare links. HA's native login stays reachable at /auth/authorize as the
+    # break-glass path — worth remembering, since this makes SSO the default route in.
+    default_redirect: true

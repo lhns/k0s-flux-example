@@ -1,0 +1,217 @@
+{{- /*
+  For each group in .Values.groups, discover every <base>/<component>/ dir
+  (marked by its kustomization.yaml) and emit a Flux Kustomization named
+  <prefix>-<component>. Add a workload = create <base>/<name>/ with a
+  kustomization.yaml; nothing here changes. `wait` defaults true, per-group
+  overridable (hasKey guard — a naive `default true` would coerce false→true).
+
+  Optional cross-component ordering: a component may declare Flux dependencies
+  via an annotation on its OWN kustomization.yaml, e.g.
+    metadata:
+      annotations:
+        dependsOn: infra-metallb        # comma-separated Flux Kustomization names
+  `metadata` is an inert kustomize field (never reaches the built resources), so
+  we read it here and emit spec.dependsOn. No annotation -> no dependsOn.
+
+  App grouping: every component's resources get app.kubernetes.io/instance via
+  spec.commonMetadata so they show up as one app in the Headlamp app-view. The
+  value defaults to the component's own dir name; override it when a Helm chart
+  labels its workloads differently (so the vnets/CRs land in the same group):
+    metadata:
+      annotations:
+        appInstance: traefik-traefik   # match the chart's instance label
+  commonMetadata is applied AFTER the kustomize build and only touches top-level
+  metadata (never selectors/pod-templates), so it's authoritative and causes no
+  rollouts.
+
+  Composed artifacts: a component may declare ImageComposition objects among its
+  own resources. They are found BY KIND rather than by filename, so any file may
+  hold them and a component may have several. For each one we compute a
+  SPEC-HASH tag and emit a kustomize `images:` entry mapping a placeholder --
+  named after the composition itself -- to the full reference.
+
+  Both ends are then driven from that one hash: the `images:` entry rewrites the
+  consumer (kustomize's built-in fieldSpecs already cover `containers[]/image`
+  AND `spec/volumes[]/image/reference`), and a generated `patches:` entry sets
+  the composition's own `spec.push.tags`. Artifact and consumer therefore move
+  together, in one commit, with no substitution and nothing observing anything at
+  runtime. See apps/freshrss and ADR 0017 in lhns/kube-oci-composer.
+
+  A composition must NOT set push.tags itself -- the patch replaces them.
+
+  The repository is <publicHost>/<namespace>/<name>, which is where the composer
+  publishes an object that names no `push.repository`. We deliberately do not set
+  one: the controller pushes from INSIDE the cluster and cannot resolve
+  oci-composer.internal, and an explicitly set repository is reported back in
+  status exactly as written. Leaving it empty lets the controller push to the
+  in-cluster Service while status.artifact.ref carries the public host.
+
+  The composition side is a patch rather than a fieldSpec extending the images
+  transformer to `spec/push/ref`. The fieldSpec works -- it was the original
+  design and it rewrote both ends correctly. What it cannot be is GLOBAL:
+  kustomize learns non-builtin paths only from a `configurations:` file listed in
+  the kustomization that is being built, and ImageComposition is a CRD, so it is
+  not in the builtin fieldSpecs. Flux's Kustomization has no `configurations:`
+  field for the generator to fill in, and kustomize never reads config from the
+  cluster, so oci-composer cannot ship it as a resource either. That leaves a
+  copy of the same four-line file in every app owning a composition, forever. A
+  patch the generator emits keeps the whole mechanism here instead.
+
+  The hash covers only what determines the OUTPUT. `push` is excluded because the
+  tag lives there (including it would be circular) and because where an artifact
+  is published does not change what it is; `interval` and `suspend` are not
+  inputs either. `publish` stays in the omit list purely so the 0.4.0 -> 0.5.0
+  rename did not move a single hash -- both names are excluded, so every existing
+  tag survived the migration and nothing was rebuilt.
+*/ -}}
+{{- range $g := .Values.groups }}
+{{- range $path, $_ := $.Files.Glob (printf "%s/*/kustomization.yaml" $g.base) }}
+{{- $name := base (dir $path) }}
+{{- $km := $.Files.Get $path | fromYaml }}
+{{- $deps := dig "metadata" "annotations" "dependsOn" "" $km }}
+{{- $app := dig "metadata" "annotations" "appInstance" $name $km }}
+{{- $crds := dig "metadata" "annotations" "crdPolicy" "CreateReplace" $km }}
+{{- /* Pass 1: index every object in the component dir by kind/name, so a composition can
+       resolve what its layers point AT. Map iteration in text/template is key-sorted, so
+       this stays deterministic. */ -}}
+{{- $objs := dict }}
+{{- range $f, $_ := $.Files.Glob (printf "%s/*.yaml" (dir $path)) }}
+{{- range $doc := regexSplit "(?m)^---[[:space:]]*$" ($.Files.Get $f) -1 }}
+{{- $o := fromYaml $doc }}
+{{- if and (dig "kind" "" $o) (dig "metadata" "name" "" $o) }}
+{{- $_ := set $objs (printf "%s/%s" $o.kind $o.metadata.name) $o }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- $comps := list }}
+{{- range $k, $o := $objs }}
+{{- if eq $o.kind "ImageComposition" }}
+{{- /* A sourceRef layer names its input rather than containing it, so the pin that decides
+       the CONTENT lives in the referenced GitRepository, not here. Hashing the composition
+       spec alone therefore does NOT see it: bumping freshrss-ext-autottl from v0.6.2 to
+       v0.6.4 left the tag identical while the artifact changed. That is the one property
+       ADR 0017 exists to provide, so the referenced object's spec is folded in.
+
+       Only push.onConflict caught it (loudly, and correctly - the composition went Failed
+       rather than moving a spec-hash tag to new content). It should never have got that far.
+
+       `interval`/`timeout`/`suspend` are dropped from the source for the same reason they are
+       dropped from the composition: they change when we poll, not what is built. */ -}}
+{{- $srcs := dict }}
+{{- range $l := (dig "spec" "layers" (list) $o) }}
+{{- $sr := dig "sourceRef" (dict) $l }}
+{{- if $sr }}
+{{- $sk := printf "%s/%s" (dig "kind" "" $sr) (dig "name" "" $sr) }}
+{{- $src := get $objs $sk }}
+{{- if $src }}
+{{- $_ := set $srcs $sk (omit (dig "spec" (dict) $src) "interval" "timeout" "suspend") }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- $hashIn := omit $o.spec "publish" "push" "interval" "suspend" }}
+{{- /* Wrapped ONLY when there is something to add, so a composition with no sourceRef layer
+       (e.g. infra/opentelemetry-gateway, which fetches pinned URLs inline) keeps the hash it
+       already has and does not churn. */ -}}
+{{- if $srcs }}
+{{- $hashIn = dict "spec" $hashIn "sources" $srcs }}
+{{- end }}
+{{- $comps = append $comps (dict
+      "name" $o.metadata.name
+      "tag"  (printf "s%s" ($hashIn | toYaml | sha256sum | trunc 16))
+      "repo" (printf "%s/%s/%s" $.Values.ociComposer.publicHost $o.metadata.namespace $o.metadata.name)) }}
+{{- end }}
+{{- end }}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: {{ if $g.prefix }}{{ $g.prefix }}-{{ end }}{{ $name }}
+  namespace: flux-system
+spec:
+  interval: {{ $g.interval | default "10m0s" }}
+  path: ./{{ dir $path }}
+  prune: true
+  wait: {{ if hasKey $g "wait" }}{{ $g.wait }}{{ else }}true{{ end }}
+  commonMetadata:
+    labels:
+      app.kubernetes.io/instance: {{ $app | quote }}
+  {{- with $comps }}
+  images:
+    {{- range . }}
+    # The placeholder IS the ImageComposition's own name, so an app connects the two by
+    # writing that name where the image reference goes -- nothing else to declare.
+    - name: {{ .name }}
+      newName: {{ .repo }}
+      newTag: {{ .tag }}
+    {{- end }}
+  {{- end }}
+  patches:
+    # Chart-shipped CRDs are upgraded. helm-controller's default for upgrades is Skip, and
+    # helm itself never touches a chart's crds/ dir, so WITHOUT this a chart's CRDs freeze at
+    # whatever version was first installed -- forever, and silently. It is silent that makes it
+    # bad: new optional fields simply do not exist, so the API server prunes them from any
+    # resource that sets one, with no error anywhere. Traefik is how we found out. Its CRDs sat
+    # a full minor behind (v3.6 schemas under a v3.7.9 proxy, missing e.g. encodedCharacters)
+    # from the 41.1.0 -> 41.1.1 bump onward.
+    #
+    # There is no controller-level flag for this -- `crds` exists only per HelmRelease -- so
+    # here is the one place a repo-wide default can live.
+    #
+    # Only charts shipping crds/ are affected at all (traefik, velero); charts that template
+    # their CRDs (cert-manager, cloudnative-pg, metallb) already upgrade them and this is a
+    # no-op. A merge patch, so an existing spec.upgrade block keeps its other fields.
+    #
+    # CreateReplace is a REPLACE. For additive schema changes -- what a CRD bump almost always
+    # is -- that is safe. If a chart ever drops a CRD version that still has stored objects the
+    # API server rejects it, so that failure is loud rather than destructive. Override per
+    # component on its own kustomization.yaml when a chart needs care:
+    #   metadata:
+    #     annotations:
+    #       crdPolicy: Skip        # Skip | Create | CreateReplace
+    - target:
+        kind: HelmRelease
+      patch: |
+        apiVersion: helm.toolkit.fluxcd.io/v2
+        kind: HelmRelease
+        metadata:
+          name: unused   # the target selector above chooses; this name is not matched against
+        spec:
+          upgrade:
+            crds: {{ $crds }}
+  {{- with $comps }}
+    {{- range . }}
+    # The other end: tell the composition which tag to publish under. A patch rather than
+    # extending the images transformer to spec.push.ref, because that would need a
+    # `configurations:` fieldSpec file in EVERY app that uses a composition. Both ends are
+    # generated from the same $tag here, so they cannot drift, and apps carry nothing.
+    #
+    # A merge patch, so a composition with no push block gets one rather than erroring.
+    - target:
+        kind: ImageComposition
+        name: {{ .name }}
+      patch: |
+        apiVersion: oci.lhns.de/v1alpha1
+        kind: ImageComposition
+        metadata:
+          name: {{ .name }}
+        spec:
+          push:
+            tags: [{{ .tag }}]
+    {{- end }}
+  {{- end }}
+  {{- with $deps }}
+  dependsOn:
+    {{- range splitList "," . }}
+    - name: {{ trim . }}
+    {{- end }}
+  {{- end }}
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+{{- end }}
+{{- end }}

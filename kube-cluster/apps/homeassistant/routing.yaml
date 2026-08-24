@@ -1,0 +1,52 @@
+---
+# NO authelia middleware, deliberately. Home Assistant owns its own login and uses
+# Authelia as an OIDC provider instead (grafana/immich/outline/sftpgo precedent).
+# forwardAuth here would break the companion app and every REST client: they send
+# `Authorization: Bearer <HA token>`, which collides with what forwardAuth expects in
+# that same header — a bypass rule cannot fix that the way the FreshRSS one does,
+# because FreshRSS's API auth does not use `Authorization` at all.
+# WebSockets (the frontend's live connection) work through Traefik with no extra config.
+# TLS via the default *.example.com wildcard.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: homeassistant
+  namespace: homeassistant
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`homeassistant.example.com`)
+      services:
+        - name: homeassistant
+          port: 8123
+  tls: {}
+---
+# homeassistant.kube.example.com redirects to the canonical homeassistant.example.com.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: homeassistant-kube-redirect
+  namespace: homeassistant
+spec:
+  redirectRegex:
+    regex: "^https://homeassistant.kube.example.com/(.*)"
+    replacement: "https://homeassistant.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: homeassistant-kube-redirect
+  namespace: homeassistant
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`homeassistant.kube.example.com`)
+      services:
+        - name: homeassistant
+          port: 8123
+      middlewares:
+        - name: homeassistant-kube-redirect
+  tls: {}

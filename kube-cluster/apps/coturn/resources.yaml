@@ -1,0 +1,189 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: coturn
+---
+# Shared STUN/TURN. Two consumers today: snikket (Jingle A/V for XMPP) and
+# synapse (Matrix 1:1 VoIP via turn_uris). Both use coturn's REST-API credential
+# scheme against one shared secret, which is why a single instance can serve them.
+#
+# Snikket ships its own coturn; it is disabled there (SNIKKET_TWEAK_TURNSERVER=0)
+# in favour of this one, so there is exactly one UDP relay range to punch through
+# the router instead of one per app.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coturn
+  namespace: coturn
+  annotations:
+    # roll the pod when the shared secret rotates: the rendered config is built
+    # once at startup, so a changed Secret is otherwise never picked up.
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  # Single VIP, and externalTrafficPolicy: Local means the address follows the
+  # pod — two pods would split the relay state and strand allocations.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: coturn
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: coturn
+        app.kubernetes.io/instance: coturn
+        # No kube-vnet join label on purpose. coturn has no in-cluster edges at
+        # all: every port arrives via the coturn-lb LoadBalancer (kube-vnet
+        # auto-allows that, ext.svc) and relaying is external egress.
+    spec:
+      enableServiceLinks: false
+      initContainers:
+        # Render the final config = git-managed turnserver.conf + the one secret
+        # line. coturn has no env-var substitution and no include directive, so
+        # the file has to be assembled somewhere; doing it here keeps the secret
+        # out of both git and the process table (`--static-auth-secret` on argv
+        # would be readable via ps to anyone on the node).
+        - name: render-config
+          image: busybox:1.38.0
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              {
+                cat /config/turnserver.conf
+                echo "static-auth-secret=$TURN_SHARED_SECRET"
+              } > /rendered/turnserver.conf
+              chmod 0400 /rendered/turnserver.conf
+          env:
+            - name: TURN_SHARED_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: coturn-shared-secret
+                  key: secret
+          volumeMounts:
+            - {name: config, mountPath: /config, readOnly: true}
+            - {name: rendered, mountPath: /rendered}
+      containers:
+        - name: coturn
+          image: coturn/coturn:4.17.2-r0
+          args: ["-c", "/etc/coturn/turnserver.conf"]
+          ports:
+            - {name: turn-tcp, containerPort: 3478, protocol: TCP}
+            - {name: turn-udp, containerPort: 3478, protocol: UDP}
+            - {name: turns-tcp, containerPort: 5349, protocol: TCP}
+            - {name: turns-udp, containerPort: 5349, protocol: UDP}
+          volumeMounts:
+            - {name: rendered, mountPath: /etc/coturn, readOnly: true}
+            # NOT nested under /etc/coturn: that is a readOnly emptyDir holding
+            # only turnserver.conf, so the runtime cannot create a `certs`
+            # mountpoint inside it and the container fails to start at all
+            # (OCI "make mountpoint ... read-only file system").
+            - {name: certs, mountPath: /etc/coturn-certs, readOnly: true}
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 512Mi
+          readinessProbe:
+            # 3s rather than the 1s default: under node load a 1s TCP probe flaps
+            # and empties the Service endpoints, which drops the VIP (mosquitto
+            # learned this the hard way).
+            tcpSocket: {port: 3478}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          # No liveness probe: coturn holds live relay allocations in memory, and
+          # a restart drops every call in progress. A readiness failure already
+          # takes it out of the VIP.
+      volumes:
+        - name: config
+          configMap:
+            name: coturn-config
+        - name: rendered
+          emptyDir: {}
+        - name: certs
+          secret:
+            # *.example.com, mirrored from the traefik ns by reflector (see
+            # infra/traefik/tls.yaml). turn.example.com is a single label, so the
+            # wildcard covers it.
+            secretName: lhns-de
+---
+# Raw STUN/TURN on a dedicated MetalLB VIP. Traefik cannot carry UDP (see
+# infra/metallb/pool.yaml), so this cannot ride the shared traefik VIP.
+# externalTrafficPolicy: Local preserves client source IPs — STUN exists to tell
+# a client its own reflexive address, so a SNAT'd source IP makes it report the
+# wrong one and ICE fails.
+apiVersion: v1
+kind: Service
+metadata:
+  name: coturn-lb
+  namespace: coturn
+  annotations:
+    metallb.io/loadBalancerIPs: 10.20.2.80
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: coturn
+  ports:
+    - {name: turn-tcp, port: 3478, targetPort: 3478, protocol: TCP}
+    - {name: turn-udp, port: 3478, targetPort: 3478, protocol: UDP}
+    - {name: turns-tcp, port: 5349, targetPort: 5349, protocol: TCP}
+    - {name: turns-udp, port: 5349, targetPort: 5349, protocol: UDP}
+    # Relay range 49152-49201, enumerated because Services have no port ranges
+    # (the LiveKit precedent). MUST stay in sync with min-port/max-port in
+    # turnserver.conf.
+    - {name: r49152, port: 49152, targetPort: 49152, protocol: UDP}
+    - {name: r49153, port: 49153, targetPort: 49153, protocol: UDP}
+    - {name: r49154, port: 49154, targetPort: 49154, protocol: UDP}
+    - {name: r49155, port: 49155, targetPort: 49155, protocol: UDP}
+    - {name: r49156, port: 49156, targetPort: 49156, protocol: UDP}
+    - {name: r49157, port: 49157, targetPort: 49157, protocol: UDP}
+    - {name: r49158, port: 49158, targetPort: 49158, protocol: UDP}
+    - {name: r49159, port: 49159, targetPort: 49159, protocol: UDP}
+    - {name: r49160, port: 49160, targetPort: 49160, protocol: UDP}
+    - {name: r49161, port: 49161, targetPort: 49161, protocol: UDP}
+    - {name: r49162, port: 49162, targetPort: 49162, protocol: UDP}
+    - {name: r49163, port: 49163, targetPort: 49163, protocol: UDP}
+    - {name: r49164, port: 49164, targetPort: 49164, protocol: UDP}
+    - {name: r49165, port: 49165, targetPort: 49165, protocol: UDP}
+    - {name: r49166, port: 49166, targetPort: 49166, protocol: UDP}
+    - {name: r49167, port: 49167, targetPort: 49167, protocol: UDP}
+    - {name: r49168, port: 49168, targetPort: 49168, protocol: UDP}
+    - {name: r49169, port: 49169, targetPort: 49169, protocol: UDP}
+    - {name: r49170, port: 49170, targetPort: 49170, protocol: UDP}
+    - {name: r49171, port: 49171, targetPort: 49171, protocol: UDP}
+    - {name: r49172, port: 49172, targetPort: 49172, protocol: UDP}
+    - {name: r49173, port: 49173, targetPort: 49173, protocol: UDP}
+    - {name: r49174, port: 49174, targetPort: 49174, protocol: UDP}
+    - {name: r49175, port: 49175, targetPort: 49175, protocol: UDP}
+    - {name: r49176, port: 49176, targetPort: 49176, protocol: UDP}
+    - {name: r49177, port: 49177, targetPort: 49177, protocol: UDP}
+    - {name: r49178, port: 49178, targetPort: 49178, protocol: UDP}
+    - {name: r49179, port: 49179, targetPort: 49179, protocol: UDP}
+    - {name: r49180, port: 49180, targetPort: 49180, protocol: UDP}
+    - {name: r49181, port: 49181, targetPort: 49181, protocol: UDP}
+    - {name: r49182, port: 49182, targetPort: 49182, protocol: UDP}
+    - {name: r49183, port: 49183, targetPort: 49183, protocol: UDP}
+    - {name: r49184, port: 49184, targetPort: 49184, protocol: UDP}
+    - {name: r49185, port: 49185, targetPort: 49185, protocol: UDP}
+    - {name: r49186, port: 49186, targetPort: 49186, protocol: UDP}
+    - {name: r49187, port: 49187, targetPort: 49187, protocol: UDP}
+    - {name: r49188, port: 49188, targetPort: 49188, protocol: UDP}
+    - {name: r49189, port: 49189, targetPort: 49189, protocol: UDP}
+    - {name: r49190, port: 49190, targetPort: 49190, protocol: UDP}
+    - {name: r49191, port: 49191, targetPort: 49191, protocol: UDP}
+    - {name: r49192, port: 49192, targetPort: 49192, protocol: UDP}
+    - {name: r49193, port: 49193, targetPort: 49193, protocol: UDP}
+    - {name: r49194, port: 49194, targetPort: 49194, protocol: UDP}
+    - {name: r49195, port: 49195, targetPort: 49195, protocol: UDP}
+    - {name: r49196, port: 49196, targetPort: 49196, protocol: UDP}
+    - {name: r49197, port: 49197, targetPort: 49197, protocol: UDP}
+    - {name: r49198, port: 49198, targetPort: 49198, protocol: UDP}
+    - {name: r49199, port: 49199, targetPort: 49199, protocol: UDP}
+    - {name: r49200, port: 49200, targetPort: 49200, protocol: UDP}
+    - {name: r49201, port: 49201, targetPort: 49201, protocol: UDP}

@@ -1,0 +1,31 @@
+---
+# Mealie's login role in the shared CNPG cluster (grafana/homebox precedent).
+# Password from secret/mealie-db (postgres ns). retain: never drop on delete.
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: mealie
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: mealie
+  ensure: present
+  login: true
+  passwordSecret:
+    name: mealie-db
+  databaseRoleReclaimPolicy: retain
+---
+# The mealie database, owned by that role. A pg_dump of the old Swarm Postgres is
+# restored into it once (same major version -> clean PG->PG restore).
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: mealie
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: mealie
+  owner: mealie
+  databaseReclaimPolicy: retain

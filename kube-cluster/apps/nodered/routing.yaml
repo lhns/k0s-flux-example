@@ -1,0 +1,122 @@
+---
+# Middlewares. `authelia` is the reflected forwardAuth (bare local ref).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: webhook-addprefix
+  namespace: nodered
+spec:
+  addPrefix:
+    prefix: /webhook
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: app-addprefix
+  namespace: nodered
+spec:
+  addPrefix:
+    prefix: /app
+---
+# nodered.example.com/app/* -> app.example.com/* (the dashboard lives on its own host).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: nodered-app-redirect
+  namespace: nodered
+spec:
+  redirectRegex:
+    regex: "^https://nodered.example.com/app/(.*)"
+    replacement: "https://app.example.com/${1}"
+    permanent: true
+---
+# The Node-RED editor — behind Authelia (group:admin/nodered; rule already in the
+# Authelia config). TLS via the default *.example.com wildcard.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: nodered
+  namespace: nodered
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`nodered.example.com`)
+      services:
+        - name: nodered
+          port: 1880
+      middlewares:
+        - name: authelia
+    # Public webhook sub-path on the editor host (higher priority, NO authelia).
+    - kind: Rule
+      priority: 100
+      match: Host(`nodered.example.com`) && PathPrefix(`/webhook/`)
+      services:
+        - name: nodered
+          port: 1880
+    # /app/* on the editor host redirects to the app.example.com host.
+    - kind: Rule
+      priority: 100
+      match: Host(`nodered.example.com`) && PathPrefix(`/app/`)
+      services:
+        - name: nodered
+          port: 1880
+      middlewares:
+        - name: nodered-app-redirect
+  tls: {}
+---
+# Public webhook host: webhook.example.com/* -> nodered:1880/webhook/*.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: webhook
+  namespace: nodered
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`webhook.example.com`)
+      services:
+        - name: nodered
+          port: 1880
+      middlewares:
+        - name: webhook-addprefix
+  tls: {}
+---
+# The Node-RED dashboard app host: app.example.com/* -> nodered:1880/app/*, behind Authelia.
+# authelia runs BEFORE addPrefix so it evaluates the pre-prefix path that the Authelia
+# app.example.com rules (/door, /water, /remote, + the *.example.com catch-all) match.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: app
+  namespace: nodered
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`app.example.com`)
+      services:
+        - name: nodered
+          port: 1880
+      middlewares:
+        - name: authelia
+        - name: app-addprefix
+  tls: {}
+---
+# Google Smart Home cloud fulfillment endpoint (node-red-contrib-google-smarthome),
+# on :3001. Public — Google's servers POST here. TLS via the *.example.com wildcard.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: google-smarthome
+  namespace: nodered
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`google-smarthome.example.com`)
+      services:
+        - name: nodered
+          port: 3001
+  tls: {}

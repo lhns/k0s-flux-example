@@ -1,0 +1,48 @@
+---
+# MQTT-over-WebSockets. The Swarm router added the /mqtt prefix so clients hit the
+# clean host and Traefik maps it onto the backend's WS path (replicates the Swarm
+# `mosquitto_prefix`). No auth middleware — MQTT auth is at the protocol layer
+# (LDAP via mosquitto-go-auth). mqtt.example.com stays the canonical broker host (NOT
+# switched to .kube — native + WS clients are configured with it). TLS via the
+# default *.example.com wildcard.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: mosquitto-prefix
+  namespace: mosquitto
+spec:
+  addPrefix:
+    prefix: /mqtt
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: mosquitto
+  namespace: mosquitto
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`mqtt.example.com`)
+      services:
+        - name: mosquitto
+          port: 9001
+      middlewares:
+        - name: mosquitto-prefix
+  tls: {}
+---
+# Raw MQTT/TCP on traefik's `mqtt` entrypoint (10.20.2.15:1883). HostSNI(`*`) with
+# NO tls block = plain-TCP passthrough (mosquitto does its own auth, no TLS here),
+# forwarded to the broker's :1883. Native clients connect to 10.20.2.15:1883.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: mosquitto-tcp
+  namespace: mosquitto
+spec:
+  entryPoints: [mqtt]
+  routes:
+    - match: HostSNI(`*`)
+      services:
+        - name: mosquitto
+          port: 1883

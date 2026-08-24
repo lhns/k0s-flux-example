@@ -1,0 +1,20 @@
+# victorialogs.example.com -> the VictoriaLogs HTTP UI/API (:9428), behind the normal
+# Authelia forwardAuth (SSO) middleware (reflected into every namespace). The
+# exporter writes over the in-cluster ClusterIP, so Authelia only guards
+# human/browser access. TLS via the *.example.com wildcard default store.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: victorialogs
+  namespace: victorialogs
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`victorialogs.example.com`)
+      services:
+        - name: victorialogs
+          port: 9428
+      middlewares:
+        - name: authelia
+  tls: {}

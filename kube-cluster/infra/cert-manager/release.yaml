@@ -1,0 +1,35 @@
+---
+# jetstack's OCI chart doesn't extract cleanly via a Flux OCIRepository
+# ("gzip: invalid header"), so pull it through a HelmRepository type: oci,
+# which uses helm's native OCI puller.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: jetstack
+  namespace: cert-manager
+spec:
+  type: oci
+  interval: 1h0m0s
+  url: oci://quay.io/jetstack/charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cert-manager
+  namespace: cert-manager
+spec:
+  interval: 10m0s
+  # releaseName/storageNamespace default to name/namespace (cert-manager /
+  # cert-manager), matching the release k0s installed -> adopted in place.
+  chart:
+    spec:
+      chart: cert-manager
+      version: "v1.21.1"
+      interval: 1h0m0s
+      sourceRef:
+        kind: HelmRepository
+        name: jetstack
+  # Values copied verbatim from k0sctl.yaml so adoption is a no-op upgrade.
+  values:
+    crds:
+      enabled: true

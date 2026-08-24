@@ -1,0 +1,170 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: victorialogs
+---
+# ===========================================================================
+# VictoriaLogs data dir — 36G on the appdata CephFS, MOUNTED in place
+# (jellyfin/syncthing static-PV pattern), NOT copied. capacity 1Gi is a dummy
+# (ignored for static cephfs); bound by volumeName.
+# ===========================================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: victorialogs-data
+spec:
+  accessModes: [ReadWriteMany]
+  capacity:
+    storage: 1Gi
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: victorialogs-data
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: appdata
+      staticVolume: "true"
+      rootPath: /docker/observability/victorialogs
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: victorialogs-data
+  namespace: victorialogs
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: victorialogs-data
+  resources:
+    requests:
+      storage: 1Gi
+---
+# ===========================================================================
+# VictoriaLogs DB (logs store + HTTP API/UI on :9428). The data dir is
+# root-owned on CephFS, so run as root (matches Swarm; NO fsGroup — avoids a
+# recursive chown of the 36G tree). Single-writer -> Recreate.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: victorialogs
+  namespace: victorialogs
+spec:
+  replicas: 1 # live (Swarm VL stack stopped; data + Kafka group freed)
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: victorialogs
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: victorialogs
+        app.kubernetes.io/instance: victorialogs
+        # HTTP UI from Traefik; the exporter writes to :9428 over the in-ns vnet.
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.victorialogs: ingress
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      containers:
+        - name: victorialogs
+          image: victoriametrics/victoria-logs:v1.52.0
+          args:
+            - -retentionPeriod=2
+            - -defaultMsgValue=
+            - -storageDataPath=/victoria-logs-data
+          ports:
+            - name: http
+              containerPort: 9428
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 30
+          volumeMounts:
+            - name: data
+              mountPath: /victoria-logs-data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: victorialogs-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: victorialogs
+  namespace: victorialogs
+spec:
+  selector:
+    app.kubernetes.io/name: victorialogs
+  ports:
+    - name: http
+      port: 9428
+      targetPort: http
+---
+# ===========================================================================
+# OTel collector — reads OTLP logs from the in-cluster Kafka (otlp_logs topic) and
+# writes them into VictoriaLogs. Stateless; config from a ConfigMap. Single
+# Kafka consumer (group victorialogs-exporter) -> replicas 1, Recreate.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: victorialogs-exporter
+  namespace: victorialogs
+spec:
+  replicas: 1 # live (Swarm VL stack stopped; data + Kafka group freed)
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: victorialogs-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: victorialogs-exporter
+        app.kubernetes.io/instance: victorialogs
+        # writes to victorialogs:9428 (in-ns). Nothing external any more: both the
+        # Kafka it consumes and the collector it reports itself to are in-cluster now.
+        kube-vnet/net.victorialogs: egress
+        # consumes the in-cluster Kafka (otel-kafka-bootstrap.opentelemetry-gateway).
+        kube-vnet/net.opentelemetry-gateway.kafka: egress
+        # sends its OWN self-monitoring metrics (otlp/feedback) to the gateway's
+        # ClusterIP. Needed because that is an in-cluster Service: it used to be the
+        # Swarm collector at 10.20.2.10:4317, which was external egress and needed no
+        # label. Drop this label and the feedback pipeline silently stops.
+        kube-vnet/net.opentelemetry-gateway.otel-gateway: egress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: otelcol
+          image: otel/opentelemetry-collector-contrib:0.159.0
+          ports:
+            - name: metrics
+              containerPort: 8888
+            - name: health
+              containerPort: 13133
+          readinessProbe:
+            httpGet:
+              path: /
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otelcol-contrib/config.yaml
+              subPath: config.yaml
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: victorialogs-exporter-config

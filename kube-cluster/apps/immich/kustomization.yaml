@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # Static CephFS PVs (the mounted library) need infra-ceph-csi-cephfs; the immich-db
+    # PVC needs infra-ceph-csi-rbd. Read by the root generator; inert to kustomize.
+    dependsOn: infra-ceph-csi-cephfs,infra-ceph-csi-rbd
+resources:
+- resources.yaml
+- routing.yaml
+- secret.yaml
+- vnet.yaml

@@ -1,0 +1,62 @@
+# xExtension-AutoTTL — one extension, one file, one artifact.
+#
+# Source and composition live together on purpose: everything this extension needs is here, so
+# adding one is copying this file and changing four lines, and removing one is deleting it.
+#
+# The ref is PINNED to a tag, never a branch. That is what makes the artifact a pure function of
+# this file: a branch could change content while the spec, and so the spec-hash tag derived from
+# it, stayed still. See infra/oci-composer/README.md.
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: freshrss-ext-autottl
+  namespace: freshrss
+spec:
+  interval: 12h
+  url: https://github.com/mgnsk/FreshRSS-AutoTTL
+  ref:
+    tag: v0.6.8
+---
+# No tag here, and there must not be one. The root generator (templates/kustomizations.yaml)
+# hashes the build-determining part of this spec AND the spec of every object a layer points at
+# — here the GitRepository above — then drives both ends from that single value: a patch setting
+# push.tags below, and an `images:` entry rewriting the matching volume in resources.yaml.
+# Edit the pin above and the hash moves, so artifact and pod template change in the same commit
+# and a rollout follows. See ADR 0017 upstream.
+#
+# The source's spec is folded in because a sourceRef layer NAMES its input rather than containing
+# it: the pin that decides the content is up there, not in this spec. Hashing this spec alone did
+# not see it, and on 2026-08-08 a v0.6.2 -> v0.6.4 bump kept the tag identical while the artifact
+# changed. Only push.onConflict caught it, by refusing to move a spec-hash tag onto new content.
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageComposition
+metadata:
+  name: freshrss-ext-autottl
+  namespace: freshrss
+spec:
+  interval: 1h
+  layers:
+    - name: autottl
+      sourceRef:
+        kind: GitRepository
+        name: freshrss-ext-autottl
+      # The repository root IS the extension, and the artifact is mounted directly at
+      # extensions/xExtension-AutoTTL — so the content belongs at the artifact's root, not in a
+      # directory of its own. The mount path supplies the name.
+      to: /
+      # www-data in the FreshRSS image. Declarative here, where the old initContainer had to
+      # `chown -R` at runtime as root.
+      owner: {uid: 33, gid: 33}
+  # No `base`: this is a bundle of files mounted into the FreshRSS container, which keeps its own
+  # upstream image. An upstream FreshRSS release therefore changes nothing here.
+  push:
+    # No `repository`: an object naming none publishes to <registry>/<namespace>/<name>, which is
+    # what the root generator builds the consumer reference from. Setting one explicitly would be
+    # reported back verbatim, and the controller pushes from inside the cluster where
+    # oci-composer.internal does not resolve.
+    history: 10
+    # onConflict defaults to Fail (this is 0.5.0's three-valued replacement for `immutable: true`)
+    # and is left alone deliberately. A spec-hash tag can only mean one thing, so if this tag ever
+    # resolved to different content something is genuinely wrong — an unpinned source, or two
+    # specs colliding — and failing loudly is right.

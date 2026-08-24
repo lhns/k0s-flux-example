@@ -1,0 +1,184 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nextcloud
+---
+# ===========================================================================
+# Redis — Nextcloud's local/distributed/locking cache. No durable data (all
+# state is in Postgres + the data dir), so emptyDir. No auth (kube-vnet isolates
+# it); the merged config override drops the old redis password.
+# ===========================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: nextcloud-redis
+  namespace: nextcloud
+spec:
+  selector:
+    app.kubernetes.io/name: nextcloud-redis
+  ports:
+    - {name: redis, port: 6379, targetPort: 6379}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nextcloud-redis
+  namespace: nextcloud
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nextcloud-redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nextcloud-redis
+        app.kubernetes.io/instance: nextcloud
+        kube-vnet/net.nextcloud-redis: ingress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: redis
+          image: redis:8-alpine
+          ports:
+            - {name: redis, containerPort: 6379}
+          readinessProbe:
+            exec: {command: ["redis-cli", "ping"]}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+# ===========================================================================
+# App volume — a FRESH ceph-rbd (block/SSD) PVC holding /var/www/html (the app:
+# core/lib/apps/custom_apps/config, ~1.3G). The seed initContainer copies the app
+# in once (excluding data/), giving the PHP app fast block storage instead of the
+# HDD CephFS. RWO, single writer.
+# ===========================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nextcloud-html
+  namespace: nextcloud
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 5Gi
+---
+# ===========================================================================
+# data/ (~80G user files + 15G previews + 23G logs) — MOUNTED in place off the
+# appdata CephFS (jellyfin-metadata static-PV pattern), NOT copied; nested under
+# the rbd html volume at /var/www/html/data. Owned by www-data (uid 33).
+# ===========================================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: nextcloud-data
+spec:
+  accessModes: [ReadWriteMany]
+  capacity: {storage: 1Gi}          # dummy — ignored for static cephfs
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef: {name: csi-cephfs-secret, namespace: ceph-csi-cephfs}
+    volumeHandle: nextcloud-data
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: appdata
+      staticVolume: "true"
+      rootPath: /docker/nextcloud/nextcloud/data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nextcloud-data
+  namespace: nextcloud
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: nextcloud-data
+  resources:
+    requests:
+      storage: 1Gi
+---
+# ===========================================================================
+# Nextcloud. The app on rbd, data/ mounted in place, DB in shared CNPG,
+# Redis in-ns. config.php is preserved (instanceid/secret/passwordsalt) via the
+# seed; a merged config/zz-kube.config.php repoints DB+Redis and adds proxy trust
+# (password via getenv, no secret on disk). replicas: 0 until the DB is restored
+# into CNPG (config.php has installed=true, so an empty DB would error). Image
+# starts as root then drops to www-data -> no securityContext, no fsGroup (would
+# chown 80G of data).
+# The one-time DB restore ran into CNPG (190 oc_ tables, 4 users); now live at
+# replicas: 1. The seed initContainer populates the rbd app volume on first boot.
+# ===========================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: nextcloud
+  namespace: nextcloud
+spec:
+  selector:
+    app.kubernetes.io/name: nextcloud
+  ports:
+    - {name: http, port: 80, targetPort: http}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nextcloud
+  namespace: nextcloud
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy: {type: Recreate}        # RWO rbd + nested data; single writer
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nextcloud
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nextcloud
+        app.kubernetes.io/instance: nextcloud
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.postgres.postgres: egress
+        kube-vnet/net.nextcloud-redis: egress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: nextcloud
+          image: nextcloud:34.0.3-apache
+          ports:
+            - {name: http, containerPort: 80}
+          env:
+            - {name: POSTGRES_PASSWORD, valueFrom: {secretKeyRef: {name: nextcloud-db, key: password}}}
+            - {name: PHP_UPLOAD_LIMIT, value: "16G"}
+            - {name: PHP_MEMORY_LIMIT, value: "1G"}
+          readinessProbe:
+            # Send a trusted Host — the default probe Host is the pod IP, which
+            # Nextcloud's trusted_domains check rejects with 400.
+            httpGet:
+              path: /status.php
+              port: http
+              httpHeaders:
+                - {name: Host, value: nextcloud.example.com}
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 40
+          volumeMounts:
+            - {name: html, mountPath: /var/www/html}
+            - {name: data, mountPath: /var/www/html/data}
+            - {name: config-override, mountPath: /var/www/html/config/zz-kube.config.php, subPath: zz-kube.config.php, readOnly: true}
+      volumes:
+        - {name: html, persistentVolumeClaim: {claimName: nextcloud-html}}
+        - {name: data, persistentVolumeClaim: {claimName: nextcloud-data}}
+        - {name: config-override, configMap: {name: nextcloud-config}}

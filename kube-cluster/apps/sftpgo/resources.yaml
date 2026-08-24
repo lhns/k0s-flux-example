@@ -1,0 +1,342 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sftpgo
+---
+# ===========================================================================
+# sftpgo's config + SQLite data-provider db (sftpgo.db) + the SFTP host keys.
+# Only ~360K, but SQLite wants block storage for proper locking -> its own
+# ceph-rbd PVC. Copied in once during the Swarm migration; the live db lives here.
+# ===========================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sftpgo-config
+  namespace: sftpgo
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 2Gi
+---
+# ===========================================================================
+# The filesystems sftpgo serves — MOUNTED in place from the existing CephFS
+# filesystems (appdata/fastappdata/userdata/archive on the same ceph-cluster),
+# NOT copied (the appdata data dir alone is ~249G). Static CephFS PVs
+# (jellyfin/immich pattern): storageClassName "", csi cephfs.csi.ceph.com,
+# staticVolume, per-fs fsName + rootPath, bound by volumeName. capacity 1Gi is
+# a dummy. All RW — sftpgo is the file server and writes uploads everywhere.
+# One PVC per fs, mounted at several pod paths (some via subPath).
+# ===========================================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: sftpgo-appdata
+spec:
+  accessModes: [ReadWriteMany]
+  capacity:
+    storage: 1Gi
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: sftpgo-appdata
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: appdata
+      staticVolume: "true"
+      rootPath: /
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sftpgo-appdata
+  namespace: sftpgo
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: sftpgo-appdata
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: sftpgo-fastappdata
+spec:
+  accessModes: [ReadWriteMany]
+  capacity:
+    storage: 1Gi
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: sftpgo-fastappdata
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: fastappdata
+      staticVolume: "true"
+      rootPath: /
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sftpgo-fastappdata
+  namespace: sftpgo
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: sftpgo-fastappdata
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: sftpgo-userdata
+spec:
+  accessModes: [ReadWriteMany]
+  capacity:
+    storage: 1Gi
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: sftpgo-userdata
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: userdata
+      staticVolume: "true"
+      rootPath: /
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sftpgo-userdata
+  namespace: sftpgo
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: sftpgo-userdata
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: sftpgo-archive
+spec:
+  accessModes: [ReadWriteMany]
+  capacity:
+    storage: 1Gi
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: sftpgo-archive
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: archive
+      staticVolume: "true"
+      rootPath: /media
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sftpgo-archive
+  namespace: sftpgo
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: sftpgo-archive
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sftpgo
+  namespace: sftpgo
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  # Live. (Shipped as 0 for the cutover, then scaled to 1 once the Swarm sftpgo was
+  # stopped so the seed captured the final sftpgo.db — see README.)
+  replicas: 1
+  # Single-writer (sftpgo.db + the served dirs) -> Recreate, never two.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sftpgo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sftpgo
+        app.kubernetes.io/instance: sftpgo
+        # web UI :8080 + WebDAV :10080 arrive from traefik. The raw SFTP/FTP ports
+        # arrive via the sftpgo-lb LoadBalancer, which kube-vnet auto-allows
+        # (ext.svc). OIDC to auth.example.com is external egress (unrestricted).
+        kube-vnet/net.traefik.traefik: ingress
+    spec:
+      # k8s service-links would inject SFTPGO_PORT=tcp://... from the `sftpgo`
+      # Service; harmless (no `__`, so sftpgo ignores it) but disabled for hygiene,
+      # same as authelia/immich.
+      enableServiceLinks: false
+      # Runs as root (compose `user: root`) so it can read+write the served files
+      # regardless of their (mixed, often root-owned) ownership. NO fsGroup — it
+      # would trigger a recursive chown of the 249G library on every start.
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      containers:
+        - name: sftpgo
+          image: ghcr.io/drakkan/sftpgo:v2.7.5
+          env:
+            - name: SFTPGO_WEBDAVD__BINDINGS__0__PORT
+              value: "10080"
+            - name: SFTPGO_HTTPD__BINDINGS__0__OIDC__CLIENT_ID
+              value: sftpgo
+            - name: SFTPGO_HTTPD__BINDINGS__0__OIDC__CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: sftpgo-oidc
+                  key: client-secret
+            - name: SFTPGO_HTTPD__BINDINGS__0__OIDC__CONFIG_URL
+              value: https://auth.example.com
+            - name: SFTPGO_HTTPD__BINDINGS__0__OIDC__REDIRECT_BASE_URL
+              value: https://sftpgo.example.com
+            - name: SFTPGO_HTTPD__BINDINGS__0__OIDC__SCOPES
+              value: openid,profile,email,sftpgo
+            - name: SFTPGO_HTTPD__BINDINGS__0__OIDC__USERNAME_FIELD
+              value: preferred_username
+            - name: SFTPGO_HTTPD__BINDINGS__0__OIDC__ROLE_FIELD
+              value: sftpgo_role
+            - name: SFTPGO_HTTPD__BINDINGS__0__OIDC__IMPLICIT_ROLES
+              value: "true"
+            - name: SFTPGO_HTTPD__BINDINGS__0__ENABLED_LOGIN_METHODS
+              value: "3"
+            - name: SFTPGO_SFTPD__HOST_KEY_ALGORITHMS
+              value: ssh-rsa,rsa-sha2-512,rsa-sha2-256,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,ssh-ed25519
+            - name: SFTPGO_SFTPD__PUBLIC_KEY_ALGORITHMS
+              value: ssh-rsa,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,rsa-sha2-512,rsa-sha2-256,ssh-ed25519,sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com
+            - name: SFTPGO_FTPD__BINDINGS__0__PORT
+              value: "2121"
+            # Passive FTP hands this IP to clients -> must be the sftpgo-lb VIP.
+            - name: SFTPGO_FTPD__BINDINGS__0__FORCE_PASSIVE_IP
+              value: 10.20.2.17
+            - name: SFTPGO_FTPD__PASSIVE_PORT_RANGE__START
+              value: "50000"
+            - name: SFTPGO_FTPD__PASSIVE_PORT_RANGE__END
+              value: "50010"
+          ports:
+            - {name: web, containerPort: 8080, protocol: TCP}
+            - {name: webdav, containerPort: 10080, protocol: TCP}
+            - {name: sftp, containerPort: 2022, protocol: TCP}
+            - {name: ftp, containerPort: 2121, protocol: TCP}
+          readinessProbe:
+            tcpSocket:
+              port: web
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 12
+          volumeMounts:
+            - name: config
+              mountPath: /var/lib/sftpgo
+            # The served filesystems, mounted in place (see PVs above).
+            - name: appdata
+              mountPath: /srv/sftpgo
+              subPath: docker/sftpgo/data
+            - name: appdata
+              mountPath: /appdata
+            - name: appdata
+              mountPath: /mnt/appdata
+            - name: fastappdata
+              mountPath: /mnt/fastappdata
+            - name: userdata
+              mountPath: /userdata
+            - name: userdata
+              mountPath: /mnt/userdata
+            - name: archive
+              mountPath: /media
+            - name: archive
+              mountPath: /mnt/archive/media
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: sftpgo-config
+        - name: appdata
+          persistentVolumeClaim:
+            claimName: sftpgo-appdata
+        - name: fastappdata
+          persistentVolumeClaim:
+            claimName: sftpgo-fastappdata
+        - name: userdata
+          persistentVolumeClaim:
+            claimName: sftpgo-userdata
+        - name: archive
+          persistentVolumeClaim:
+            claimName: sftpgo-archive
+---
+# In-cluster HTTP endpoints Traefik routes to (web UI :8080, WebDAV :10080).
+apiVersion: v1
+kind: Service
+metadata:
+  name: sftpgo
+  namespace: sftpgo
+spec:
+  selector:
+    app.kubernetes.io/name: sftpgo
+  ports:
+    - {name: web, port: 8080, targetPort: web}
+    - {name: webdav, port: 10080, targetPort: webdav}
+---
+# Raw SFTP/FTP + FTP passive ports on a dedicated MetalLB VIP (10.20.2.17) —
+# Traefik can't carry these (SFTP is SSH, no SNI) and its VIP can't be shared
+# (externalTrafficPolicy: Local). externalTrafficPolicy: Local preserves the
+# client source IP; single pod so the VIP + passive data connections follow it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: sftpgo-lb
+  namespace: sftpgo
+  annotations:
+    metallb.io/loadBalancerIPs: 10.20.2.17
+spec:
+  type: LoadBalancer
+  externalTrafficPolicy: Local
+  selector:
+    app.kubernetes.io/name: sftpgo
+  ports:
+    - {name: sftp, port: 2022, targetPort: sftp, protocol: TCP}
+    - {name: ftp, port: 2121, targetPort: ftp, protocol: TCP}
+    - {name: p50000, port: 50000, targetPort: 50000, protocol: TCP}
+    - {name: p50001, port: 50001, targetPort: 50001, protocol: TCP}
+    - {name: p50002, port: 50002, targetPort: 50002, protocol: TCP}
+    - {name: p50003, port: 50003, targetPort: 50003, protocol: TCP}
+    - {name: p50004, port: 50004, targetPort: 50004, protocol: TCP}
+    - {name: p50005, port: 50005, targetPort: 50005, protocol: TCP}
+    - {name: p50006, port: 50006, targetPort: 50006, protocol: TCP}
+    - {name: p50007, port: 50007, targetPort: 50007, protocol: TCP}
+    - {name: p50008, port: 50008, targetPort: 50008, protocol: TCP}
+    - {name: p50009, port: 50009, targetPort: 50009, protocol: TCP}
+    - {name: p50010, port: 50010, targetPort: 50010, protocol: TCP}

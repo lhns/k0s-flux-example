@@ -1,0 +1,92 @@
+---
+# Public — Miniflux does its own auth (built-in login; NOT behind Authelia, so its
+# API/mobile clients keep working). TLS via the default *.example.com wildcard.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: miniflux
+  namespace: miniflux
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`miniflux.example.com`)
+      services:
+        - name: miniflux
+          port: 8080
+  tls: {}
+---
+# Per-host cert for miniflux.example.net (not covered by the default *.example.com
+# TLSStore) — issued via IONOS DNS-01. The secret lands in this namespace.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: miniflux-lolhens-de
+  namespace: miniflux
+spec:
+  secretName: miniflux-lolhens-de
+  issuerRef:
+    name: letsencrypt-ionos-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - miniflux.example.net
+---
+# miniflux.example.net 301-redirects to the canonical miniflux.example.com (own cert above).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: miniflux-lolhens-redirect
+  namespace: miniflux
+spec:
+  redirectRegex:
+    regex: "^https://miniflux.example.net/(.*)"
+    replacement: "https://miniflux.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: miniflux-lolhens
+  namespace: miniflux
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`miniflux.example.net`)
+      services:
+        - name: miniflux
+          port: 8080
+      middlewares:
+        - name: miniflux-lolhens-redirect
+  tls:
+    secretName: miniflux-lolhens-de
+---
+# miniflux.kube.example.com redirects to the canonical miniflux.example.com (default *.example.com
+# wildcard cert).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: miniflux-kube-redirect
+  namespace: miniflux
+spec:
+  redirectRegex:
+    regex: "^https://miniflux.kube.example.com/(.*)"
+    replacement: "https://miniflux.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: miniflux-kube-redirect
+  namespace: miniflux
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`miniflux.kube.example.com`)
+      services:
+        - name: miniflux
+          port: 8080
+      middlewares:
+        - name: miniflux-kube-redirect
+  tls: {}

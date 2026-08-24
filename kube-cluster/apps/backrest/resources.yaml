@@ -1,0 +1,307 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: backrest
+---
+# ===========================================================================
+# backrest's own state + secrets. /data = SQLite oplog (oplog.sqlite + WAL,
+# kvdb.sqlite) + jwt-secret; /config = config.json (holds the restic repo
+# password + backrest's own login) which backrest REWRITES from the UI, so it
+# must live on a writable volume (not a k8s Secret); /rclone = rclone remotes
+# (empty). SQLite is mmap/WAL + single-writer -> ceph-rbd (block) + Recreate.
+# One PVC, three subPaths. Copied once from the Swarm volume (see README).
+# ===========================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backrest-state
+  namespace: backrest
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 2Gi
+---
+# ===========================================================================
+# restic's pack/index cache. Persisted across restarts (avoids a re-download
+# storm) but EXCLUDED from Velero's daily 30-day CSI snapshots (it's fully
+# regenerable). /tmp stays an emptyDir (transient scratch).
+# ===========================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backrest-cache
+  namespace: backrest
+  labels:
+    velero.io/exclude-from-backup: "true"
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: cephfs
+  resources:
+    requests:
+      storage: 20Gi
+---
+# ===========================================================================
+# The filesystems backrest reads to back up — MOUNTED in place from the
+# existing CephFS filesystems (appdata/fastappdata/userdata on ceph-cluster),
+# NOT copied. Static CephFS PVs (sftpgo/immich pattern). RW (restore can target
+# them). backrest-repos is the (currently empty) local restic repo dir.
+# ===========================================================================
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: backrest-appdata
+spec:
+  accessModes: [ReadWriteMany]
+  capacity:
+    storage: 1Gi
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: backrest-appdata
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: appdata
+      staticVolume: "true"
+      rootPath: /
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backrest-appdata
+  namespace: backrest
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: backrest-appdata
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: backrest-fastappdata
+spec:
+  accessModes: [ReadWriteMany]
+  capacity:
+    storage: 1Gi
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: backrest-fastappdata
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: fastappdata
+      staticVolume: "true"
+      rootPath: /
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backrest-fastappdata
+  namespace: backrest
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: backrest-fastappdata
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: backrest-userdata
+spec:
+  accessModes: [ReadWriteMany]
+  capacity:
+    storage: 1Gi
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: backrest-userdata
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: userdata
+      staticVolume: "true"
+      rootPath: /
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backrest-userdata
+  namespace: backrest
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: backrest-userdata
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: backrest-repos
+spec:
+  accessModes: [ReadWriteMany]
+  capacity:
+    storage: 1Gi
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: backrest-repos
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: appdata
+      staticVolume: "true"
+      rootPath: /docker/backrest/repos
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backrest-repos
+  namespace: backrest
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: backrest-repos
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backrest
+  namespace: backrest
+spec:
+  # Live. (Shipped as 0 for the cutover; the Swarm backrest was stopped and
+  # /data + /config copied into the state PVC — see README.)
+  replicas: 1
+  # Single-writer SQLite oplog -> Recreate, never two.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: backrest
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: backrest
+        app.kubernetes.io/instance: backrest
+        # :9898 arrives from traefik. The remote restic repo
+        # (restic-demo.offsite.example.net) + rclone remotes are external egress
+        # (unrestricted). No in-cluster dep.
+        kube-vnet/net.traefik.traefik: ingress
+    spec:
+      # a `backrest` Service injects BACKREST_PORT=tcp://... , which backrest reads
+      # as its bind address -> crash. Disable the injection; BACKREST_PORT is set
+      # explicitly below.
+      enableServiceLinks: false
+      # Runs as root so it can read/write the (root-owned) mounted filesystems it
+      # backs up. NO fsGroup (would trigger a recursive chown of huge libraries).
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      containers:
+        - name: backrest
+          image: ghcr.io/garethgeorge/backrest:v1.14.1
+          env:
+            - name: TZ
+              value: Europe/Berlin
+            - name: BACKREST_DATA
+              value: /data
+            - name: BACKREST_CONFIG
+              value: /config/config.json
+            - name: XDG_CACHE_HOME
+              value: /cache
+            - name: TMPDIR
+              value: /tmp
+            # Bind all interfaces (image default is 0.0.0.0:9898; set explicitly so
+            # nothing injected overrides it).
+            - name: BACKREST_PORT
+              value: 0.0.0.0:9898
+          ports:
+            - name: http
+              containerPort: 9898
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 12
+          volumeMounts:
+            - name: state
+              mountPath: /data
+              subPath: data
+            - name: state
+              mountPath: /config
+              subPath: config
+            - name: state
+              mountPath: /root/.config/rclone
+              subPath: rclone
+            - name: cache
+              mountPath: /cache
+            - name: tmp
+              mountPath: /tmp
+            - name: repos
+              mountPath: /repos
+            - name: appdata
+              mountPath: /mnt/appdata
+            - name: fastappdata
+              mountPath: /mnt/fastappdata
+            - name: userdata
+              mountPath: /mnt/userdata
+      volumes:
+        - name: state
+          persistentVolumeClaim:
+            claimName: backrest-state
+        - name: cache
+          persistentVolumeClaim:
+            claimName: backrest-cache
+        - name: tmp
+          emptyDir: {}
+        - name: repos
+          persistentVolumeClaim:
+            claimName: backrest-repos
+        - name: appdata
+          persistentVolumeClaim:
+            claimName: backrest-appdata
+        - name: fastappdata
+          persistentVolumeClaim:
+            claimName: backrest-fastappdata
+        - name: userdata
+          persistentVolumeClaim:
+            claimName: backrest-userdata
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backrest
+  namespace: backrest
+spec:
+  selector:
+    app.kubernetes.io/name: backrest
+  ports:
+    - name: http
+      port: 9898
+      targetPort: http

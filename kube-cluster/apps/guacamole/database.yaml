@@ -1,0 +1,31 @@
+---
+# Guacamole's login role in the shared CNPG cluster (grafana precedent). Password
+# from secret/guacamole-db (postgres ns). retain: never drop the role on delete.
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: guacamole
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: guacamole
+  ensure: present
+  login: true
+  passwordSecret:
+    name: guacamole-db
+  databaseRoleReclaimPolicy: retain
+---
+# The guacamole database, owned by that role. The Guacamole schema is loaded into
+# it by a one-time initdb.sh job; data is migrated from the old MariaDB.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: guacamole
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: guacamole
+  owner: guacamole
+  databaseReclaimPolicy: retain

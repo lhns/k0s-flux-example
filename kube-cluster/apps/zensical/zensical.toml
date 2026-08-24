@@ -1,0 +1,36 @@
+[project]
+site_name = "example.com"
+site_url = "https://blog.example.com"
+site_description = ""
+site_author = "lhns"
+copyright = "&copy; 2025 lhns"
+
+[project.theme]
+custom_dir = "overrides"
+features = [
+    "navigation.tracking",
+    "navigation.path",
+    "content.code.copy",
+    "content.code.select"
+]
+logo = "images/pixels512.png"
+favicon = "images/pixels32.png"
+
+[project.markdown_extensions.pymdownx.highlight]
+anchor_linenums = true
+line_spans = "__span"
+pygments_lang_class = true
+[project.markdown_extensions.pymdownx.inlinehilite]
+[project.markdown_extensions.pymdownx.snippets]
+[project.markdown_extensions.pymdownx.superfences]
+custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" }
+]
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/lhns"
+
+[project.extra]
+generator = false
+reverse_nav = ["blog"]

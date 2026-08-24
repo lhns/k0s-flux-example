@@ -1,0 +1,32 @@
+---
+# Authelia's storage role in the shared CNPG cluster. Password from secret/authelia-db
+# (postgres ns), mounted into Authelia at /secrets/STORAGE_PASSWORD. retain on delete.
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: authelia
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: authelia
+  ensure: present
+  login: true
+  passwordSecret:
+    name: authelia-db
+  databaseRoleReclaimPolicy: retain
+---
+# The authelia database (sessions storage, 2FA devices, oauth2 consents, audit log).
+# Migrated 1:1 from the old Swarm Postgres via pg_dump; data stays decryptable via the
+# preserved STORAGE_ENCRYPTION_KEY.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: authelia
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: authelia
+  owner: authelia
+  databaseReclaimPolicy: retain

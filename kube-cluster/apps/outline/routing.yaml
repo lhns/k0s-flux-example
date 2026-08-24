@@ -1,0 +1,17 @@
+# Public HTTPS for the wiki. NO Authelia forwardAuth middleware — Outline owns
+# login via OIDC against Authelia (client already registered). TLS via the
+# *.example.com wildcard default store.
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: outline
+  namespace: outline
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`outline.example.com`)
+      services:
+        - {name: outline, port: 3000}
+  tls: {}

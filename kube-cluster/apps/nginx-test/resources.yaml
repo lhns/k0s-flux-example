@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nginx-test
+---
+# A scratch single-replica workload for exercising kube-ha-surge's
+# make-before-break behaviour on node drains. The container sleeps 30s before
+# nginx starts, so a break-before-make gap (eviction with no cover) is a glaring
+# ~30s outage — and a surge-covered drain is visibly seamless by comparison.
+# Covered by ha-surge cluster-wide (defaultEnabled: true in infra/ha-surge) — no label
+# needed here. To run the control (lossy) case, opt this one Deployment out with the
+# annotation ha-surge.lhns.de/enabled: "false".
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-test
+  namespace: nginx-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx-test
+  template:
+    metadata:
+      labels:
+        app: nginx-test
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          command: ["/bin/sh", "-c", "sleep 30 && exec nginx -g 'daemon off;'"]
+          ports:
+            - {containerPort: 80}
+          readinessProbe:
+            httpGet: {path: /, port: 80}
+            initialDelaySeconds: 2
+            periodSeconds: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-test
+  namespace: nginx-test
+spec:
+  selector:
+    app: nginx-test
+  ports:
+    - {port: 80, targetPort: 80}

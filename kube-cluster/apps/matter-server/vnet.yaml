@@ -1,0 +1,20 @@
+---
+# Home Assistant -> matter-server :5580 (the websocket control channel). Under pod-level
+# kube-vnet isolation cross-namespace ingress is denied by default, so expose a vnet the
+# homeassistant namespace may join. HA opts in with the egress label
+# kube-vnet/net.matter-server.matter-server; matter-server itself carries
+# kube-vnet/net.matter-server: ingress.
+#
+# This governs the ClusterIP path only. The pod's macvlan interface (net1) is invisible to
+# kube-vnet — NetworkPolicy does not apply to secondary interfaces — so device traffic on
+# the LAN is unpoliced by design. That is the accepted cost of Matter needing real L2.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: matter-server
+  namespace: matter-server
+spec:
+  description: "Home Assistant -> matter-server :5580 websocket."
+  allowedNamespaces:
+    names:
+      - homeassistant

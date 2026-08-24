@@ -1,0 +1,18 @@
+---
+# Allow traefik pods to reach the notification-controller webhook-receiver
+# under kube-vnet's cluster-wide ingress isolation. Binds the
+# notification-controller pods into the traefik vnet as an ingress receiver
+# (mirrors the traefik-pods-egress binding on the sender side).
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetworkBinding
+metadata:
+  name: webhook-receiver-ingress
+  namespace: flux-system
+spec:
+  virtualNetworkRef:
+    name: traefik
+    namespace: traefik
+  direction: ingress
+  podSelector:
+    matchLabels:
+      app: notification-controller

@@ -1,0 +1,32 @@
+# A fifth --config-path, replacing homeserver.yaml's trusted_key_servers.
+#
+# Stock Synapse ships `trusted_key_servers: [{server_name: "matrix.org"}]`, so every
+# time this server needs another homeserver's ed25519 signing key it asks matrix.org
+# to vouch for it (the "notary" / perspectives mechanism, PerspectivesKeyFetcher).
+#
+# matrix.org throttles that endpoint hard -- much harder than ordinary federation.
+# On 2026-08-21 this server was doing only ~38 requests/hour to matrix.org in total,
+# of which the 19 /federation/v1/send/ calls all returned 200 while EVERY
+# /_matrix/key/v2/query got 429. No other server rate-limits us at all. So this is
+# not a volume problem on our side; the notary is simply a rate-limited free service
+# and we now federate with 742 servers.
+#
+# Each 429 puts matrix.org into a 10-minute retry backoff
+# ("Not retrying server matrix.org because we tried it recently"), during which key
+# lookups fail instantly. That is survivable while matrix.org's own cached key is
+# still valid -- but when it expires we cannot refresh it, and federation with
+# matrix.org breaks outright.
+#
+# An EMPTY list disables the notary and makes Synapse fetch each server's key
+# directly from that server. That is the right mode for any homeserver with normal
+# outbound internet access: it spreads 742 lookups across 742 hosts instead of
+# funnelling them through the one host that throttles us. The notary exists for
+# servers that cannot reach the wider internet; this one obviously can, since it
+# already federates with all of them.
+#
+# NOTE: whole-key replacement, like every other --config-path layer here. This
+# replaces trusted_key_servers entirely rather than merging into it.
+trusted_key_servers: []
+# Without this, Synapse logs a warning on every startup telling you to review
+# trusted_key_servers. We have reviewed it: it is empty on purpose.
+suppress_key_server_warning: true

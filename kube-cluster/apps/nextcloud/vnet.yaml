@@ -1,0 +1,14 @@
+# Under pod-level kube-vnet isolation, intra-namespace ingress is denied by
+# default, so the one internal edge (nextcloud -> redis) gets a bare same-namespace
+# VirtualNetwork. Same-ns membership is implicit (no own-ns self-entry). Postgres
+# needs no per-app vnet — the infra `postgres` VirtualNetwork is allowedNamespaces.all;
+# the pod's net.postgres.postgres: egress label suffices. Traefik reaches nextcloud
+# via net.traefik.traefik.
+---
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: nextcloud-redis
+  namespace: nextcloud
+spec:
+  description: "nextcloud -> Redis (:6379), intra-namespace."

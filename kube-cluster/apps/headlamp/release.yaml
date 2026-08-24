@@ -1,0 +1,96 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: headlamp
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: headlamp
+  namespace: headlamp
+spec:
+  interval: 1h0m0s
+  url: https://kubernetes-sigs.github.io/headlamp/
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: headlamp
+  namespace: headlamp
+spec:
+  interval: 10m0s
+  chart:
+    spec:
+      chart: headlamp
+      version: "0.44.0"
+      interval: 1h0m0s
+      sourceRef:
+        kind: HelmRepository
+        name: headlamp
+  values:
+    config:
+      # Enables the Helm plugin in the UI — browse charts, install/upgrade/rollback
+      enableHelm: true
+      watchPlugins: true
+      # Load our own plugin from a *separate* dir (see initContainers below).
+      extraArgs:
+        - "-user-plugins-dir=/headlamp/user-plugins"
+    pluginsManager:
+      enabled: true
+      configContent: |
+        plugins:
+          - name: helm-plugin
+            source: https://artifacthub.io/packages/headlamp/helm-plugin/helm-plugin
+            version: 0.1.0
+          - name: flux
+            source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_flux
+            version: 0.6.0
+          - name: cert-manager
+            source: https://artifacthub.io/packages/headlamp/headlamp-plugins/headlamp_cert-manager
+            version: 0.1.1
+        installOptions:
+          parallel: true
+          maxConcurrent: 2
+    # Our own plugin (headlamp-app-view — not on ArtifactHub, so it can't ride the
+    # pluginsManager). Load it via Headlamp's separate *user*-plugins dir, NOT the
+    # shared /headlamp/plugins: the pluginsManager reconciles that dir to its own
+    # config and would try to prune anything not listed there (i.e. us).
+    #
+    # Mounted straight from its image as an image volume. This replaced an initContainer
+    # that did `cp -r /plugins/. /headlamp/user-plugins/` into an emptyDir — the kubelet
+    # already has the image mounted, so copying it into a second volume bought nothing.
+    #
+    # No oci-composer here, deliberately: the artifact already exists as a published
+    # image, and composing would only re-wrap it. The composer earns its place when the
+    # inputs are NOT images (git repos, jars, ConfigMaps) — see apps/freshrss.
+    #
+    # `subPath: plugins` is what makes it work: the plugin sits at /plugins/headlamp-app-view
+    # in the image, and Headlamp wants that directory at the root of its user-plugins dir.
+    # Verified on-cluster that image volumes honour subPath, and that they mount read-only
+    # either way (overlay `ro`) — with or without readOnly on the mount.
+    volumes:
+      - name: app-view-plugin
+        image:
+          # renovate: datasource=docker
+          reference: ghcr.io/lhns/headlamp-app-view:0.3.0
+          # IfNotPresent, matching what the initContainer got by default for a tagged image.
+          # Always would put ghcr.io in the path of every pod start, which is the dependency
+          # this whole line of work has been removing. Renovate bumps the tag; that is the
+          # update path, not a silent rebuild under the same tag.
+          pullPolicy: IfNotPresent
+    volumeMounts:
+      - name: app-view-plugin
+        mountPath: /headlamp/user-plugins
+        subPath: plugins
+        readOnly: true
+    ingress:
+      enabled: true
+      ingressClassName: traefik
+      hosts:
+        - host: headlamp.kube.example.com
+          paths:
+            - path: /
+              type: Prefix
+    podLabels:
+      kube-vnet/net.traefik.traefik: ingress

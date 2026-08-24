@@ -1,0 +1,70 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # DB role/databases in the shared CNPG (infra-postgres); matrix-db is
+    # reflected into this ns by Reflector (infra-reflector); the livekit-lb
+    # LoadBalancer's 10.20.2.19 needs the livekit-vip MetalLB pool (infra-metallb);
+    # Traefik carries all HTTP ingress (infra-traefik); synapse mounts a CephFS
+    # static PV + mas/whatsapp use CephFS PVCs (infra-ceph-csi-cephfs); baibot's
+    # SQLite store is on ceph-rbd (infra-ceph-csi-rbd). Read by the root
+    # generator; inert to kustomize.
+    # app-coturn: synapse's TURN credentials are derived from the shared secret
+    # that apps/coturn owns and Reflector mirrors into this namespace.
+    dependsOn: infra-postgres,infra-reflector,infra-metallb,infra-traefik,infra-ceph-csi-cephfs,infra-ceph-csi-rbd,app-coturn
+# NOTE: no `namespace:` transformer — database.yaml + db-role-secret.yaml pin
+# `namespace: postgres`; everything else is in `matrix`.
+resources:
+- resources.yaml
+- routing.yaml
+- database.yaml
+- db-role-secret.yaml
+- vnet.yaml
+- secret-synapse.yaml
+- secret-livekit.yaml
+- secret-registrations.yaml
+- secret-media-s3.yaml
+configMapGenerator:
+- name: element-web-config
+  namespace: matrix
+  files:
+  - config.json=element-web-config.json
+- name: synapse-admin-config
+  namespace: matrix
+  files:
+  - config.json=synapse-admin-config.json
+# A third --config-path for synapse, adding only TURN/VoIP (apps/coturn). Not a
+# Secret: the shared secret itself is read from a mounted file via
+# turn_shared_secret_path, so this stays plaintext and reviewable.
+- name: synapse-turn
+  namespace: matrix
+  files:
+  - synapse-turn.yaml
+# A fourth --config-path selecting the appservice registrations, which now live in
+# git (secret-registrations.yaml) rather than as hand-placed files on the CephFS PV.
+# Replaces homeserver.yaml's list wholesale -- see the file for why it must always be
+# complete.
+- name: synapse-appservices
+  namespace: matrix
+  files:
+  - synapse-appservices.yaml
+# A fifth --config-path: trusted_key_servers: [] so signing-key lookups go direct
+# to each server instead of through the matrix.org notary, which 429s us.
+- name: synapse-keyservers
+  namespace: matrix
+  files:
+  - synapse-keyservers.yaml
+# botocore's shared config, for one setting the media provider cannot express:
+# path-style addressing. Not a Secret -- it holds no credentials.
+- name: synapse-aws-config
+  namespace: matrix
+  files:
+  - config=synapse-aws-config.ini
+# nginx serving the server-side well-known delegation (m.server -> matrix.example.com:443)
+# for federation. Traefik replacePath's /.well-known/matrix/server to / so this
+# single index.json answers. Client well-known comes from Synapse itself.
+- name: well-known
+  namespace: matrix
+  files:
+  - default.conf=well-known-default.conf
+  - index.json=well-known-index.json

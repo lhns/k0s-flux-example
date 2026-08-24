@@ -1,0 +1,108 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: kube-oci-composer
+  namespace: oci-composer
+spec:
+  interval: 1h0m0s
+  url: oci://ghcr.io/lhns/charts/kube-oci-composer
+  ref:
+    # Pinned release; bump to roll a new version.
+    #
+    # This is a DEV BUILD, not a release: 0.5.0 is written and merged but not tagged upstream, so
+    # the only installable artifacts are per-commit builds. `0.0.0-dev.g8041d11` is the chart at
+    # commit 8041d11, and its appVersion is the same string, which resolves to the image
+    # ghcr.io/lhns/kube-oci-composer:0.0.0-dev.g8041d11 — byte-identical to the `sha-8041d11` tag
+    # (both sha256:5e437477a2d0ec7287a7db1a537760db8556ac4cb02095b43c2b8c413e90ab27). So the
+    # chart's own defaults pin the right images and nothing is overridden below.
+    #
+    # Swap to "0.5.0" once it is tagged; there is no other change to make.
+    #
+    # 0.4.0 -> 0.5.0 is a BREAKING upgrade. The serving endpoint is gone and a registry is the
+    # only publication path, so `spec.publish` became `spec.push` on every ImageComposition and
+    # `registry.publish.mode` became mandatory. See the README and the upstream 0.5.0 changelog.
+    tag: "0.0.0-dev.g8041d11"
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: oci-composer
+  namespace: oci-composer
+spec:
+  interval: 10m0s
+  chartRef:
+    kind: OCIRepository
+    name: kube-oci-composer
+  values:
+    # Clean resource names: `oci-composer`, not `oci-composer-kube-oci-composer`.
+    fullnameOverride: oci-composer
+
+    # One replica, down from two. The second existed only because both pods SERVED artifacts from
+    # a shared RWX volume; 0.5.0 removes serving entirely, so a second controller replica would be
+    # an idle leader-election loser. Availability of pulls is now the registry's problem, and the
+    # registry is its own Deployment below.
+    replicaCount: 1
+
+    operator:
+      # Renamed from operator.gc.keepBuilds — GC moved out of the controller, and the builder
+      # already called it this. Retention is what keeps an older spec-hash tag resolvable, which
+      # is what a rolled-back commit names.
+      keepBuilds: 10
+
+    # The second controller, alpha. Nothing in this repo declares an ImageBuild yet.
+    #
+    # Its ClusterRole can create and delete Jobs — that is the ability to run arbitrary containers
+    # — and read/write Secrets, which is why upstream made it a separate component rather than a
+    # flag. Build pods permit privilege escalation and run seccomp/AppArmor unconfined. Setting
+    # this false removes the controller AND its RBAC together.
+    imageBuild:
+      enabled: true
+
+    registry:
+      publish:
+        # REQUIRED, and deliberately has no default: `helm install` with no argument now fails
+        # rather than producing images nothing can pull.
+        #
+        # nodePort keeps the model this cluster already had. `ingress` would need nothing on the
+        # nodes at all, but *.kube.example.com resolves to the public edge (203.0.113.10) and would
+        # hairpin every internal pull out of the LAN and back, so it needs an internal name first.
+        mode: nodePort
+
+      # The host that appears inside every composed image reference. THE PORT IS PART OF IT now,
+      # because containerd names its certs.d directory after exactly this string.
+      #
+      # It still resolves nowhere by design: pulls are done by the kubelet, using the node's
+      # resolver, so a ClusterIP name could never work. Each node's containerd is told where this
+      # actually is by the drop-in in kube-cluster/k0s-files/. The dot is not decoration — a
+      # single-label first component parses as a Docker Hub repository name, not a registry host.
+      host: oci-composer.internal:30500
+
+      service:
+        # NodePort rather than a MetalLB VIP: it spends no LAN address, and certs.d is required
+        # either way because containerd defaults to HTTPS for any host:port. Every node answers
+        # and kube-proxy forwards to wherever the pod runs, so no node is a single point of
+        # failure for pulls.
+        type: NodePort
+        port: 5000
+        # Fixed, because the certs.d drop-in names it.
+        nodePort: 30500
+
+      persistence:
+        # This one IS a system of record, unlike the old serving store. A rebuild may not
+        # reproduce a digest bit-for-bit, so losing this volume loses images that pods still
+        # reference by digest. cephfs (fastappdata): 138 GiB available at the time of writing.
+        enabled: true
+        storageClass: cephfs
+        size: 20Gi
+
+    defaultRegistry:
+      # A NodePort speaks plain HTTP, and this is not assumed: registry.host is just as often an
+      # ingress terminating TLS, and marking that insecure would force plaintext on a deployment
+      # that took the trouble to set it up. The in-cluster Service name is added automatically;
+      # this string is not.
+      insecure: oci-composer.internal:30500
+
+    metrics:
+      serviceMonitor:
+        enabled: true

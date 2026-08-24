@@ -1,0 +1,39 @@
+# xExtension-ImageProxy — see extension-autottl.yaml for what the shape means.
+#
+# This one and extension-llm-classification.yaml both come out of the official FreshRSS/Extensions
+# monorepo, and each declares its OWN GitRepository for it rather than sharing one. That costs a
+# second clone in source-controller, and buys the property the split exists for: each file is
+# complete on its own, and repinning one extension cannot move the other's hash.
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: freshrss-ext-image-proxy
+  namespace: freshrss
+spec:
+  interval: 12h
+  url: https://github.com/FreshRSS/Extensions
+  ref:
+    commit: 7630bee1f9267d540f2a3cc12d49f54393b68e7a
+---
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageComposition
+metadata:
+  name: freshrss-ext-image-proxy
+  namespace: freshrss
+spec:
+  interval: 1h
+  layers:
+    - name: image-proxy
+      sourceRef:
+        kind: GitRepository
+        name: freshrss-ext-image-proxy
+        # One directory out of the monorepo. `subpath` strips the prefix, so the selected
+        # directory's CONTENTS land at `to` rather than the directory itself — which is what makes
+        # `to: /` right here as well.
+        subpath: xExtension-ImageProxy
+      to: /
+      owner: {uid: 33, gid: 33}
+  push:
+    # No `repository` — publishes to <registry>/<namespace>/<name>. See extension-autottl.yaml.
+    history: 10

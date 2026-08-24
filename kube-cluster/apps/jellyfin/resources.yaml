@@ -1,0 +1,407 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: jellyfin
+---
+# ---------------------------------------------------------------------------
+# Storage. The old Swarm host paths /mnt/{appdata,fastappdata,archive} are all
+# CephFS filesystems on the same ceph-cluster (fs names appdata/fastappdata/
+# archive). We reproduce the compose's volume layout as:
+#   - /config  : a NEW ceph-rbd (block, RWO) volume; the small fastappdata
+#                config subtree (3.3G) is copied into it once. Writable base so
+#                Jellyfin can write cache/loose files.
+#   - RO overlays from the big appdata fs (metadata) and the pre-existing
+#     read-only appdata dirs (trickplay, subbuzz) mounted read-only for now.
+#   - /media   : the archive fs media library, read-only.
+# Static CephFS PVs follow the navidrome-music pattern (storageClassName: "",
+# staticVolume, per-fs fsName + rootPath, bound by volumeName).
+# ---------------------------------------------------------------------------
+# Media library (archive fs, /media) — read-only.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: jellyfin-media
+spec:
+  accessModes: [ReadOnlyMany]
+  capacity:
+    storage: 1Gi # ignored for static cephfs, required by the API
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: jellyfin-media
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: archive
+      staticVolume: "true"
+      rootPath: /media
+    readOnly: true
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jellyfin-media
+  namespace: jellyfin
+spec:
+  accessModes: [ReadOnlyMany]
+  storageClassName: ""
+  volumeName: jellyfin-media
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Metadata (appdata fs). RW so Jellyfin can write downloaded artwork/metadata, as
+# in Swarm. Mounted directly off the appdata CephFS (RWX) — no copy needed; the
+# Swarm Jellyfin is decommissioned so there's no concurrent writer.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: jellyfin-metadata
+spec:
+  accessModes: [ReadWriteMany]
+  capacity:
+    storage: 1Gi
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: jellyfin-metadata
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: appdata
+      staticVolume: "true"
+      rootPath: /docker/jellyfin-pg/config/metadata
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jellyfin-metadata
+  namespace: jellyfin
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: jellyfin-metadata
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Trickplay preview thumbnails (appdata fs) — read-only, as in Swarm.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: jellyfin-trickplay
+spec:
+  accessModes: [ReadOnlyMany]
+  capacity:
+    storage: 1Gi
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: jellyfin-trickplay
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: appdata
+      staticVolume: "true"
+      rootPath: /docker/jellyfin/trickplay
+    readOnly: true
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jellyfin-trickplay
+  namespace: jellyfin
+spec:
+  accessModes: [ReadOnlyMany]
+  storageClassName: ""
+  volumeName: jellyfin-trickplay
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Subtitle provider cache (appdata fs) — read-only, as in Swarm.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: jellyfin-subbuzz
+spec:
+  accessModes: [ReadOnlyMany]
+  capacity:
+    storage: 1Gi
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: jellyfin-subbuzz
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: appdata
+      staticVolume: "true"
+      rootPath: /docker/jellyfin/subbuzz
+    readOnly: true
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jellyfin-subbuzz
+  namespace: jellyfin
+spec:
+  accessModes: [ReadOnlyMany]
+  storageClassName: ""
+  volumeName: jellyfin-subbuzz
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Jellyfin's own config/state (block, ceph-rbd, RWO). The small fastappdata
+# config subtree (config/data/log/plugins/root) is copied into this once; the
+# writable base also holds cache. Single-writer -> Recreate on the Deployment.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jellyfin-config
+  namespace: jellyfin
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 10Gi
+---
+# Shared transcode temp dir for remote GPU transcoding. CephFS RWX so the GPU
+# Swarm worker can mount the SAME subtree at the SAME path (/cache/transcodes) and
+# see ffmpeg's segments. Only this ephemeral dir is shared; the rest of /cache stays
+# node-local. rootPath already exists on the fastappdata fs.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: jellyfin-transcodes
+spec:
+  accessModes: [ReadWriteMany]
+  capacity:
+    storage: 1Gi # ignored for static cephfs, required by the API
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: jellyfin-transcodes
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: fastappdata
+      staticVolume: "true"
+      rootPath: /eph-docker/jellyfin/cache/transcodes
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jellyfin-transcodes
+  namespace: jellyfin
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: jellyfin-transcodes
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jellyfin
+  namespace: jellyfin
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  # Single writer on the RWO config volume — never run two.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: jellyfin
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: jellyfin
+        app.kubernetes.io/instance: jellyfin
+        # receive traffic from traefik under kube-vnet ingress isolation,
+        # reach the shared CNPG primary directly, and reach the in-cluster
+        # lldap (LDAP plugin auth).
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.postgres.postgres: egress
+        kube-vnet/net.lldap.lldap: egress
+    spec:
+      # Swarm ran as root (owner of the volumes); match it so the RBD config
+      # volume and the read-only CephFS shares are all accessible.
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+        # No fsGroup: Jellyfin runs as root (uid/gid 0) and every volume is
+        # root-owned, so fsGroup buys nothing — and with the RW metadata volume it
+        # triggers a recursive chown of tens of thousands of files on the CephFS at
+        # every start, which stalls pod startup for many minutes.
+      # No local GPU. Transcoding is offloaded to a GPU worker in Docker Swarm via
+      # an rffmpeg-style SSH wrapper (JELLYFIN_FFMPEG below); the pod itself stays
+      # CPU-only and is used only as the fallback when the worker is unreachable.
+      # No initContainer. ssh comes from a read-only image volume and the wrappers from a
+      # ConfigMap, so nothing is installed, copied or chmod-ed at pod start. What went with it:
+      # `apt-get update && apt-get install openssh-client` on EVERY start, which put Debian's
+      # mirrors in the path of transcoding and left the ssh version unrecorded anywhere in git.
+      containers:
+        - name: jellyfin
+          image: ghcr.io/jpvenson/jellyfin.pgsql:10.11.11-1
+          env:
+            - name: TZ
+              value: Europe/Berlin
+            # Library DB in the shared CNPG cluster (dedicated jellyfin role +
+            # database) instead of the old dedicated Postgres container.
+            - name: POSTGRES_HOST
+              value: postgres-rw.postgres.svc.cluster.local
+            - name: POSTGRES_PORT
+              value: "5432"
+            - name: POSTGRES_DB
+              value: jellyfin
+            - name: POSTGRES_USER
+              value: jellyfin
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: jellyfin-db
+                  key: password
+            # Remote transcoding. JELLYFIN_FFMPEG points Jellyfin at the wrapper,
+            # which SSHes ffmpeg/ffprobe to the GPU worker and falls back to the
+            # local CPU binary when FFMPEG_SSH_WORKER is empty or unreachable.
+            # TMPDIR must live on the shared transcode dir (Jellyfin 10.10+).
+            - name: JELLYFIN_FFMPEG
+              value: /opt/ssh-ffmpeg/bin/ffmpeg
+            - name: TMPDIR
+              value: /cache/transcodes/tmp
+            - name: FFMPEG_SSH_WORKER
+              value: "10.20.2.10:1522"
+            - name: FFMPEG_SSH_USER
+              value: root
+            # Straight from the Secret mount. Jellyfin runs as root here and the volume is
+            # mode 0400 root-owned, which satisfies ssh's refusal to use a group- or
+            # world-readable key — so the old copy-and-chmod step buys nothing.
+            - name: FFMPEG_SSH_KEY
+              value: /opt/ssh-ffmpeg-key/id
+            - name: FFMPEG_SSH_REMOTE
+              value: /usr/lib/jellyfin-ffmpeg
+            - name: FFMPEG_SSH_LOCAL
+              value: /usr/lib/jellyfin-ffmpeg
+            - name: FFMPEG_SSH_TMPDIR
+              value: /cache/transcodes/tmp
+          ports:
+            - name: http
+              containerPort: 8096
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: metadata
+              mountPath: /config/metadata
+            - name: trickplay
+              mountPath: /config/data/trickplay
+              readOnly: true
+            - name: subbuzz
+              mountPath: /config/subbuzz
+              readOnly: true
+            - name: web-config
+              mountPath: /jellyfin/jellyfin-web/config.json
+              subPath: config.json
+              readOnly: true
+            - name: media
+              mountPath: /media
+              readOnly: true
+            # The ssh binary and its libraries, mounted from the image that ships them.
+            - name: ssh-img
+              mountPath: /opt/ssh-img
+              readOnly: true
+            # ffmpeg, ffprobe and the ssh launcher. Mounted 0755 and executed in place — a
+            # ConfigMap volume is read-only but perfectly executable.
+            - name: ssh-ffmpeg-wrapper
+              mountPath: /opt/ssh-ffmpeg/bin
+              readOnly: true
+            - name: ssh-ffmpeg-key
+              mountPath: /opt/ssh-ffmpeg-key
+              readOnly: true
+            - name: transcodes
+              mountPath: /cache/transcodes
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            # First start can be slow (Swarm disabled healthchecks entirely).
+            failureThreshold: 30
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: jellyfin-config
+        - name: metadata
+          persistentVolumeClaim:
+            claimName: jellyfin-metadata
+        - name: trickplay
+          persistentVolumeClaim:
+            claimName: jellyfin-trickplay
+            readOnly: true
+        - name: subbuzz
+          persistentVolumeClaim:
+            claimName: jellyfin-subbuzz
+            readOnly: true
+        - name: web-config
+          configMap:
+            name: jellyfin-web-config
+        - name: media
+          persistentVolumeClaim:
+            claimName: jellyfin-media
+            readOnly: true
+        # Debian trixie, matching the Jellyfin image's glibc family, and one of the few
+        # OFFICIAL images that ships an ssh client — which is why it is this rather than a
+        # third-party ssh image: this volume carries the key's counterpart binary.
+        - name: ssh-img
+          image:
+            # renovate: datasource=docker
+            reference: buildpack-deps:trixie-scm
+            pullPolicy: IfNotPresent
+        - name: ssh-ffmpeg-wrapper
+          configMap:
+            name: jellyfin-ffmpeg-wrapper
+            defaultMode: 0755
+        - name: ssh-ffmpeg-key
+          secret:
+            secretName: jellyfin-ssh-ffmpeg-key
+            defaultMode: 0400
+        - name: transcodes
+          persistentVolumeClaim:
+            claimName: jellyfin-transcodes
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jellyfin
+  namespace: jellyfin
+spec:
+  selector:
+    app.kubernetes.io/name: jellyfin
+  ports:
+    - name: http
+      port: 8096
+      targetPort: http

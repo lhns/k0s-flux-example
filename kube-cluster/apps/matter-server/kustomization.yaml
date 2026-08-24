@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # multus: the NetworkAttachmentDefinition CRD must exist and the DaemonSet must be
+    # running before a pod requesting `lan` can be created — without it the pod stays
+    # ContainerCreating. ceph-csi-cephfs: the fabric-credentials PVC. kube-vnet: vnet.yaml
+    # uses its CRDs. Read by the root generator; inert to kustomize.
+    dependsOn: infra-multus,infra-ceph-csi-cephfs,infra-kube-vnet
+resources:
+- resources.yaml
+- vnet.yaml

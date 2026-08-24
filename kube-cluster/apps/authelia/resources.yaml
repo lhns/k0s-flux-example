@@ -1,0 +1,218 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: authelia
+---
+# Authelia — SSO portal, forwardAuth, and OIDC provider. Migrated from Docker Swarm
+# into the cluster. Config is a plaintext ConfigMap (configMapGenerator); all secrets
+# are files under /secrets (SOPS `authelia-secrets` + the reflected db password).
+# Reloader rolls the pod when the config or any secret changes.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: authelia
+  namespace: authelia
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  # HA: stateless pod (sessions in the Valkey+Sentinel store, all durable data in the
+  # CNPG `authelia` DB, OIDC HMAC/JWKS + SESSION_SECRET shared via the projected secret),
+  # so it runs 2 replicas behind a PDB. RollingUpdate (surge, never dip below 1) keeps the
+  # login path up during rollouts; the PDB keeps >=1 replica during node drains.
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: authelia
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: authelia
+        app.kubernetes.io/instance: authelia
+        # receive from traefik; reach the CNPG primary, lldap (LDAP backend), redis
+        # (sessions, same-ns), and msmtpd (mail). Gmail egress is msmtpd's, not ours.
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.postgres.postgres: egress
+        kube-vnet/net.lldap.lldap: egress
+        kube-vnet/net.valkey: egress
+        kube-vnet/net.msmtpd.msmtpd: egress
+    spec:
+      # Authelia reads any AUTHELIA_* env as config; k8s service-links inject
+      # AUTHELIA_PORT/AUTHELIA_SERVICE_HOST from the authelia Service, which collide
+      # with server.address. Disable the injection so only our env reaches Authelia.
+      enableServiceLinks: false
+      # Spread the 2 replicas across nodes (soft, so a small/drained cluster still
+      # schedules) so a single node loss can't take both.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: authelia
+      containers:
+        - name: authelia
+          image: ghcr.io/authelia/authelia:4.39.20
+          env:
+            - name: TZ
+              value: Europe/Berlin
+            # Enable the config template filter ({{ secret ... }} for oidc HMAC/JWKS).
+            - name: X_AUTHELIA_CONFIG_FILTERS
+              value: template
+            # Secret files (mounted under /secrets). Matches the Swarm _FILE envs.
+            - name: AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET_FILE
+              value: /secrets/JWT_SECRET
+            - name: AUTHELIA_SESSION_SECRET_FILE
+              value: /secrets/SESSION_SECRET
+            - name: AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE
+              value: /secrets/STORAGE_ENCRYPTION_KEY
+            - name: AUTHELIA_STORAGE_POSTGRES_PASSWORD_FILE
+              value: /secrets/STORAGE_PASSWORD
+            - name: AUTHELIA_AUTHENTICATION_BACKEND_LDAP_PASSWORD_FILE
+              value: /secrets/LDAP_PASSWORD
+          ports:
+            - name: http
+              containerPort: 9091
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 12
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: secrets
+              mountPath: /secrets
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: authelia-config
+        # Merge the SOPS secret + the reflected db password into /secrets, mapping the
+        # oidc keys into the subpaths the config's {{ secret "/secrets/oidc/..." }} expects.
+        - name: secrets
+          projected:
+            sources:
+              - secret:
+                  name: authelia-secrets
+                  items:
+                    - {key: JWT_SECRET, path: JWT_SECRET}
+                    - {key: SESSION_SECRET, path: SESSION_SECRET}
+                    - {key: STORAGE_ENCRYPTION_KEY, path: STORAGE_ENCRYPTION_KEY}
+                    - {key: LDAP_PASSWORD, path: LDAP_PASSWORD}
+                    - {key: oidc-hmac, path: oidc/HMAC_SECRET}
+                    - {key: oidc-jwks-key, path: oidc/jwks/rsa.4096.key}
+                    - {key: oidc-jwks-crt, path: oidc/jwks/rsa.4096.crt}
+              - secret:
+                  name: authelia-db
+                  items:
+                    - {key: password, path: STORAGE_PASSWORD}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: authelia
+  namespace: authelia
+spec:
+  selector:
+    app.kubernetes.io/name: authelia
+  ports:
+    - name: http
+      port: 9091
+      targetPort: http
+---
+# Keep at least one Authelia replica available during a node drain so the login /
+# forward-auth path never goes fully down. (Do NOT enroll Authelia in ha-surge: it
+# skips >=2-replica Deployments, and this PDB is the correct mechanism at 2 replicas.)
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: authelia
+  namespace: authelia
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: authelia
+---
+# The user-info page (auth.example.com/info) — shows the signed-in user's group access
+# (reads the Remote-* headers Authelia injects + the ACCESS_MATRIX). index.php is a
+# ConfigMap (configMapGenerator); it sits behind the authelia middleware.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-info
+  namespace: authelia
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: user-info
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: user-info
+        app.kubernetes.io/instance: authelia
+        kube-vnet/net.traefik.traefik: ingress
+    spec:
+      containers:
+        - name: user-info
+          image: php:8.5-apache
+          env:
+            - name: ACCESS_MATRIX
+              value: |
+                {
+                  "Arr": ["admin", "arr_admin"],
+                  "Bitwarden": ["admin", "bitwarden"],
+                  "Door": ["door"],
+                  "Forgejo": ["admin", "forgejo"],
+                  "FreshRSS": ["admin", "freshrss"],
+                  "Gitea": ["admin", "gitea"],
+                  "Grafana Viewer": ["admin", "grafana"],
+                  "Grafana Editor": ["admin", "grafana_editor"],
+                  "Guacamole": ["admin", "guacamole"],
+                  "Home Assistant": ["admin", "homeassistant"],
+                  "Homebox": ["admin", "homebox"],
+                  "Immich": ["admin", "immich"],
+                  "Jellyfin": ["admin", "jellyfin", "jellyfin_admin"],
+                  "LLDAP": ["lldap_admin"],
+                  "Matrix": ["admin", "matrix"],
+                  "Mealie": ["admin", "mealie"],
+                  "Nodered": ["admin", "nodered"],
+                  "Portainer": ["admin"],
+                  "SFTPGo": ["admin", "sftpgo"],
+                  "Traefik": ["admin", "traefik"],
+                  "Uptime Kuma": ["admin", "uptimekuma"],
+                  "Zigbee": ["admin", "zigbee_admin"],
+                  "Outline": ["admin", "outline"]
+                }
+          ports:
+            - name: http
+              containerPort: 80
+          volumeMounts:
+            - name: html
+              mountPath: /var/www/html
+      volumes:
+        - name: html
+          configMap:
+            name: user-info-html
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-info
+  namespace: authelia
+spec:
+  selector:
+    app.kubernetes.io/name: user-info
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

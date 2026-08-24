@@ -1,0 +1,382 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: standardnotes
+---
+# ===========================================================================
+# MariaDB — the DB backend for the Standard Notes server. The server speaks the
+# MySQL protocol (DB_TYPE=mysql, TypeORM mysql driver) and MariaDB is wire-
+# compatible; it runs its migrations on boot. Consolidated onto MariaDB to match
+# teamspeak (one MySQL-family engine on the cluster). Single instance,
+# StatefulSet on ceph-rbd. Credentials from the SOPS secret; kube-vnet isolates
+# it (only the monolith gets egress).
+# ===========================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: standardnotes-db
+  namespace: standardnotes
+spec:
+  selector:
+    app.kubernetes.io/name: standardnotes-db
+  ports:
+    - {name: mysql, port: 3306, targetPort: 3306}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: standardnotes-db
+  namespace: standardnotes
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  serviceName: standardnotes-db
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: standardnotes-db
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: standardnotes-db
+        app.kubernetes.io/instance: standardnotes
+        # the monolith connects to MySQL (in-ns).
+        kube-vnet/net.standardnotes-db: ingress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: mariadb
+          image: mariadb:12.3.2
+          ports:
+            - {name: mysql, containerPort: 3306}
+          env:
+            # MariaDB honours MARIADB_* (and legacy MYSQL_*) on first init. The
+            # secret key is still named MYSQL_ROOT_PASSWORD (unchanged on disk).
+            - {name: MARIADB_DATABASE, value: standard_notes_db}
+            - {name: MARIADB_USER, value: std_notes_user}
+            - {name: MARIADB_PASSWORD, valueFrom: {secretKeyRef: {name: standardnotes, key: DB_PASSWORD}}}
+            - {name: MARIADB_ROOT_PASSWORD, valueFrom: {secretKeyRef: {name: standardnotes, key: MYSQL_ROOT_PASSWORD}}}
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "mariadb-admin ping -h 127.0.0.1 -u root -p\"$MARIADB_ROOT_PASSWORD\" --silent"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 12
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/mysql}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: ceph-rbd
+        resources:
+          requests:
+            storage: 10Gi
+---
+# ===========================================================================
+# Redis — cache + ephemeral session store for the server. No durable data
+# (accounts/tokens live in MySQL), so emptyDir is fine.
+# ===========================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: standardnotes-cache
+  namespace: standardnotes
+spec:
+  selector:
+    app.kubernetes.io/name: standardnotes-cache
+  ports:
+    - {name: redis, port: 6379, targetPort: 6379}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: standardnotes-cache
+  namespace: standardnotes
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: standardnotes-cache
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: standardnotes-cache
+        app.kubernetes.io/instance: standardnotes
+        kube-vnet/net.standardnotes-cache: ingress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: redis
+          image: redis:8-alpine
+          ports:
+            - {name: redis, containerPort: 6379}
+          readinessProbe:
+            exec: {command: ["redis-cli", "ping"]}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+# ===========================================================================
+# LocalStack (SNS + SQS) — the inter-service event bus. Every service in the
+# monolith defaults its SNS/SQS endpoint to http://localstack:4566, so the
+# Service MUST be named `localstack` for those defaults to resolve. Topics and
+# queues are (re)created on each start by the upstream bootstrap script, mounted
+# into LocalStack's init hook. Ephemeral (emptyDir) — the bootstrap rebuilds it.
+# ===========================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: localstack
+  namespace: standardnotes
+spec:
+  selector:
+    app.kubernetes.io/name: localstack
+  ports:
+    - {name: edge, port: 4566, targetPort: 4566}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: localstack
+  namespace: standardnotes
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: localstack
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: localstack
+        app.kubernetes.io/instance: standardnotes
+        kube-vnet/net.localstack: ingress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: localstack
+          image: localstack/localstack:4.14
+          env:
+            - {name: SERVICES, value: "sns,sqs"}
+            - {name: HOSTNAME_EXTERNAL, value: localstack}
+            - {name: LS_LOG, value: warn}
+          ports:
+            - {name: edge, containerPort: 4566}
+          # Health via the HTTP endpoint, not `awslocal` — the awscli exec probe
+          # cold-starts Python/boto3 (>1s) and times out at the default 1s, so the
+          # pod would never go Ready (and its Service would have no endpoints, so
+          # nothing could reach it). The bootstrap init-hook creates the topics a
+          # few seconds after this returns 200; the server takes far longer to boot.
+          readinessProbe:
+            httpGet: {path: /_localstack/health, port: edge}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 18
+          volumeMounts:
+            - {name: bootstrap, mountPath: /etc/localstack/init/ready.d}
+      volumes:
+        - name: bootstrap
+          configMap:
+            name: localstack-bootstrap
+            defaultMode: 0755
+---
+# ===========================================================================
+# Standard Notes server — the self-hosted monolith. supervisord runs
+# api-gateway (:3000, the public entry), syncing-server, auth, files (:3104),
+# revisions, and their workers in one container. Config is minimal: DB, Redis,
+# three secret keys, and PUBLIC_FILES_SERVER_URL (clients upload/download
+# encrypted file chunks directly to the files server, so it needs its own
+# public host). Everything else (SNS/SQS endpoints, ports) has sane defaults
+# in the image entrypoint. File blobs are stored on a local PVC (no S3).
+# ===========================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: standardnotes-server
+  namespace: standardnotes
+spec:
+  selector:
+    app.kubernetes.io/name: standardnotes-server
+  ports:
+    - {name: api, port: 3000, targetPort: 3000}
+    - {name: files, port: 3104, targetPort: 3104}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: standardnotes-server
+  namespace: standardnotes
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy: {type: Recreate}       # single writer to the files PVC; avoids two monoliths racing DB migrations
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: standardnotes-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: standardnotes-server
+        app.kubernetes.io/instance: standardnotes
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.standardnotes-db: egress
+        kube-vnet/net.standardnotes-cache: egress
+        kube-vnet/net.localstack: egress
+    spec:
+      enableServiceLinks: false
+      initContainers:
+        # The entrypoint runs DB migrations on boot; wait for the deps first.
+        - name: wait-deps
+          image: busybox:1.38
+          command:
+            - sh
+            - -c
+            - >
+              until nc -z standardnotes-db 3306; do echo "waiting for mariadb"; sleep 3; done;
+              until nc -z standardnotes-cache 6379; do echo "waiting for redis"; sleep 3; done;
+              until nc -z localstack 4566; do echo "waiting for localstack"; sleep 3; done
+      containers:
+        - name: server
+          image: standardnotes/server:latest
+          ports:
+            - {name: api, containerPort: 3000}
+            - {name: files, containerPort: 3104}
+          readinessProbe:
+            httpGet: {path: /healthcheck, port: api}
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 20
+          env:
+            # --- DB (MariaDB, via the MySQL protocol) ---
+            - {name: DB_HOST, value: standardnotes-db}
+            - {name: DB_PORT, value: "3306"}
+            - {name: DB_DATABASE, value: standard_notes_db}
+            - {name: DB_USERNAME, value: std_notes_user}
+            # DB_TYPE stays mysql: the server has no "mariadb" driver and the
+            # mysql driver is wire-compatible with MariaDB.
+            - {name: DB_TYPE, value: mysql}
+            - {name: DB_PASSWORD, valueFrom: {secretKeyRef: {name: standardnotes, key: DB_PASSWORD}}}
+            # DB_DEBUG_LEVEL defaults to "all" (noisy); quiet it down.
+            - {name: DB_DEBUG_LEVEL, value: error}
+            # --- Cache (Redis) ---
+            - {name: REDIS_HOST, value: standardnotes-cache}
+            - {name: REDIS_PORT, value: "6379"}
+            - {name: CACHE_TYPE, value: redis}
+            # --- Secret keys ---
+            - {name: AUTH_JWT_SECRET, valueFrom: {secretKeyRef: {name: standardnotes, key: AUTH_JWT_SECRET}}}
+            - {name: AUTH_SERVER_ENCRYPTION_SERVER_KEY, valueFrom: {secretKeyRef: {name: standardnotes, key: AUTH_SERVER_ENCRYPTION_SERVER_KEY}}}
+            - {name: VALET_TOKEN_SECRET, valueFrom: {secretKeyRef: {name: standardnotes, key: VALET_TOKEN_SECRET}}}
+            # --- Public files endpoint (clients hit this host directly) ---
+            - {name: PUBLIC_FILES_SERVER_URL, value: "https://standardnotes-files.example.com"}
+            # Session tokens are cookie-based. The auth server defaults the cookie
+            # Domain to standardnotes.com, which the browser rejects on our host
+            # (you can't set a cookie for a domain you're not on) -> the session
+            # cookie is dropped and every request 401s ("refresh your session").
+            # Scope it to our API host so the browser stores + resends it.
+            - {name: AUTH_SERVER_COOKIE_DOMAIN, value: "standardnotes-api.example.com"}
+            # --- Local file storage (no S3); PVC mounted here ---
+            - {name: FILES_SERVER_FILE_UPLOAD_PATH, value: /opt/shared/uploads}
+            - {name: SYNCING_SERVER_FILE_UPLOAD_PATH, value: /opt/shared/uploads}
+          volumeMounts:
+            - {name: uploads, mountPath: /opt/shared/uploads}
+      volumes:
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: standardnotes-uploads
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: standardnotes-uploads
+  namespace: standardnotes
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 10Gi
+---
+# ===========================================================================
+# Web client — the official Standard Notes web app (static SPA on nginx). It has
+# no runtime config, so the sync server is entered on the login screen under
+# "Advanced options -> Sync Server" = https://standardnotes-api.example.com. (To bake
+# that as the default we'd build the app with DEFAULT_SYNC_SERVER; deferred.)
+# ===========================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: standardnotes-web
+  namespace: standardnotes
+spec:
+  selector:
+    app.kubernetes.io/name: standardnotes-web
+  ports:
+    - {name: http, port: 80, targetPort: 80}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: standardnotes-web
+  namespace: standardnotes
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: standardnotes-web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: standardnotes-web
+        app.kubernetes.io/instance: standardnotes
+        kube-vnet/net.traefik.traefik: ingress
+    spec:
+      enableServiceLinks: false
+      initContainers:
+        # The official web client only honors premium roles when the sync host is
+        # on its hardcoded first-party allowlist (api.standardnotes.com,
+        # sync.standardnotes.org, localhost:3123); any other host is treated as
+        # third-party and ALL native premium features are locked regardless of the
+        # PRO_USER role our server grants. This patches the served app.js to add our
+        # hosts to that allowlist, on a writable emptyDir copy nginx then serves.
+        # Quick fix; the durable one is a source build of ghcr.io/lhns/standardnotes-web.
+        # The image is digest-pinned so the sed targets can't silently drift on a
+        # :latest rebuild — and the grep guards fail the pod if a target is missing.
+        - name: patch-firstparty-allowlist
+          image: standardnotes/web:latest@sha256:9db2acbd6c7c11bfb8183342c61ff30996ab054219da298aba788f1c39cee20c
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              cp -a /usr/share/nginx/html/. /work/
+              sed -i 's|"localhost:3123"]|"localhost:3123","standardnotes-api.example.com"]|g' /work/app.js
+              sed -i 's|FILES_DEFAULT_HOSTS=\["files.standardnotes.com"\]|FILES_DEFAULT_HOSTS=["files.standardnotes.com","standardnotes-files.example.com"]|g' /work/app.js
+              grep -q '"standardnotes-api.example.com"' /work/app.js || { echo "PATCH FAILED: app allowlist target not found"; exit 1; }
+              grep -q '"standardnotes-files.example.com"' /work/app.js || { echo "PATCH FAILED: files allowlist target not found"; exit 1; }
+              echo "first-party allowlist patched OK"
+          volumeMounts:
+            - {name: html, mountPath: /work}
+      containers:
+        - name: web
+          image: standardnotes/web:latest@sha256:9db2acbd6c7c11bfb8183342c61ff30996ab054219da298aba788f1c39cee20c
+          ports:
+            - {name: http, containerPort: 80}
+          readinessProbe:
+            httpGet: {path: /, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - {name: html, mountPath: /usr/share/nginx/html}
+      volumes:
+        - name: html
+          emptyDir: {}

@@ -1,0 +1,176 @@
+apiVersion: k0sctl.k0sproject.io/v1beta1
+kind: Cluster
+metadata:
+  name: kube-cluster
+  user: admin
+spec:
+  hosts:
+  - ssh:
+      address: 10.20.2.52
+      user: root
+      port: 22
+      keyPath: ~/.ssh/id_rsa
+    role: controller
+    privateAddress: 10.20.2.52
+  - ssh:
+      address: 10.20.2.53
+      user: root
+      port: 22
+      keyPath: ~/.ssh/id_rsa
+    role: controller
+    privateAddress: 10.20.2.53
+  - ssh:
+      address: 10.20.2.54
+      user: root
+      port: 22
+      keyPath: ~/.ssh/id_rsa
+    role: controller
+    privateAddress: 10.20.2.54
+  - ssh:
+      address: 10.20.2.72
+      user: root
+      port: 22
+      keyPath: ~/.ssh/id_rsa
+    role: worker
+    # Every worker gets the same files and hooks, so they are defined once here and
+    # aliased (*worker-files / *worker-hooks) on the other two. Plain YAML aliases, not
+    # merge keys -- the parser expands them before k0sctl sees the config, so adding a
+    # worker means copying two lines and there is no way for the three to drift apart.
+    files: &worker-files
+    - name: registries-containerd-dropin
+      src: k0s-files/registries.toml   # relative to this k0sctl.yaml's dir (kube-cluster/)
+      dst: /etc/k0s/containerd.d/registries.toml
+      perm: "0644"
+    - name: inotify-sysctl
+      src: k0s-files/99-inotify.conf
+      dst: /etc/sysctl.d/99-inotify.conf
+      perm: "0644"
+    - name: otel-rsyslog-forward
+      src: k0s-files/50-otel-rsyslog.conf
+      dst: /etc/rsyslog.d/50-otel.conf
+      perm: "0644"
+    # Tells containerd where oci-composer.internal:30500 actually is -- that host resolves nowhere,
+    # and the kubelet does the pulling, so without this file every composed artifact is unpullable.
+    # `_30500_` is containerd's own spelling of `:30500` and the form it tries first.
+    #
+    # Its own root, not shared with Spegel, which clears its config path on every pod start.
+    # See k0s-files/registries.toml and infra/oci-composer/README.md.
+    - name: oci-composer-registry
+      src: k0s-files/oci-composer-hosts.toml
+      dst: /etc/k0s/registries/oci-composer/oci-composer.internal_30500_/hosts.toml
+      perm: "0644"
+    hooks: &worker-hooks
+      apply:
+        after:
+          - sysctl --system   # apply /etc/sysctl.d/99-inotify.conf live (no reboot)
+          # rsyslog reads /etc/rsyslog.d/50-otel.conf (installed above) and forwards
+          # *.info to the local otel collector's syslog hostPort; reload to apply.
+          - command -v rsyslogd >/dev/null || { apt-get update && apt-get install -y rsyslog; }
+          - systemctl reload-or-restart rsyslog
+  - ssh:
+      address: 10.20.2.73
+      user: root
+      port: 22
+      keyPath: ~/.ssh/id_rsa
+    role: worker
+    files: *worker-files
+    hooks: *worker-hooks
+  - ssh:
+      address: 10.20.2.74
+      user: root
+      port: 22
+      keyPath: ~/.ssh/id_rsa
+    role: worker
+    files: *worker-files
+    hooks: *worker-hooks
+  k0s:
+    # renovate: datasource=github-releases depName=k0sproject/k0s
+    version: "v1.36.3+k0s.1"
+    dynamicConfig: false
+    config:
+      apiVersion: k0s.k0sproject.io/v1beta1
+      kind: Cluster
+      metadata:
+        name: k0s
+      spec:
+        api:
+          k0sApiPort: 9443
+          port: 6443
+          sans:
+            - kube.example.com
+        storage:
+          type: etcd
+        network:
+          provider: kuberouter
+          podCIDR: 172.18.0.0/16
+          serviceCIDR: 172.19.0.0/16
+          kuberouter:
+            autoMTU: true
+            ipMasq: false
+            #extraArgs:
+            #  run-service-proxy: "true" # k0s doesnt support kuberouter service proxy
+          kubeProxy:
+            disabled: false
+            mode: iptables
+          nodeLocalLoadBalancing:
+            enabled: true
+          controlPlaneLoadBalancing:
+            enabled: true
+            type: Keepalived
+            keepalived:
+              vrrpInstances:
+                - virtualIPs:
+                    - 10.20.2.50/16
+                  virtualRouterID: 103
+                  authPass: CHANGEME
+        installConfig:
+          users:
+            etcdUser: etcd
+            kineUser: kube-apiserver
+            konnectivityUser: konnectivity-server
+            kubeAPIserverUser: kube-apiserver
+            kubeSchedulerUser: kube-scheduler
+        konnectivity:
+          agentPort: 8132
+          adminPort: 8133
+        telemetry:
+          enabled: false
+        # Permit specific "unsafe" kubelet sysctls on workers so individual pods
+        # may opt into them via securityContext.sysctls (still per-pod — the
+        # profile only allowlists; it doesn't set anything). disable_ipv6 lets a
+        # pod turn off IPv6 in its netns: the cluster is IPv4-only but pods keep a
+        # link-local IPv6, which makes glibc hand out unreachable AAAA records and
+        # breaks apps that don't fall back (e.g. uptime-kuma). k0s merges a
+        # profile named "default" into the config every worker loads.
+        workerProfiles:
+          - name: default
+            values:
+              allowedUnsafeSysctls:
+                - net.ipv6.conf.all.disable_ipv6
+                - net.ipv6.conf.default.disable_ipv6
+  options:
+    wait:
+      enabled: true
+    drain:
+      enabled: true
+      gracePeriod: 2m0s
+      # MUST stay above ha-surge's maxSurgeSeconds (600s, infra/ha-surge/release.yaml). ha-surge
+      # holds an eviction while the replacement starts; if k0sctl's own drain timeout expired first
+      # it would force-delete (force: true below) the very pod being covered — an immediate kill
+      # instead of a handover, i.e. worse than not running ha-surge at all. Autopilot, which does
+      # the in-cluster upgrades, has no drain timeout of its own and is unaffected either way.
+      timeout: 12m0s
+      force: true
+      ignoreDaemonSets: true
+      deleteEmptyDirData: true
+      podSelector: ""
+      skipWaitForDeleteTimeout: 0s
+    concurrency:
+      limit: 30
+      workerDisruptionPercent: 10
+      uploads: 5
+    evictTaint:
+      enabled: false
+      taint: k0sctl.k0sproject.io/evict=true
+      effect: NoExecute
+      controllerWorkers: false

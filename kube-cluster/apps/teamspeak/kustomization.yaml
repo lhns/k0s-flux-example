@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # MetalLB (raw-port LB VIP) + ceph-rbd (MariaDB PVC) + ceph-csi-cephfs (the
+    # static /var/ts3server PV). Read by the root generator; inert to kustomize.
+    # No `namespace:` transformer — the static PV is cluster-scoped, everything
+    # else is in `teamspeak`.
+    dependsOn: infra-metallb,infra-ceph-csi-rbd,infra-ceph-csi-cephfs
+resources:
+- resources.yaml
+- vnet.yaml
+- secret.yaml

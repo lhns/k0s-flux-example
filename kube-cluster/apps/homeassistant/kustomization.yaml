@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # ceph-csi-cephfs (the /config PVC), postgres (the recorder DB), reflector (mirrors the
+    # db secret into this ns), multus (the macvlan LAN interface for mDNS/SSDP —
+    # without it the pod cannot be created), mosquitto (the broker HA consumes on
+    # startup). Read by the root generator; inert to kustomize.
+    # No `namespace:` transformer — database.yaml and db-role-secret.yaml live in the
+    # postgres ns.
+    dependsOn: infra-ceph-csi-cephfs,infra-postgres,infra-reflector,infra-multus,app-mosquitto
+resources:
+- resources.yaml
+- routing.yaml
+- database.yaml
+- db-role-secret.yaml
+- secret.yaml
+# packages.yaml -> a hashed ConfigMap, so editing the git-managed Home Assistant settings
+# renames it and rolls the pod. Reloader is not involved here; it only covers the Secrets.
+configMapGenerator:
+- name: homeassistant-packages
+  namespace: homeassistant
+  files:
+  - gitops.yaml=packages.yaml

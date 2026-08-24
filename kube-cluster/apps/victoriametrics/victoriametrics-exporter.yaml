@@ -1,0 +1,160 @@
+# OTel collector config (reproduced from the Swarm original; endpoints repointed
+# for cross-cluster reach):
+#   - kafka brokers          otel_kafka-s3:9092            -> 10.20.2.10:9092
+#   - otlp/feedback endpoint  otel_opentelemetry-collector:4317 -> the in-cluster gateway
+#   - otlphttp/victoriametrics http://victoriametrics:8428/... (in-cluster Service, unchanged)
+extensions:
+  health_check:
+    # bind all interfaces (default is localhost) so the k8s readiness probe reaches it
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  prometheus/feedback:
+    config:
+      scrape_configs:
+      # Collect own metrics
+        - job_name: 'victoriametrics-exporter'
+          scrape_interval: 10s
+          static_configs:
+            - targets: ['127.0.0.1:8888']
+        - job_name: 'victoriametrics'
+          scrape_interval: 15s
+          static_configs:
+            - targets: ['victoriametrics:8428']
+
+  kafka/metrics:
+    protocol_version: 2.1.0
+    brokers:
+      - otel-kafka-bootstrap.opentelemetry-gateway.svc.cluster.local:9092
+    metrics:
+      topics:
+        - otlp_metrics
+    group_id: victoriametrics-exporter
+    initial_offset: earliest
+    message_marking:
+      after: true
+      on_error: false
+    # Without this the receiver PAUSES the partition on any export error and only
+    # resumes on a rebalance (consumer_franz.go: default -> PauseFetchPartitions), which
+    # is what wedges this pipeline until a restart. Enabled, it retries with backoff and
+    # then rewinds the fetch cursor so the record is re-polled -> Kafka stays the retry
+    # mechanism and the offset still commits only after a successful write.
+    error_backoff:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 1m
+      max_elapsed_time: 5m
+
+  kafka/meta_metrics:
+    protocol_version: 2.1.0
+    brokers:
+      - otel-kafka-bootstrap.opentelemetry-gateway.svc.cluster.local:9092
+    metrics:
+      topics:
+        - otlp_meta_metrics
+    group_id: victoriametrics-exporter
+    initial_offset: earliest
+    message_marking:
+      after: true
+      on_error: false
+    # Without this the receiver PAUSES the partition on any export error and only
+    # resumes on a rebalance (consumer_franz.go: default -> PauseFetchPartitions), which
+    # is what wedges this pipeline until a restart. Enabled, it retries with backoff and
+    # then rewinds the fetch cursor so the record is re-polled -> Kafka stays the retry
+    # mechanism and the offset still commits only after a successful write.
+    error_backoff:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 1m
+      max_elapsed_time: 5m
+
+  kafka/metrics_latest:
+    protocol_version: 2.1.0
+    brokers:
+      - otel-kafka-bootstrap.opentelemetry-gateway.svc.cluster.local:9092
+    metrics:
+      topics:
+        - otlp_metrics
+    group_id: victoriametrics-exporter-latest
+    initial_offset: latest
+    message_marking:
+      after: true
+      on_error: true
+    # on_error: true means this receiver can never hit the pause path, so backoff here
+    # is not about wedging - it turns transient failures into successful writes instead
+    # of drops. Kept deliberately short: this pipeline's job is to stay CURRENT, so it
+    # must give up quickly and drop rather than fall behind on a slow backend.
+    error_backoff:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 10s
+      max_elapsed_time: 30s
+
+  kafka/meta_metrics_latest:
+    protocol_version: 2.1.0
+    brokers:
+      - otel-kafka-bootstrap.opentelemetry-gateway.svc.cluster.local:9092
+    metrics:
+      topics:
+        - otlp_meta_metrics
+    group_id: victoriametrics-exporter-latest
+    initial_offset: latest
+    message_marking:
+      after: true
+      on_error: true
+    # on_error: true means this receiver can never hit the pause path, so backoff here
+    # is not about wedging - it turns transient failures into successful writes instead
+    # of drops. Kept deliberately short: this pipeline's job is to stay CURRENT, so it
+    # must give up quickly and drop rather than fall behind on a slow backend.
+    error_backoff:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 10s
+      max_elapsed_time: 30s
+
+exporters:
+  otlp/feedback:
+    endpoint: opentelemetry-gateway.opentelemetry-gateway.svc.cluster.local:4317
+    tls:
+      insecure: true
+
+  otlphttp/victoriametrics:
+    #endpoint: http://vmagent:8429/opentelemetry/api/v1/push
+    metrics_endpoint: http://victoriametrics:8428/opentelemetry/v1/metrics
+    #timeout: 60s
+    http2_read_idle_timeout: 10s
+    http2_ping_timeout: 5s
+    sending_queue:
+      enabled: false
+    retry_on_failure:
+      enabled: false
+
+processors:
+  transform/truncate_attributes:
+    metric_statements:
+      - context: datapoint
+        statements:
+          - truncate_all(attributes, 4096)
+  interval/limit:
+    interval: 10s
+  interval/downsample:
+    interval: 60s
+
+service:
+  extensions: [health_check]
+  #telemetry:
+  #  logs:
+  #    level: debug
+  pipelines:
+    metrics/feedback:
+      receivers: [prometheus/feedback]
+      processors: []
+      exporters: [otlp/feedback]
+    metrics:
+      receivers: [kafka/meta_metrics, kafka/metrics]
+      processors: [transform/truncate_attributes]
+      exporters: [otlphttp/victoriametrics]
+    metrics/latest:
+      receivers: [kafka/meta_metrics_latest, kafka/metrics_latest]
+      processors: [transform/truncate_attributes, interval/downsample]
+      exporters: [otlphttp/victoriametrics]

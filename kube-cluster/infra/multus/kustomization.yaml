@@ -1,0 +1,9 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# No dependsOn annotation on purpose: this is bootstrap-level and depends on nothing
+# in-cluster. Notably it is NOT downstream of kube-vnet either — Multus is hostNetwork,
+# which kube-vnet skips entirely.
+# No `namespace:` transformer — the objects are cluster-scoped or pin kube-system, which is
+# what the RBAC subject references expect.
+resources:
+- resources.yaml

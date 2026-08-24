@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # DB role/database in the shared CNPG (infra-postgres); the db-role secret is
+    # reflected into the app ns by Reflector (infra-reflector). No per-host cert
+    # (spliit.example.com is under the *.example.com wildcard). Read by the root generator;
+    # inert to kustomize.
+    #
+    # app-authelia because sign-in goes through it as an OIDC provider, and app-msmtpd because
+    # mail is not optional here -- it carries the sign-in links and invitations that are the only
+    # way anyone but the first account gets in.
+    dependsOn: infra-postgres,infra-reflector,app-authelia,app-msmtpd
+# NOTE: no `namespace:` transformer — database.yaml + db-role-secret.yaml pin
+# `namespace: postgres` explicitly, while resources/routing are in `spliit`.
+resources:
+- resources.yaml
+- routing.yaml
+- vnet.yaml
+- database.yaml
+- db-role-secret.yaml
+- secret.yaml

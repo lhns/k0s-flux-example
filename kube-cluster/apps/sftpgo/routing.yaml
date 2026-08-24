@@ -1,0 +1,92 @@
+---
+# sftpgo web UI — public, its own OIDC login (Authelia client `sftpgo` already
+# exists; sftpgo redirects to auth.example.com itself). No auth middleware. TLS via
+# the default *.example.com wildcard. (local/mirror hosts left out, like immich.)
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: sftpgo
+  namespace: sftpgo
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`sftpgo.example.com`)
+      services:
+        - name: sftpgo
+          port: 8080
+  tls: {}
+---
+# WebDAV endpoint — clients authenticate to sftpgo directly (no Authelia).
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: sftpgo-webdav
+  namespace: sftpgo
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`webdav.example.com`)
+      services:
+        - name: sftpgo
+          port: 10080
+  tls: {}
+---
+# sftpgo.kube.example.com -> canonical sftpgo.example.com.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: sftpgo-kube-redirect
+  namespace: sftpgo
+spec:
+  redirectRegex:
+    regex: "^https://sftpgo.kube.example.com/(.*)"
+    replacement: "https://sftpgo.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: sftpgo-kube-redirect
+  namespace: sftpgo
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`sftpgo.kube.example.com`)
+      services:
+        - name: sftpgo
+          port: 8080
+      middlewares:
+        - name: sftpgo-kube-redirect
+  tls: {}
+---
+# webdav.kube.example.com -> canonical webdav.example.com.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: webdav-kube-redirect
+  namespace: sftpgo
+spec:
+  redirectRegex:
+    regex: "^https://webdav.kube.example.com/(.*)"
+    replacement: "https://webdav.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: webdav-kube-redirect
+  namespace: sftpgo
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`webdav.kube.example.com`)
+      services:
+        - name: sftpgo
+          port: 10080
+      middlewares:
+        - name: webdav-kube-redirect
+  tls: {}

@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # MetalLB for the coturn-lb VIP (10.20.2.80); cert-manager + reflector because
+    # the TLS listener (turns:5349) mounts the *.example.com wildcard mirrored out of
+    # the traefik ns; reloader so a secret rotation rolls the pod. Read by the
+    # root generator; inert to kustomize.
+    dependsOn: infra-metallb,infra-cert-manager,infra-reflector,infra-reloader
+resources:
+- resources.yaml
+- secret.yaml
+configMapGenerator:
+- name: coturn-config
+  namespace: coturn
+  files:
+  - turnserver.conf

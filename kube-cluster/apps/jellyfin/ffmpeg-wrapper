@@ -1,0 +1,66 @@
+#!/bin/bash
+set -u
+self=$(basename "$0")                                  # ffmpeg | ffprobe
+worker=${FFMPEG_SSH_WORKER:-}
+user=${FFMPEG_SSH_USER:-root}
+key=${FFMPEG_SSH_KEY:-/opt/ssh-ffmpeg/id}
+remote=${FFMPEG_SSH_REMOTE:-/usr/lib/jellyfin-ffmpeg}
+localdir=${FFMPEG_SSH_LOCAL:-/usr/lib/jellyfin-ffmpeg}
+tmpdir=${FFMPEG_SSH_TMPDIR:-/cache/transcodes/tmp}
+ssh=/opt/ssh-ffmpeg/bin/ssh
+
+# The initContainer used to mkdir this; there is no initContainer any more. Jellyfin's own
+# TMPDIR points here too, and a missing transcode tmpdir fails the transcode rather than falling
+# back, so it is created on the way past.
+mkdir -p "$tmpdir" 2>/dev/null || true
+
+run_local() { exec "$localdir/$self" "$@"; }           # CPU fallback
+
+# No worker configured -> straight to local (safe default / disable switch).
+[ -n "$worker" ] || run_local "$@"
+
+host=${worker%%:*}
+port=${worker##*:}
+sshopts=(-q -t
+  -o ConnectTimeout=1 -o ConnectionAttempts=1
+  -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+  -o ControlMaster=auto -o ControlPath=/dev/shm/ssh-ffmpeg-%r@%h:%p -o ControlPersist=300
+  -i "$key")
+[ "$port" != "$worker" ] && sshopts+=(-p "$port")
+target="$user@$host"
+
+# Pre-flight reachability (rffmpeg marks a host bad on any non-zero and falls
+# back to local); also warms the ControlMaster the real call reuses. ~1s.
+if ! "$ssh" "${sshopts[@]}" "$target" "$remote/ffmpeg" -version >/dev/null 2>&1; then
+  run_local "$@"
+fi
+
+# POSIX single-quote one value, char-by-char. (Do NOT use ${s//\'/...}: bash's
+# replacement-string backslash handling is version-dependent and mangles the
+# escape.) Round-trip verified against quotes/spaces/globs/backslashes.
+q() {
+  local s=$1 out="'" i c
+  for (( i=0; i<${#s}; i++ )); do
+    c=${s:i:1}
+    if [ "$c" = "'" ]; then out="$out'\''"; else out="$out$c"; fi
+  done
+  printf "%s'" "$out"
+}
+rcmd="TMPDIR=$(q "$tmpdir") $(q "$remote/$self")"
+for a in "$@"; do rcmd="$rcmd $(q "$a")"; done
+
+# ffprobe, or any ffmpeg call carrying a capability/probe flag, keeps stdout on
+# stdout (caller reads results there). A real transcode routes stdout -> stderr.
+special=0
+[ "$self" = ffprobe ] && special=1
+for a in "$@"; do
+  case "$a" in
+    -version|-encoders|-decoders|-hwaccels|-filters|-h|-muxers|-fp_format) special=1; break;;
+  esac
+done
+
+if [ "$special" = 1 ]; then
+  exec "$ssh" "${sshopts[@]}" "$target" "$rcmd"
+else
+  exec "$ssh" "${sshopts[@]}" "$target" "$rcmd" 1>&2
+fi

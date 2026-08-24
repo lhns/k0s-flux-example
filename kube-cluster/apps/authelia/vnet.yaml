@@ -1,0 +1,51 @@
+---
+# ── Valkey HA session store (kube-vnet channels) ──
+# kube-vnet is membership-based (not port-scoped), like the postgres channels, so a
+# single client channel covers both Valkey data (:6379) and Sentinel (:26379).
+# Client channel: Authelia opts in with `kube-vnet/net.valkey: egress`; the Valkey
+# pods accept ingress here.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: valkey
+  namespace: authelia
+spec:
+  description: "authelia -> valkey (:6379) + sentinel (:26379), intra-namespace."
+---
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetworkBinding
+metadata:
+  name: valkey-clients
+  namespace: authelia
+spec:
+  virtualNetworkRef:
+    name: valkey
+    namespace: authelia
+  direction: ingress     # valkey pods accept Authelia (:6379 data, :26379 sentinel)
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: valkey
+---
+# Internal channel: Valkey<->Valkey replication (:6379) + Sentinel gossip (:26379),
+# mutual (any pod can become master), same pattern as CNPG's postgres-internal.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: valkey-internal
+  namespace: authelia
+spec:
+  description: "valkey<->valkey replication + sentinel gossip, intra-namespace."
+---
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetworkBinding
+metadata:
+  name: valkey-peers
+  namespace: authelia
+spec:
+  virtualNetworkRef:
+    name: valkey-internal
+    namespace: authelia
+  direction: both        # mutual replication + sentinel gossip (either can be master)
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: valkey

@@ -1,0 +1,139 @@
+---
+# One login role in the shared CNPG cluster owns all three Matrix databases
+# (stalwart/spliit precedent). Password from secret/matrix-db (postgres ns).
+# retain: never drop on delete.
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: matrix
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: matrix
+  ensure: present
+  login: true
+  passwordSecret:
+    name: matrix-db
+  databaseRoleReclaimPolicy: retain
+---
+# Synapse's database. The shared cluster was initdb'd with LC_COLLATE=C /
+# LC_CTYPE=C (verified: template1 = C/C), which is exactly what Synapse
+# requires, so a plain Database inherits C collation from template1 — no
+# locale fields or template0 dance needed. A pg_dump of the Swarm Postgres
+# (10.20.2.10:5437, db "postgres") is restored into it once (PG18 -> PG18).
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: synapse
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: synapse
+  owner: matrix
+  databaseReclaimPolicy: retain
+---
+# matrix-authentication-service (MAS) database. Restored from the Swarm
+# synapse-db instance (10.20.2.10:5437, db "mas").
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: mas
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: mas
+  owner: matrix
+  databaseReclaimPolicy: retain
+---
+# mautrix-whatsapp bridge database. Restored from the Swarm whatsapp-bridge-db
+# instance (10.20.2.10:5436, db "postgres").
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: whatsapp
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: whatsapp
+  owner: matrix
+  databaseReclaimPolicy: retain
+---
+# mautrix-telegram bridge database. NOT restored from a dump -- unlike the
+# three above, this one was ported out of SQLite by hand, because the Swarm
+# compose never gave telegram a database at all.
+#
+# That port only became possible once the Go rewrite (v0.26xx) migrated the
+# legacy Python database in place: bridgev2 generates its SQLite and Postgres
+# schemas from the same migration set, so the two are structurally identical
+# and the rows can be copied across. It is still not an upstream-supported
+# operation -- mautrix's own answer to "change database backend" is "log in
+# again", which would recreate every portal and duplicate 400+ contacts.
+#
+# The SQLite file on the telegram-data PVC is deliberately left in place as
+# the rollback: switching back is an edit to the database block in the
+# bridge's config.yaml (which lives on the PVC, not in git).
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: telegram
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: telegram
+  owner: matrix
+  databaseReclaimPolicy: retain
+---
+# mautrix-signal bridge database. Postgres from the start, unlike telegram: that one
+# only ran on SQLite because it was restoring a legacy file, and the hand-rolled
+# dialect port it then needed is not worth repeating on a fresh install.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: signal
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: signal
+  owner: matrix
+  databaseReclaimPolicy: retain
+---
+# mautrix-meta bridge database, Instagram build. Fresh install like signal: Postgres
+# from the start, no SQLite stage.
+#
+# Named `instagram`, not `meta`, because the image ships TWO bridges and we run only
+# one of them -- see the ig- image pin in resources.yaml.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: instagram
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: instagram
+  owner: matrix
+  databaseReclaimPolicy: retain
+---
+# mautrix-discord bridge database. Note the config key differs from the other
+# bridges: mautrix-discord is NOT bridgev2 (v0.7.7 on mautrix v0.16.3), so the DB
+# is configured under `appservice.database`, not a top-level `database` block.
+#
+# Unrelated to the dead `discord-puppet` appservice that mx-puppet-discord left
+# behind in 2023 -- that one is unregistered in the same commit that adds this.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: discord
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: discord
+  owner: matrix
+  databaseReclaimPolicy: retain

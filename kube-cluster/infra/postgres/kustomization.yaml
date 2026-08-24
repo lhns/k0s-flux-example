@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # Needs the CNPG operator, the Barman Cloud Plugin (ObjectStore CRD + WAL
+    # archiver), and the ceph-rbd VolumeSnapshotClass for snapshot backups.
+    dependsOn: infra-cloudnative-pg,infra-barman-cloud-plugin,infra-ceph-csi-rbd
+# app.kubernetes.io/instance=postgres (= dir name) is applied by the root
+# generator via the Flux Kustomization's commonMetadata — nothing to add here.
+resources:
+- namespace.yaml
+- s3-secret.yaml
+- objectstore.yaml
+- cluster.yaml
+- pooler.yaml
+- scheduledbackup.yaml
+- vnet.yaml

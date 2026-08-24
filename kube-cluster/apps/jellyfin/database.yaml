@@ -1,0 +1,32 @@
+---
+# Jellyfin's dedicated login role in the shared CNPG cluster — a standalone
+# DatabaseRole CRD (no edit to the central cluster.yaml). Password from
+# secret/jellyfin-db (postgres ns). retain: never drop the role on manifest delete.
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: jellyfin
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: jellyfin
+  ensure: present
+  login: true
+  passwordSecret:
+    name: jellyfin-db
+  databaseRoleReclaimPolicy: retain
+---
+# The jellyfin database, owned by that role. retain: never drop the DB (and its
+# data) if this manifest is removed.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: jellyfin
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: jellyfin
+  owner: jellyfin
+  databaseReclaimPolicy: retain

@@ -1,0 +1,32 @@
+---
+# Gitea's login role in the shared CNPG cluster (miniflux/outline/jellyfin
+# precedent). Password from secret/gitea-db (postgres ns). retain: never drop.
+#
+# The database is NOT created empty — it is restored from a pg_dump of the Swarm
+# Postgres before Gitea's first boot. See README.
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: gitea
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: gitea
+  ensure: present
+  login: true
+  passwordSecret:
+    name: gitea-db
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: gitea
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: gitea
+  owner: gitea
+  databaseReclaimPolicy: retain

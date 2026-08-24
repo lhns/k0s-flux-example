@@ -1,0 +1,112 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: ceph-csi
+  namespace: ceph-csi-cephfs-appdata
+spec:
+  interval: 1h0m0s
+  url: https://ceph.github.io/csi-charts
+---
+# A SECOND CephFS CSI driver, serving only the `appdata` filesystem.
+#
+# Why a whole second deployment instead of another StorageClass: the CSI spec
+# keys everything off the DRIVER NAME. A PV names spec.csi.driver, the kubelet
+# resolves that name to exactly one socket per node
+# (<kubeletDir>/plugins/<driverName>/csi.sock), and one socket means one
+# process. Pools and filesystems are invisible at that layer -- they are just
+# StorageClass parameters handed to the same binary. So "one process per pool"
+# is only reachable as "one process per driver name".
+#
+# That matters because the node plugin dies as a unit. ceph-csi 3.17.0 exits the
+# process when a gRPC call is stuck for 10 minutes (upstream #6286), and an
+# unresponsive mount blocks in the kernel indefinitely. Before this split, one
+# hung `appdata` volume (forgejo-git, whose PGs were stuck `activating`) killed
+# the single cephfs plugin ~40 times and took every OTHER cephfs mount on that
+# node with it -- including volumes on the NVMe-backed `fastappdata`, which
+# shared nothing with the sick filesystem except this process. Nine unrelated
+# apps went Unknown as a result.
+#
+# With the split, `fastappdata` (StorageClass `cephfs`, driver
+# cephfs.csi.ceph.com) and `appdata` (StorageClass `cephfs-appdata`, driver
+# cephfs-appdata.csi.ceph.com) are separate processes on every node. A hang in
+# one can no longer unmount the other.
+#
+# NOT changed, deliberately:
+#   - csiConfig is identical (same cluster, same monitors, same subvolumeGroup
+#     `kube`); clusterID identifies the CLUSTER, not a filesystem.
+#   - No secret is created here. The StorageClass references
+#     csi-cephfs-secret in the ceph-csi-cephfs namespace by
+#     namespace-qualified name, so both drivers share one cephx identity.
+#   - instanceID is left at its default. It is deliberately NOT made unique:
+#     the two drivers address different filesystems (hence different metadata
+#     pools), so their volume journals cannot collide, and changing it would
+#     alter journal keys for no benefit.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: ceph-csi-cephfs-appdata
+  namespace: ceph-csi-cephfs-appdata
+spec:
+  interval: 10m0s
+  chart:
+    spec:
+      chart: ceph-csi-cephfs
+      version: "3.17.0"
+      interval: 1h0m0s
+      sourceRef:
+        kind: HelmRepository
+        name: ceph-csi
+  values:
+    # k0s puts the kubelet root at /var/lib/k0s/kubelet (not the default
+    # /var/lib/kubelet); the CSI hostPath mounts must match or the plugin
+    # fails to register.
+    kubeletDir: /var/lib/k0s/kubelet
+    # THE point of this release. Everything keys off it: the socket path, the
+    # registration path, the CSIDriver object, and the StorageClass provisioner.
+    driverName: cephfs-appdata.csi.ceph.com
+    # Deterministic resource names (ceph-csi-cephfs-appdata-nodeplugin, ...) so
+    # the postRenderer target below cannot drift.
+    fullnameOverride: ceph-csi-cephfs-appdata
+    # Metrics-port convention: kube-router (hostNetwork) owns host :8080, so the
+    # ceph-csi liveness sidecars live at 8090+ — cephfs 8090, rbd 8091, and this
+    # third driver 8092. The nodeplugin is hostNetwork, so this is a real host
+    # port and MUST NOT collide with the other two.
+    nodeplugin:
+      httpMetrics:
+        containerPort: 8092
+        service:
+          servicePort: 8092
+    provisioner:
+      httpMetrics:
+        containerPort: 8092
+        service:
+          servicePort: 8092
+    csiConfig:
+      - clusterID: ceph-cluster
+        monitors:
+          - 10.20.2.101:6789
+          - 10.20.2.102:6789
+          - 10.20.2.103:6789
+        cephFS:
+          subvolumeGroup: kube
+    # Shared with the cephfs driver (csi-cephfs-secret in ceph-csi-cephfs),
+    # referenced namespace-qualified from the StorageClass.
+    secret:
+      create: false
+    # ../ceph-csi-cephfs-appdata/storageclass.yaml owns it.
+    storageClass:
+      create: false
+  # Same SlowGRPCRestart opt-out as the other two drivers -- see the long
+  # comment in ../ceph-csi-cephfs/release.yaml. It matters MOST here: this is
+  # the driver deliberately pointed at the filesystem that hangs.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: DaemonSet
+              name: ceph-csi-cephfs-appdata-nodeplugin
+            patch: |
+              - op: add
+                path: /spec/template/spec/containers/0/args/-
+                value: --feature-gates=SlowGRPCRestart=false

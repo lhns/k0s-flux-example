@@ -1,0 +1,167 @@
+---
+# forwardAuth middleware, reflected into every namespace (traefik-reflector). Every
+# SSO-protected app references this. Points at the IN-CLUSTER Authelia (a single
+# Traefik->Authelia hop, so the header-stripping problem that needed the direct port
+# on Swarm doesn't apply). Rollback = revert to http://10.20.2.10:9091/... (external).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: authelia
+  namespace: authelia
+  annotations:
+    traefik-reflector/namespaces: "*"
+spec:
+  forwardAuth:
+    address: http://authelia.authelia.svc.cluster.local:9091/api/authz/forward-auth
+    trustForwardHeader: true
+    authResponseHeaders:
+      - Remote-User
+      - Remote-Groups
+      - Remote-Email
+      - Remote-Name
+---
+# Session-only variant, for apps that run their OWN HTTP Basic auth behind Authelia.
+# The default `authelia` middleware hits an endpoint that also accepts Authorization
+# headers, so Authelia eats the backend's basic-auth credentials and 401s before they
+# ever arrive. This one only looks at the session cookie. See the forward-auth-session
+# endpoint in configuration.yml.
+#
+# Used by kasmvnc, and note it is still needed there even though a sidecar now supplies
+# KasmVNC's credentials so nothing challenges the browser any more. Once a browser has
+# answered a basic-auth prompt for a host it keeps sending `Authorization: Basic` on every
+# later request to it — the default endpoint would consume that stale header, fail the
+# lookup, and 401 with `WWW-Authenticate`, prompting again forever. Reverting a route from
+# this middleware to plain `authelia` therefore looks harmless and tests clean in a fresh
+# browser profile, while locking out anyone who ever logged in before.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: authelia-session
+  namespace: authelia
+  annotations:
+    traefik-reflector/namespaces: "*"
+spec:
+  forwardAuth:
+    address: http://authelia.authelia.svc.cluster.local:9091/api/authz/forward-auth-session
+    trustForwardHeader: true
+    authResponseHeaders:
+      - Remote-User
+      - Remote-Groups
+      - Remote-Email
+      - Remote-Name
+---
+# Basic-auth variant (?auth=basic) for API/CLI clients.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: authelia-basicauth
+  namespace: authelia
+  annotations:
+    traefik-reflector/namespaces: "*"
+spec:
+  forwardAuth:
+    address: http://authelia.authelia.svc.cluster.local:9091/api/authz/forward-auth?auth=basic
+    trustForwardHeader: true
+    authResponseHeaders:
+      - Remote-User
+      - Remote-Groups
+      - Remote-Email
+      - Remote-Name
+---
+# Raw-TCP exposure of Authelia :9091 on traefik's `authelia` entrypoint (10.20.2.15:9091),
+# HostSNI(`*`) plain-TCP passthrough. Lets EXTERNAL proxies (the Swarm Traefik) call
+# forwardAuth directly with headers intact. In-cluster apps use the reflected middleware
+# (the ClusterIP service) instead.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: authelia-tcp
+  namespace: authelia
+spec:
+  entryPoints: [authelia]
+  routes:
+    - match: HostSNI(`*`)
+      services:
+        - name: authelia
+          port: 9091
+---
+# The Authelia portal + OIDC endpoints. Inert until auth.example.com DNS is pointed at the
+# cluster LB (cutover). TLS via the default *.example.com wildcard.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: authelia
+  namespace: authelia
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`auth.example.com`)
+      services:
+        - name: authelia
+          port: 9091
+  tls: {}
+---
+# Extra portal domains (auth.example.net, auth.example.org) — not in the *.example.com
+# wildcard, so their own cert via IONOS DNS-01. Inert until their DNS points at the
+# cluster LB. (auth.<onion> is deferred — needs Tor.)
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: auth-extra
+  namespace: authelia
+spec:
+  secretName: auth-extra
+  issuerRef:
+    name: letsencrypt-ionos-prod
+    kind: ClusterIssuer
+  dnsNames:
+    - auth.example.net
+    - auth.example.org
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: authelia-extra
+  namespace: authelia
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`auth.example.net`) || Host(`auth.example.org`)
+      services:
+        - name: authelia
+          port: 9091
+  tls:
+    secretName: auth-extra
+---
+# user-info at auth.example.com/info — strip the /info prefix so the backend serves index.php
+# at its root; behind Authelia SSO. Higher priority so it wins over the portal catch-all.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: user-info-stripprefix
+  namespace: authelia
+spec:
+  stripPrefix:
+    prefixes:
+      - /info
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: user-info
+  namespace: authelia
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      priority: 100
+      match: Host(`auth.example.com`) && PathPrefix(`/info`)
+      services:
+        - name: user-info
+          port: 80
+      middlewares:
+        - name: authelia
+        - name: user-info-stripprefix
+  tls: {}

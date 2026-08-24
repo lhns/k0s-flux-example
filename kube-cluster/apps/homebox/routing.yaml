@@ -1,0 +1,48 @@
+---
+# Public — Homebox does its own auth (OpenID SSO via Authelia). TLS via the
+# default *.kube.example.com wildcard.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: homebox
+  namespace: homebox
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`homebox.example.com`)
+      services:
+        - name: homebox
+          port: 7745
+  tls: {}
+---
+# homebox.kube.example.com redirects to the canonical homebox.example.com (default *.example.com
+# wildcard cert). Update the Authelia homebox OIDC client's redirect_uri to the
+# kube host so the SSO callback lands here directly (not via the 301).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: homebox-kube-redirect
+  namespace: homebox
+spec:
+  redirectRegex:
+    regex: "^https://homebox.kube.example.com/(.*)"
+    replacement: "https://homebox.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: homebox-kube-redirect
+  namespace: homebox
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`homebox.kube.example.com`)
+      services:
+        - name: homebox
+          port: 7745
+      middlewares:
+        - name: homebox-kube-redirect
+  tls: {}

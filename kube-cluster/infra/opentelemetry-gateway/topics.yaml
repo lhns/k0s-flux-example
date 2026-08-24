@@ -1,0 +1,90 @@
+# The four OTLP topics. auto.create.topics.enable is false (parity with Swarm), so
+# these MUST exist before the gateway's Kafka exporters can write.
+#
+# Values are taken from the LIVE Swarm broker (kafka-configs.sh --describe), not from
+# the repo's historical kafka-create-topics.sh — that script predates tiered storage
+# and would have given infinite retention with NO tiering at all:
+#
+#                        historical script      live (used here)
+#   retention.ms         -1 (forever)           864000000  (10 days)
+#   retention.bytes      20GB / 5GB             -1         (unbounded)
+#   remote.storage.enable  absent               true
+#   local.retention.bytes  absent               2000000000 (2 GB hot)
+#
+# i.e. the real policy is TIME-based with a small local window and everything older in
+# S3. All four topics share identical settings on the live broker.
+#
+# metadata.name must be RFC1123 (no underscores), so the real Kafka name is carried in
+# spec.topicName. The strimzi.io/cluster label is what makes the Topic Operator claim it.
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: otlp-metrics
+  namespace: opentelemetry-gateway
+  labels:
+    strimzi.io/cluster: otel
+spec:
+  topicName: otlp_metrics
+  partitions: 1
+  replicas: 2
+  config:
+    remote.storage.enable: "true"
+    retention.ms: "864000000"
+    retention.bytes: "-1"
+    local.retention.bytes: "2000000000"
+    min.insync.replicas: "1"
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: otlp-meta-metrics
+  namespace: opentelemetry-gateway
+  labels:
+    strimzi.io/cluster: otel
+spec:
+  topicName: otlp_meta_metrics
+  partitions: 1
+  replicas: 2
+  config:
+    remote.storage.enable: "true"
+    retention.ms: "864000000"
+    retention.bytes: "-1"
+    local.retention.bytes: "2000000000"
+    min.insync.replicas: "1"
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: otlp-spans
+  namespace: opentelemetry-gateway
+  labels:
+    strimzi.io/cluster: otel
+spec:
+  topicName: otlp_spans
+  partitions: 1
+  replicas: 2
+  config:
+    remote.storage.enable: "true"
+    retention.ms: "864000000"
+    retention.bytes: "-1"
+    local.retention.bytes: "2000000000"
+    min.insync.replicas: "1"
+---
+apiVersion: kafka.strimzi.io/v1
+kind: KafkaTopic
+metadata:
+  name: otlp-logs
+  namespace: opentelemetry-gateway
+  labels:
+    strimzi.io/cluster: otel
+spec:
+  topicName: otlp_logs
+  partitions: 1
+  replicas: 2
+  config:
+    remote.storage.enable: "true"
+    retention.ms: "864000000"
+    retention.bytes: "-1"
+    local.retention.bytes: "2000000000"
+    min.insync.replicas: "1"

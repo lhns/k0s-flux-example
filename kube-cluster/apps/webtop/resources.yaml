@@ -1,0 +1,137 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: webtop
+---
+# The whole desktop lives in /config (the `abc` user's home): dotfiles, anything
+# apt-installed into the home dir, downloads, and browser profiles. Those profiles
+# are SQLite (places.sqlite, cookies.sqlite), which puts this in the repo's
+# "embedded SQLite -> block" rule rather than the grafana/freshrss "file-only +
+# external DB -> cephfs" case. A desktop is single-writer by definition anyway.
+#
+# Cost, accepted: RWO means the RBD Multi-Attach stall when the pod moves nodes,
+# and ha-surge does not cover node drains (it refuses RWO). Same trade as
+# uptime-kuma and navidrome.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: webtop-config
+  namespace: webtop
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webtop
+  namespace: webtop
+spec:
+  # RWO home volume -> Recreate (never two writers; two desktops would fight over
+  # the same dotfiles and browser profile locks).
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: webtop
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: webtop
+        app.kubernetes.io/instance: webtop
+        # receive from traefik, and nothing else. Egress is unrestricted, but every
+        # in-cluster target denies ingress by default — so reaching one means adding
+        # its egress label here deliberately (e.g. kube-vnet/net.postgres.postgres).
+        # Starting closed is the point: a desktop with a shell should not quietly
+        # become a pivot into everything.
+        kube-vnet/net.traefik.traefik: ingress
+    spec:
+      # No securityContext and no fsGroup on purpose: the s6-overlay entrypoint
+      # starts as root, chowns /config to PUID:PGID, then drops to `abc`. Same shape
+      # as freshrss. An fsGroup here would fight the entrypoint for ownership.
+      containers:
+        - name: webtop
+          # LinuxServer publish no version tags for webtop — only rolling ones like
+          # `ubuntu-xfce` — so the repo's "pin a real tag so Renovate tracks bumps"
+          # rule is met with a digest instead. Renovate raises digest-update PRs, and
+          # the tag stays readable next to it.
+          #
+          # KDE, not XFCE, and that is the whole point: LinuxServer's Wayland stack uses
+          # KDE Plasma Wayland for full desktops (Labwc for single-app containers).
+          # XFCE has no Wayland support at all, so `ubuntu-xfce` runs plain Xvfb — this
+          # was deployed as XFCE first and observed serving `Xvfb :1` with an empty
+          # WAYLAND_DISPLAY, which is not the stack this evaluation is meant to test.
+          #
+          # Selkies since the June 2025 rebase (no longer KasmVNC-based): pixelflux for
+          # pixels, pcmflux for audio, Xwayland for legacy X11 apps.
+          # `PIXELFLUX_WAYLAND=false` forces the old X11 path if ever needed.
+          image: lscr.io/linuxserver/webtop:ubuntu-kde@sha256:5005ffafe50117dfd8b28e3c37efd2cf603e37bc3741d472b1540739492d3ee0
+          env:
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
+            - name: TZ
+              value: Europe/Berlin
+            - name: TITLE
+              value: webtop
+            # Deliberately no CUSTOM_USER/PASSWORD. The container's own HTTP auth
+            # stays off so Authelia forwardAuth is the single gate — the same call
+            # uptime-kuma makes by disabling its built-in login.
+          ports:
+            # :3000 is plain HTTP and upstream marks it "must be proxied", which is
+            # exactly this setup. (:3001 is the self-signed HTTPS port; unused here,
+            # Traefik terminates TLS.)
+            - name: http
+              containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            # A full desktop is slow to come up: compositor, session, then XFCE.
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 18
+          resources:
+            # Container resources are rare in this repo, deliberately. A desktop is
+            # the exception: a browser will grow until something stops it, and this
+            # pod should not be what evicts its neighbours. Memory only — no CPU
+            # limit, because throttling an interactive desktop is worse than the
+            # bursty CPU it costs while encoding.
+            requests:
+              memory: 1Gi
+            limits:
+              memory: 4Gi
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: webtop-config
+        # Not optional. The default 64Mi /dev/shm makes Chromium and Firefox crash
+        # on startup; upstream document shm_size: 1gb for every desktop image.
+        # medium: Memory makes it tmpfs, and it counts against the pod's memory limit.
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webtop
+  namespace: webtop
+spec:
+  selector:
+    app.kubernetes.io/name: webtop
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http

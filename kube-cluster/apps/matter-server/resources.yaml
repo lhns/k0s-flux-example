@@ -1,0 +1,153 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: matter-server
+---
+# The LAN attachment. Matter is built on IPv6 link-local multicast, which cannot reach a
+# normal pod — the pod network is IPv4 single-stack and a MetalLB VIP is unicast. macvlan
+# gives this pod its own MAC and IP directly on the LAN instead, which is what makes Matter
+# possible at all here. See infra/multus.
+#
+# Two plugins chained:
+#   macvlan — the interface itself, parented to the node's LAN NIC.
+#   tuning  — IPv6 sysctls Matter needs. accept_ra_rt_info_max_plen=64 is the one that
+#             matters for Thread later: it makes the kernel honour Route Information Options
+#             in Router Advertisements, which is how a border router advertises the Thread
+#             mesh prefix. Without it the controller has an address but no route to Thread
+#             devices. IFNAME is substituted with the real interface name by the plugin.
+#
+# NOTE: deliberately NO gateway in the ipam block. A gateway here would install a default
+# route via net1 and hijack the pod's egress away from eth0, breaking cluster DNS and API
+# access. The /16 address already makes the whole LAN on-link, and IPv6 routes arrive via
+# Router Advertisements, so a default route is unnecessary.
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: lan
+  namespace: matter-server
+spec:
+  config: |
+    {
+      "cniVersion": "0.3.1",
+      "name": "lan",
+      "plugins": [
+        {
+          "type": "macvlan",
+          "master": "ens18",
+          "mode": "bridge",
+          "ipam": {
+            "type": "static",
+            "addresses": [{"address": "10.20.3.8/16"}]
+          }
+        },
+        {
+          "type": "tuning",
+          "sysctl": {
+            "net.ipv6.conf.IFNAME.accept_ra": "1",
+            "net.ipv6.conf.IFNAME.accept_ra_rt_info_max_plen": "64"
+          }
+        }
+      ]
+    }
+---
+# Matter fabric credentials live here — the certificates that identify this controller to
+# every commissioned device. Losing this volume means re-commissioning every Matter device
+# by hand, so it matters far more than its size suggests. cephfs (files only, no database),
+# and it sits under fastappdata which Backrest already mounts.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: matter-server-data
+  namespace: matter-server
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: cephfs
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: matter-server
+  namespace: matter-server
+spec:
+  replicas: 1
+  # Recreate, and it is NOT implied by the volume (cephfs is RWX): two controllers sharing
+  # one fabric identity would fight over the same Matter node IDs. It is also the only
+  # sensible option with a fixed macvlan IP — two pods cannot hold 10.20.3.8 at once.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: matter-server
+  template:
+    metadata:
+      annotations:
+        # Attach the LAN interface as net1, in addition to the normal pod network on eth0.
+        k8s.v1.cni.cncf.io/networks: lan
+      labels:
+        app.kubernetes.io/name: matter-server
+        app.kubernetes.io/instance: matter-server
+        # Home Assistant reaches the websocket on the ClusterIP — over eth0, the policed
+        # interface. Device traffic uses net1, which kube-vnet does NOT see: NetworkPolicy
+        # is not applied to secondary interfaces. Keep cluster traffic on the ClusterIP.
+        kube-vnet/net.matter-server: ingress
+    spec:
+      enableServiceLinks: false
+      # The image runs as USER 1000:1000 and its Dockerfile chowns /data to 1000:1000 — but
+      # that only covers the image's own layer, not a mounted volume, which arrives
+      # root-owned. Without this the server dies on startup with
+      # "EACCES: permission denied, mkdir '/data/config'".
+      # Safe to use here (unlike on the big media volumes, where fsGroup is deliberately
+      # omitted): this volume holds a handful of small credential files, so the recursive
+      # chown kubelet performs is trivial. ceph-csi-cephfs reports fsGroupPolicy: File, so
+      # kubelet does apply it.
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: matter-server
+          # matterjs-server, the successor to python-matter-server (EOL at 8.1.2). Beta and
+          # not yet CSA-recertified, adopted now because there is no commissioned fabric to
+          # migrate — this is the cheapest possible moment to be on it.
+          image: ghcr.io/matter-js/matterjs-server:1.4.0
+          args:
+            - --storage-path
+            - /data
+            - --port
+            - "5580"
+          env:
+            - name: TZ
+              value: Europe/Berlin
+          ports:
+            - name: ws
+              containerPort: 5580
+          readinessProbe:
+            tcpSocket:
+              port: ws
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 12
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: matter-server-data
+---
+# Home Assistant's Matter integration points here: ws://matter-server.matter-server:5580.
+# Not exposed through Traefik and not given a MetalLB VIP — it is an internal control
+# channel, and the pod is already on the LAN via net1 for the traffic that needs to be.
+apiVersion: v1
+kind: Service
+metadata:
+  name: matter-server
+  namespace: matter-server
+spec:
+  selector:
+    app.kubernetes.io/name: matter-server
+  ports:
+    - name: ws
+      port: 5580
+      targetPort: ws

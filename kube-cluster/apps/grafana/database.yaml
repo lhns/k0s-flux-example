@@ -1,0 +1,32 @@
+---
+# Grafana's dedicated login role in the shared CNPG cluster — a standalone
+# DatabaseRole CRD (no edit to the central cluster.yaml). Password from
+# secret/grafana-db (postgres ns). retain: never drop the role on manifest delete.
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: grafana
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: grafana
+  ensure: present
+  login: true
+  passwordSecret:
+    name: grafana-db
+  databaseRoleReclaimPolicy: retain
+---
+# The grafana database, owned by that role. retain: never drop the DB (and its
+# data) if this manifest is removed.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: grafana
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: grafana
+  owner: grafana
+  databaseReclaimPolicy: retain

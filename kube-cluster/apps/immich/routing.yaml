@@ -1,0 +1,47 @@
+---
+# immich — public, its own login (+ OIDC via Authelia, whose client + settings already
+# exist; settings live in the DB). No auth middleware. TLS via the default *.example.com
+# wildcard. (local/mirror/lolhens hosts are left out for now.)
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: immich
+  namespace: immich
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`immich.example.com`)
+      services:
+        - name: immich
+          port: 2283
+  tls: {}
+---
+# immich.kube.example.com redirects to the canonical immich.example.com.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: immich-kube-redirect
+  namespace: immich
+spec:
+  redirectRegex:
+    regex: "^https://immich.kube.example.com/(.*)"
+    replacement: "https://immich.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: immich-kube-redirect
+  namespace: immich
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`immich.kube.example.com`)
+      services:
+        - name: immich
+          port: 2283
+      middlewares:
+        - name: immich-kube-redirect
+  tls: {}

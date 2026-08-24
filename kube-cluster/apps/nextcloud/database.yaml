@@ -1,0 +1,33 @@
+---
+# Nextcloud's login role in the shared CNPG cluster (outline/miniflux precedent).
+# Name must be `nextcloud` (config.php dbuser). Password from secret/nextcloud-db
+# (postgres ns). retain: never auto-drop.
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: nextcloud
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: nextcloud
+  ensure: present
+  login: true
+  passwordSecret:
+    name: nextcloud-db
+  databaseRoleReclaimPolicy: retain
+---
+# The nextcloud database, owned by that role. A pg_dump of the old Swarm Postgres
+# (10.20.2.10:5436, PG 18) is restored into it once before Nextcloud first boots
+# (same major, PG 18 -> PG 18.4 -> clean dump/restore). See README.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: nextcloud
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: nextcloud
+  owner: nextcloud
+  databaseReclaimPolicy: retain

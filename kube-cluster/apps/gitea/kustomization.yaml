@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # CNPG (db) + Reflector (db secret) + cephfs (the 27G repo mount and the
+    # /data/gitea PVC) + traefik (the IngressRoutes). Read by the root
+    # generator; inert to kustomize. No `namespace:` transformer here —
+    # database.yaml and db-role-secret.yaml live in the postgres ns.
+    dependsOn: infra-postgres,infra-reflector,infra-ceph-csi-cephfs,infra-traefik
+resources:
+- resources.yaml
+- routing.yaml
+- database.yaml
+- db-role-secret.yaml

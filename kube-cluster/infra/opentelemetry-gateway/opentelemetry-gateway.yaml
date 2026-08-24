@@ -1,0 +1,296 @@
+# Ingest gateway: receives telemetry from the whole estate on ~10 protocols and writes
+# it to Kafka. Ported from the Swarm otel-collector.yaml with only the changes k8s
+# requires — everything else is deliberately verbatim so the migration is a lift, not a
+# rewrite:
+#   * health_check binds 0.0.0.0 (the Swarm default of localhost is unreachable to a
+#     kubelet probe from outside the pod netns),
+#   * the Kafka brokers move from the Swarm service name to the in-cluster bootstrap,
+#   * the kafkametrics receiver is split into its own singleton collector — running it
+#     in both gateway replicas would double-count every broker/topic/consumer metric,
+#   * the syslog receiver is split into syslog/tcp + syslog/udp (see the comment there —
+#     the single-receiver form silently accepts UDP config and never listens on it).
+#
+# The Kafka exporter's `topic` moved into per-signal blocks (logs:/metrics:/traces:)
+# in a contrib release after the Swarm config was written — the old top-level `topic:`
+# is now rejected outright by config validation.
+#
+# Known dead config carried over ON PURPOSE (minimal-diff migration; clean up
+# separately): `deltatorate/count` is referenced by no pipeline, and it names
+# `metric.data_point.count` while the count connector emits `metric.datapoint.count`.
+extensions:
+  health_check:
+    # Swarm relied on Docker's net namespace; a k8s probe needs a real bind address.
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  carbon:
+    endpoint: 0.0.0.0:2003
+
+  fluentforward:
+    endpoint: 0.0.0.0:8006
+
+  influxdb:
+    endpoint: 0.0.0.0:8086
+
+  jaeger:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:14250
+      thrift_binary:
+        endpoint: 0.0.0.0:6832
+      thrift_compact:
+        endpoint: 0.0.0.0:6831
+      thrift_http:
+        endpoint: 0.0.0.0:14268
+
+  # TWO receivers, not one with both tcp: and udp: — the only deviation from the Swarm
+  # config that is a behaviour FIX rather than a port. The syslog receiver's Build()
+  # returns on the first transport it finds:
+  #     if c.TCP != nil { ...; return }   // wins
+  #     if c.UDP != nil { ...; return }   // unreachable when tcp is also set
+  # It logs nothing and passes config validation, so the Swarm collector has been
+  # silently dropping every UDP syslog datagram for as long as it has been deployed.
+  # Verified in phase 3 by sending to both transports: tcp landed, udp vanished.
+  syslog/tcp:
+    tcp:
+      listen_address: "0.0.0.0:54526"
+    protocol: rfc5424
+
+  syslog/udp:
+    udp:
+      listen_address: "0.0.0.0:54526"
+    protocol: rfc5424
+
+  prometheus/feedback:
+    config:
+      scrape_configs:
+      # Collect own metrics. job_name kept as 'otel-collector' for parity so existing
+      # dashboards keep matching; the Swarm and k8s instances stay distinguishable by
+      # service.instance.id.
+        - job_name: 'otel-collector'
+          scrape_interval: 10s
+          static_configs:
+            - targets: ['127.0.0.1:8888']
+
+processors:
+  deltatocumulative:
+
+  batch/kafka:
+    send_batch_size: 2048
+    send_batch_max_size: 2048
+
+  batch/kafka-logs:
+    send_batch_size: 256
+    send_batch_max_size: 256
+
+  transform/docker-logs-resource-attributes:
+    error_mode: silent
+    flatten_data: true
+    log_statements:
+      - context: log
+        statements:
+          - set(resource.attributes["container.id"], log.attributes["container_id"])
+          - delete_key(log.attributes, "container_id")
+          - set(resource.attributes["container.name"], log.attributes["container_name"])
+          - delete_key(log.attributes, "container_name")
+      - context: log
+        conditions:
+          - resource.attributes["container.name"] != nil
+        statements:
+          - set(resource.attributes["service.namespace"], "container")
+          - set(resource.attributes["service.instance.id"], resource.attributes["container.name"])
+          - set(resource.attributes["service.name"], resource.attributes["container.name"])
+          # Strips the Swarm task suffix (/stack_service.1.abc123 -> stack_service).
+          # Swarm-specific by design: the fluentforward senders ARE Docker hosts and
+          # stay that way. Revisit only if container logs ever arrive from elsewhere.
+          - replace_pattern(resource.attributes["service.name"], "^/(.*)\\.[^.]+\\.[^.]+", "$$1")
+
+  deltatorate/count:
+    metrics:
+      - trace.span.count
+      - trace.span.event.count
+      - metric.count
+      - metric.data_point.count
+      - log.record.count
+
+  transform/count:
+    error_mode: ignore
+    metric_statements:
+      - context: datapoint
+        statements:
+          - keep_keys(resource.attributes, ["service.name", "tenant.id", "host.name"])
+          - set(resource.attributes["metric.name"], metric.name)
+          - keep_keys(datapoint.attributes, [])
+
+  interval/count:
+    interval: 10s
+
+connectors:
+  forward/traces:
+  forward/metrics:
+  forward/meta_metrics:
+  forward/logs:
+  forward/count_traces:
+  forward/count_metrics:
+  forward/count_logs:
+  count:
+    spans:
+      trace.span.count:
+    spanevents:
+      trace.span.event.count:
+    metrics:
+      metric.count:
+    datapoints:
+      metric.datapoint.count:
+    logs:
+      log.record.count:
+
+exporters:
+  # Swarm pointed these at `kafka-s3:9092`; in-cluster that is the Strimzi bootstrap
+  # Service. Swarm relied on the otlp_proto default; it is stated explicitly here so a
+  # future change of default cannot silently alter the wire format — the Victoria
+  # exporters on the read side expect OTLP protobuf.
+  kafka/traces:
+    protocol_version: 2.1.0
+    brokers:
+      - otel-kafka-bootstrap.opentelemetry-gateway.svc.cluster.local:9092
+    traces:
+      topic: otlp_spans
+      encoding: otlp_proto
+    timeout: 30s
+    producer:
+      max_message_bytes: 4000000
+      compression: zstd
+    sending_queue:
+      sizer: bytes
+      queue_size: 268435456      # 256 MiB
+      num_consumers: 10
+      batch:
+        sizer: bytes
+        min_size: 800000         # 800 KB
+        max_size: 900000         # 900 KB
+        flush_timeout: 200ms
+
+  kafka/metrics:
+    protocol_version: 2.1.0
+    brokers:
+      - otel-kafka-bootstrap.opentelemetry-gateway.svc.cluster.local:9092
+    metrics:
+      topic: otlp_metrics
+      encoding: otlp_proto
+    timeout: 30s
+    producer:
+      max_message_bytes: 4000000
+      compression: zstd
+    sending_queue:
+      sizer: bytes
+      queue_size: 268435456      # 256 MiB
+      num_consumers: 10
+      batch:
+        sizer: bytes
+        min_size: 800000         # 800 KB
+        max_size: 900000         # 900 KB
+        flush_timeout: 200ms
+
+  kafka/meta_metrics:
+    protocol_version: 2.1.0
+    brokers:
+      - otel-kafka-bootstrap.opentelemetry-gateway.svc.cluster.local:9092
+    metrics:
+      topic: otlp_meta_metrics
+      encoding: otlp_proto
+    timeout: 30s
+    producer:
+      max_message_bytes: 4000000
+      compression: zstd
+    sending_queue:
+      sizer: bytes
+      queue_size: 268435456      # 256 MiB
+      num_consumers: 10
+      batch:
+        sizer: bytes
+        min_size: 800000         # 800 KB
+        max_size: 900000         # 900 KB
+        flush_timeout: 200ms
+
+  kafka/logs:
+    protocol_version: 2.1.0
+    brokers:
+      - otel-kafka-bootstrap.opentelemetry-gateway.svc.cluster.local:9092
+    logs:
+      topic: otlp_logs
+      encoding: otlp_proto
+    # NOTE: no `timeout:` here, unlike the other three (defaults to 5s). Carried over
+    # verbatim from Swarm — likely unintentional asymmetry upstream, but changing it is
+    # a behaviour change, so it stays for the migration.
+    producer:
+      max_message_bytes: 4000000
+      compression: zstd
+    sending_queue:
+      sizer: bytes
+      queue_size: 268435456      # 256 MiB
+      num_consumers: 10
+      batch:
+        sizer: bytes
+        min_size: 800000         # 800 KB
+        max_size: 900000         # 900 KB
+        flush_timeout: 200ms
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces/receive:
+      receivers: [otlp, jaeger]
+      exporters: [forward/traces]
+    metrics/receive:
+      receivers: [otlp, carbon, influxdb]
+      exporters: [forward/metrics]
+    metrics/meta:
+      receivers: [prometheus/feedback]
+      exporters: [forward/meta_metrics]
+    traces/count_traces:
+      receivers: [forward/count_traces]
+      processors: [transform/count]
+      exporters: [count]
+    metrics/count_metrics:
+      receivers: [forward/count_metrics]
+      processors: [transform/count]
+      exporters: [count]
+    logs/count_logs:
+      receivers: [forward/count_logs]
+      processors: [transform/count]
+      exporters: [count]
+    metrics/count:
+      receivers: [count]
+      processors: [deltatocumulative, interval/count]
+      exporters: [forward/meta_metrics]
+    logs/receive:
+      receivers: [otlp, syslog/tcp, syslog/udp]
+      exporters: [forward/logs]
+    logs/receive-fluentforward:
+      receivers: [fluentforward]
+      processors: [transform/docker-logs-resource-attributes]
+      exporters: [forward/logs]
+    traces/kafka:
+      receivers: [forward/traces]
+      processors: []
+      exporters: [kafka/traces, forward/count_traces]
+    metrics/kafka:
+      receivers: [forward/metrics]
+      processors: []
+      exporters: [kafka/metrics, forward/count_metrics]
+    metrics/kafka-meta:
+      receivers: [forward/meta_metrics]
+      processors: []
+      exporters: [kafka/meta_metrics]
+    logs/kafka:
+      receivers: [forward/logs]
+      processors: []
+      exporters: [kafka/logs, forward/count_logs]

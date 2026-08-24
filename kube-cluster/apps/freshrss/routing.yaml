@@ -1,0 +1,92 @@
+---
+# Web UI — behind the reflected `authelia` forwardAuth middleware. TLS via the default
+# *.example.com wildcard.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: freshrss
+  namespace: freshrss
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`freshrss.example.com`)
+      services:
+        - name: freshrss
+          port: 80
+      middlewares:
+        - name: authelia
+  tls: {}
+---
+# Throttle the API route. Authelia's regulation (failed-login bans) does NOT apply to a
+# `bypass` rule, so this is the only thing in front of API-password guessing. Generous
+# for real RSS clients, hostile to credential stuffing.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: freshrss-api-ratelimit
+  namespace: freshrss
+spec:
+  rateLimit:
+    average: 20
+    burst: 50
+---
+# GReader (/api/greader.php) + Fever (/api/fever.php). Mobile RSS clients send no browser
+# cookies and authenticate with a FreshRSS API password, so a forwardAuth *challenge*
+# would 302 them into a login page. Authelia's access_control therefore has a
+# `policy: bypass` rule for ^/api/.*$ on this host.
+#
+# NOTE the middleware is still applied here, deliberately. FreshRSS (in http_auth mode)
+# trusts the Remote-User header, and anything inside TRUSTED_PROXY could spoof it. With
+# forwardAuth on the route, Traefik DELETES Remote-User/-Groups/-Email/-Name from the
+# client request and re-sets them only from Authelia's response — so a client-supplied
+# header can never reach FreshRSS. Dropping this middleware would open admin impersonation.
+# Higher priority so it wins over the catch-all above for /api(/*).
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: freshrss-api
+  namespace: freshrss
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      priority: 100
+      match: Host(`freshrss.example.com`) && PathPrefix(`/api/`)
+      services:
+        - name: freshrss
+          port: 80
+      middlewares:
+        - name: authelia
+        - name: freshrss-api-ratelimit
+  tls: {}
+---
+# freshrss.kube.example.com redirects to the canonical freshrss.example.com (default *.example.com
+# wildcard cert). No authelia on the redirect route — it 301s first.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: freshrss-kube-redirect
+  namespace: freshrss
+spec:
+  redirectRegex:
+    regex: "^https://freshrss.kube.example.com/(.*)"
+    replacement: "https://freshrss.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: freshrss-kube-redirect
+  namespace: freshrss
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`freshrss.kube.example.com`)
+      services:
+        - name: freshrss
+          port: 80
+      middlewares:
+        - name: freshrss-kube-redirect
+  tls: {}

@@ -1,0 +1,284 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: spliit
+---
+# spliit-cloud, a community fork of spliit. Upstream has no accounts at all — its schema has no
+# User/Account/Session and groups are addressed by URL — so SSO there is impossible, not merely
+# unconfigured. The fork adds better-auth, and with it a generic OIDC provider that Authelia
+# drives directly. See README.md.
+#
+# Upstream's single Next.js container becomes three: an nginx that serves the SPA and reverse
+# proxies the API, the API itself, and a worker for recurrence and notification jobs. Postgres
+# comes from the shared CNPG cluster rather than the bundled one, and the MCP service is not
+# deployed (ENABLE_MCP defaults to false).
+#
+# All four images are pinned to ONE commit. The web<->api contract (tRPC, the nginx proxy paths)
+# is not versioned, so mixing commits is a real breakage — see the renovate.json rule that keeps
+# them in one PR.
+
+# ---- the API: better-auth, tRPC, and everything that touches the database ----
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spliit-api
+  namespace: spliit
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: spliit-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: spliit-api
+        app.kubernetes.io/instance: spliit
+        # Serves the web pod, not traefik: the SPA is the only public entry point.
+        kube-vnet/net.api: ingress
+        kube-vnet/net.postgres.postgres: egress
+        kube-vnet/net.msmtpd.msmtpd: egress
+    spec:
+      enableServiceLinks: false
+      initContainers:
+        # `prisma migrate deploy`, which is idempotent — so running it here rather than as a Job
+        # costs nothing and avoids a Job's immutability problem (its name would have to change on
+        # every image bump). The worker runs the same initContainer; whichever wins, the other
+        # applies nothing.
+        - name: migrate
+          image: ghcr.io/antonio-ivanovski/spliit-cloud-migrate:68194f9038d785b695900cc09ef08363ff7eccec@sha256:d3577084051a12536ce59df102d2e037aafbf1f35f9ebf8dd57e884ff56ffa09
+          env:
+            - name: SPLIIT_DB_PASSWORD
+              valueFrom: {secretKeyRef: {name: spliit-db, key: password}}
+            - name: DATABASE_URL
+              value: postgresql://spliit:$(SPLIIT_DB_PASSWORD)@postgres-rw.postgres.svc.cluster.local:5432/spliit?sslmode=disable
+      containers:
+        - name: api
+          image: ghcr.io/antonio-ivanovski/spliit-cloud-api:68194f9038d785b695900cc09ef08363ff7eccec@sha256:a632eac6561b37afb61fc0c9aef9df8bc3e10fe9c05a6b8948b1a1406e596792
+          env:
+            - {name: PORT, value: "3001"}
+            - name: SPLIIT_DB_PASSWORD
+              valueFrom: {secretKeyRef: {name: spliit-db, key: password}}
+            - name: DATABASE_URL
+              value: postgresql://spliit:$(SPLIIT_DB_PASSWORD)@postgres-rw.postgres.svc.cluster.local:5432/spliit?sslmode=disable
+            - {name: DATABASE_APPLICATION_NAME, value: spliit-api}
+            - {name: APP_URL, value: "https://spliit.example.com"}
+            - {name: WEB_ORIGINS, value: "https://spliit.example.com"}
+            - {name: BETTER_AUTH_URL, value: "https://spliit.example.com"}
+            # Traefik terminates TLS and sets X-Forwarded-*; without this the app sees the proxy's
+            # address for every request, which breaks both the rate limiter and the fork's own
+            # abuse protection.
+            - {name: TRUST_PROXY, value: "true"}
+            - name: BETTER_AUTH_SECRET
+              valueFrom: {secretKeyRef: {name: spliit-secrets, key: BETTER_AUTH_SECRET}}
+
+            # ---- sign-up policy ----
+            # `open`, so an lldap user who completes SSO gets an account created for them
+            # automatically. invite_only cannot express what we want: its gate covers
+            # /sign-in/oauth2 exactly like /sign-up/email, so it also blocked people Authelia had
+            # already vetted, and the fork has no flag to trust OIDC while gating email.
+            #
+            # `open` on its own would also expose an email registration form to the internet, so
+            # the three email endpoints are refused at traefik instead — see the spliit-deny route
+            # in routing.yaml. OIDC and anonymous sign-in are deliberately NOT refused there.
+            - {name: SIGNUP_MODE, value: "open"}
+            # Anonymous accounts: no email, no provider, a recovery link instead. Wanted, so
+            # that someone can be handed a group and start using it without an identity anywhere.
+            # Requires TRUST_PROXY, which the env validator enforces and which is set above.
+            - {name: ENABLE_ANONYMOUS_AUTH, value: "true"}
+            - {name: ENABLE_MCP, value: "false"}
+
+            # ---- SSO: Authelia as a generic OIDC provider ----
+            # The redirect URI is derived, not documented: better-auth's basePath is overridden to
+            # `/auth` in the fork (apps/api/src/lib/auth/index.ts), and genericOAuth appends
+            # /oauth2/callback/<providerId>. Hence /auth/oauth2/callback/oidc, which is what the
+            # Authelia client registers. Get it wrong and everything looks healthy until the very
+            # last hop of the login.
+            - {name: OIDC_PROVIDER_ID, value: "oidc"}
+            - {name: OIDC_DISPLAY_NAME, value: "Authelia"}
+            - {name: OIDC_DISCOVERY_URL, value: "https://auth.example.com/.well-known/openid-configuration"}
+            - {name: OIDC_CLIENT_ID, value: "spliit"}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom: {secretKeyRef: {name: spliit-secrets, key: OIDC_CLIENT_SECRET}}
+
+            # ---- mail: required, it carries sign-in links and invitations ----
+            # msmtpd is a trusted anonymous relay for in-cluster senders, so no SMTP_USER/PASS —
+            # the fork treats "neither set" as valid. The +spliit sender follows the relay's rule
+            # (apps/msmtpd/README.md).
+            - {name: SMTP_HOST, value: msmtpd.msmtpd.svc.cluster.local}
+            - {name: SMTP_PORT, value: "2500"}
+            - {name: EMAIL_FROM, value: "admin+spliit@example.com"}
+            - name: EMAIL_UNSUBSCRIBE_SECRET
+              valueFrom: {secretKeyRef: {name: spliit-secrets, key: EMAIL_UNSUBSCRIBE_SECRET}}
+
+            # ---- documents + AI, carried over from upstream unchanged ----
+            # The fork kept upstream's S3_UPLOAD_* names, so the existing secret keys still fit.
+            - {name: PUBLIC_ENABLE_EXPENSE_DOCUMENTS, value: "true"}
+            - {name: S3_UPLOAD_ENDPOINT, value: "https://s3.example.com"}
+            - {name: S3_UPLOAD_BUCKET, value: spliit}
+            - {name: S3_UPLOAD_REGION, value: default}
+            - name: S3_UPLOAD_KEY
+              valueFrom: {secretKeyRef: {name: spliit-secrets, key: S3_UPLOAD_KEY}}
+            - name: S3_UPLOAD_SECRET
+              valueFrom: {secretKeyRef: {name: spliit-secrets, key: S3_UPLOAD_SECRET}}
+            - {name: PUBLIC_ENABLE_RECEIPT_EXTRACT, value: "true"}
+            - {name: PUBLIC_ENABLE_CATEGORY_EXTRACT, value: "true"}
+            - {name: AI_PROVIDER, value: openai}
+            - name: AI_API_KEY
+              valueFrom: {secretKeyRef: {name: spliit-secrets, key: OPENAI_API_KEY}}
+          ports:
+            - {name: http, containerPort: 3001}
+          readinessProbe:
+            httpGet: {path: /health/readiness, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 12
+          livenessProbe:
+            httpGet: {path: /health/liveness, port: http}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests: {cpu: 50m, memory: 256Mi}
+            limits: {memory: 1Gi}
+---
+# The name `api` is load-bearing. nginx.web.conf in the web image hard-codes
+# `proxy_pass http://api:3001` in seven places, resolved by the same-namespace DNS search path.
+# Renaming this Service breaks the SPA's entire backend with no error at deploy time.
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: spliit
+spec:
+  selector:
+    app.kubernetes.io/name: spliit-api
+  ports:
+    - {name: http, port: 3001, targetPort: http}
+---
+# ---- the worker: recurrence series, notifications, reconciliation ----
+# Recurring expenses in this fork are real scheduled jobs rather than read-time side effects, so
+# without this they simply never fire.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spliit-worker
+  namespace: spliit
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: spliit-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: spliit-worker
+        app.kubernetes.io/instance: spliit
+        kube-vnet/net.postgres.postgres: egress
+        kube-vnet/net.msmtpd.msmtpd: egress
+    spec:
+      enableServiceLinks: false
+      initContainers:
+        - name: migrate
+          image: ghcr.io/antonio-ivanovski/spliit-cloud-migrate:68194f9038d785b695900cc09ef08363ff7eccec@sha256:d3577084051a12536ce59df102d2e037aafbf1f35f9ebf8dd57e884ff56ffa09
+          env:
+            - name: SPLIIT_DB_PASSWORD
+              valueFrom: {secretKeyRef: {name: spliit-db, key: password}}
+            - name: DATABASE_URL
+              value: postgresql://spliit:$(SPLIIT_DB_PASSWORD)@postgres-rw.postgres.svc.cluster.local:5432/spliit?sslmode=disable
+      containers:
+        - name: worker
+          image: ghcr.io/antonio-ivanovski/spliit-cloud-worker:68194f9038d785b695900cc09ef08363ff7eccec@sha256:95c38d8ad27f91984d8b9aa0faa16e837c57f1cc49cc0c2c1a1dc50f9b55ca38
+          env:
+            - name: SPLIIT_DB_PASSWORD
+              valueFrom: {secretKeyRef: {name: spliit-db, key: password}}
+            - name: DATABASE_URL
+              value: postgresql://spliit:$(SPLIIT_DB_PASSWORD)@postgres-rw.postgres.svc.cluster.local:5432/spliit?sslmode=disable
+            - {name: DATABASE_APPLICATION_NAME, value: spliit-worker}
+            - {name: APP_URL, value: "https://spliit.example.com"}
+            - {name: WEB_ORIGINS, value: "https://spliit.example.com"}
+            - {name: BETTER_AUTH_URL, value: "https://spliit.example.com"}
+            - name: BETTER_AUTH_SECRET
+              valueFrom: {secretKeyRef: {name: spliit-secrets, key: BETTER_AUTH_SECRET}}
+            - {name: SMTP_HOST, value: msmtpd.msmtpd.svc.cluster.local}
+            - {name: SMTP_PORT, value: "2500"}
+            - {name: EMAIL_FROM, value: "admin+spliit@example.com"}
+            - name: EMAIL_UNSUBSCRIBE_SECRET
+              valueFrom: {secretKeyRef: {name: spliit-secrets, key: EMAIL_UNSUBSCRIBE_SECRET}}
+            - {name: JOBS_ENABLED, value: "true"}
+            # The worker's health endpoints live on their own port, separate from the API's.
+            - {name: JOBS_ADMIN_HOST, value: "0.0.0.0"}
+            - {name: JOBS_ADMIN_PORT, value: "3003"}
+          ports:
+            - {name: jobs-admin, containerPort: 3003}
+          readinessProbe:
+            httpGet: {path: /health/readiness, port: jobs-admin}
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 12
+          resources:
+            requests: {cpu: 25m, memory: 128Mi}
+            limits: {memory: 512Mi}
+---
+# ---- the web front: static SPA + reverse proxy to the API ----
+# Stateless nginx. This is the only pod traefik talks to; the API is not routable from outside.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spliit-web
+  namespace: spliit
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: spliit-web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: spliit-web
+        app.kubernetes.io/instance: spliit
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.api: egress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: web
+          image: ghcr.io/antonio-ivanovski/spliit-cloud-web:68194f9038d785b695900cc09ef08363ff7eccec@sha256:6e091867f2a51202786b704daad7e5c0e9343ab4e9df72cb5dbee2f101b58290
+          ports:
+            - {name: http, containerPort: 80}
+          readinessProbe:
+            httpGet: {path: /health/liveness, port: http}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 12
+          resources:
+            requests: {cpu: 25m, memory: 64Mi}
+            limits: {memory: 256Mi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: spliit
+spec:
+  selector:
+    app.kubernetes.io/name: spliit-web
+  ports:
+    - {name: http, port: 80, targetPort: http}

@@ -1,0 +1,14 @@
+# Daily base backup as a Ceph volume snapshot (cheap CoW). Combined with continuous
+# WAL archiving (the plugin), this gives point-in-time recovery. 6-field cron
+# (sec min hour dom mon dow) → 02:00 daily.
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: postgres-daily-snapshot
+  namespace: postgres
+spec:
+  schedule: "0 0 2 * * *"
+  backupOwnerReference: self
+  method: volumeSnapshot
+  cluster:
+    name: postgres

@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # The source PVC uses the cephfs StorageClass. Read by the root generator; inert to
+    # kustomize.
+    dependsOn: infra-ceph-csi-cephfs
+resources:
+- resources.yaml
+- routing.yaml
+# zensical.toml -> a hashed ConfigMap (edits roll the pod, since it's a subPath mount).
+configMapGenerator:
+- name: zensical-config
+  namespace: zensical
+  files:
+  - zensical.toml

@@ -1,0 +1,45 @@
+---
+# syncstorage-rs's login role in the shared CNPG cluster (grafana/homebox precedent).
+# One role owns both databases. Password from secret/firefox-sync-db (postgres ns).
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: syncserver
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: syncserver
+  ensure: present
+  login: true
+  passwordSecret:
+    name: firefox-sync-db
+  databaseRoleReclaimPolicy: retain
+---
+# syncstorage data DB. The server creates its schema on startup; data is migrated
+# 1:1 from the old MariaDB syncstorage_rs. (metadata.name is DNS-safe; spec.name is
+# the real PG db name with the underscore the app's URL uses.)
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: syncstorage-rs
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: syncstorage_rs
+  owner: syncserver
+  databaseReclaimPolicy: retain
+---
+# tokenserver DB (user routing). Same role; migrated 1:1 from MariaDB tokenserver_rs.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: tokenserver-rs
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: tokenserver_rs
+  owner: syncserver
+  databaseReclaimPolicy: retain

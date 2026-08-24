@@ -1,0 +1,33 @@
+# Under pod-level kube-vnet isolation, intra-namespace ingress is denied by
+# default, so each internal edge gets a bare same-namespace VirtualNetwork.
+# Same-ns membership is implicit (no own-ns self-entry). Servers carry
+# net.<name>: ingress, clients net.<name>: egress. Cross-ns mail is via the
+# msmtpd vnet (notesnook added to its allowedNamespaces); Traefik reaches the
+# fronted services via net.traefik.traefik.
+---
+# identity + notesnook-server -> mongo (:27017)
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: notesnook-db
+  namespace: notesnook
+spec:
+  description: "identity + sync -> mongo (:27017), intra-namespace."
+---
+# notesnook-server + sse -> identity (:8264) token introspection
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: identity
+  namespace: notesnook
+spec:
+  description: "sync + sse -> identity-server (:8264), intra-namespace."
+---
+# sse -> notesnook-server (:5264)
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: notesnook-server
+  namespace: notesnook
+spec:
+  description: "sse -> notesnook-server (:5264), intra-namespace."

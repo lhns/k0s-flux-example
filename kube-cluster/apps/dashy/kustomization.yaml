@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- resources.yaml
+- routing.yaml
+# conf.yml -> a hashed ConfigMap, so editing the config rolls the pod (subPath
+# mounts don't hot-reload). Deployment references it as `dashy-conf`.
+configMapGenerator:
+- name: dashy-conf
+  namespace: dashy
+  files:
+  - conf.yml

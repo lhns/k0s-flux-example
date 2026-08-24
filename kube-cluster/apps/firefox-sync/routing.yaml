@@ -1,0 +1,19 @@
+---
+# Public sync API. Auth is the sync protocol's own FxA/Hawk (no Traefik auth
+# middleware). firefox-sync.example.com stays canonical (baked into SYNC_URL, the
+# bootstrapped node URL, and every Firefox client's about:config) — no .kube host,
+# no redirect. TLS via the default *.example.com wildcard.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: firefox-sync
+  namespace: firefox-sync
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`firefox-sync.example.com`)
+      services:
+        - name: firefox-sync
+          port: 8000
+  tls: {}

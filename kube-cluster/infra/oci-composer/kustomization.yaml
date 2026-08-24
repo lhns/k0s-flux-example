@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # ceph-csi-cephfs: the blob store and layer cache PVC. kube-vnet: vnet.yaml uses its CRDs.
+    # Read by the root generator; inert to kustomize.
+    dependsOn: infra-ceph-csi-cephfs,infra-kube-vnet
+resources:
+- namespace.yaml
+- release.yaml
+- vnet.yaml

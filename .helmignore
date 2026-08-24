@@ -1,0 +1,9 @@
+# The repo root is the generator chart. It packages kube-cluster/apps + /infra
+# (what .Files.Glob discovers) and k0sctl.yaml (templates/k0s-upgrade.yaml reads
+# the k0s version from it). Exclude everything else, including the bootstrap
+# manifests under kube-cluster/flux-system.
+.git/
+kube-cluster/flux-system/
+README.md
+kube-cluster/k0s-files/
+.sops.yaml

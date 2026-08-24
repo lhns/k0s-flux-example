@@ -1,0 +1,247 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: opentelemetry
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: open-telemetry
+  namespace: opentelemetry
+spec:
+  interval: 1h0m0s
+  url: https://open-telemetry.github.io/opentelemetry-helm-charts
+---
+# opentelemetry-kube-stack = the OpenTelemetry Operator + preset collectors. This
+# is the k8s-native equivalent of the Swarm docker-observer (hostmetrics + logs +
+# syslog). Two collectors:
+#   - daemon  (DaemonSet):  hostmetrics + kubelet/pod metrics + container logs +
+#                           node syslog (rsyslog -> hostPort 14514, see k0sctl).
+#   - cluster (Deployment): cluster-state metrics + k8s events + annotation-based
+#                           Prometheus scraping. Singleton so these aren't
+#                           duplicated per node.
+# EVERYTHING exports via a single OTLP exporter to the in-cluster aggregation
+# gateway (infra/opentelemetry-gateway -> Kafka -> Victoria), same path as the rest
+# of the estate. To re-route later (kafka exporter, direct-to-Victoria, ...) change
+# the `otlp_grpc` exporter in BOTH collectors below — it's the one knob.
+#
+# It used to be the Swarm collector at 10.20.2.10:4317. That was an EXTERNAL address,
+# so it needed no vnet membership; a ClusterIP does. These pods are created by the
+# OpenTelemetry operator and carry no hand-set labels, so that membership comes from
+# a VirtualNetworkBinding in vnet.yaml rather than a pod label.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: opentelemetry-kube-stack
+  namespace: opentelemetry
+spec:
+  interval: 10m0s
+  chart:
+    spec:
+      chart: opentelemetry-kube-stack
+      version: "0.20.2"
+      interval: 1h0m0s
+      sourceRef:
+        kind: HelmRepository
+        name: open-telemetry
+  values:
+    clusterName: kube
+
+    # kube-stack installs the CRDs itself (otel + prometheus-operator). Leave the
+    # operator subchart's own crds.create=false to avoid the documented install race.
+    crds:
+      installOtel: true
+      installPrometheus: true
+
+    opentelemetry-operator:
+      enabled: true
+      crds:
+        create: false
+      admissionWebhooks:
+        create: true
+        # kube-stack default: tolerate the webhook being briefly unavailable during
+        # install rather than blocking pod creation cluster-wide.
+        failurePolicy: Ignore
+        certManager:
+          enabled: true          # cert-manager is present (dependsOn: infra-cert-manager)
+        autoGenerateCert:
+          enabled: false         # only used if certManager.enabled=false
+
+    # Disable the chart's own default standalone collector name collision safety:
+    # we define exactly the two collectors we want below. (The chart ships a
+    # built-in `daemon`; our values deep-merge over it, so we must explicitly undo
+    # the bits we don't want — scrape_configs_file + clusterMetrics/kubernetesEvents.)
+    collectors:
+      # ===================== daemon (one pod per node) =====================
+      daemon:
+        enabled: true
+        suffix: daemon
+        mode: daemonset
+        # The chart default image is otel/opentelemetry-collector-k8s (the curated
+        # k8s distro), which does NOT bundle the `syslog` receiver. Use the contrib
+        # distro (superset: keeps hostmetrics/kubeletstats/filelog/k8sattributes/
+        # resourcedetection AND adds syslog). Both repository AND tag are required
+        # for the chart to set spec.image (tag:"" -> operator injects its k8s image).
+        # Renovate tracks the tag; keep it aligned with the chart's collector version.
+        image:
+          repository: otel/opentelemetry-collector-contrib
+          # renovate: datasource=docker depName=otel/opentelemetry-collector-contrib
+          tag: "0.159.0"
+        # Unset the chart-default node/kubelet scrape file so it doesn't clash with
+        # our config (we don't use the packaged prometheus scrape presets here).
+        scrape_configs_file: ""
+        presets:
+          logsCollection:
+            enabled: true
+            includeCollectorLogs: false   # don't ingest our own collector's logs
+          hostMetrics:
+            enabled: true
+          kubeletMetrics:
+            enabled: true
+          kubernetesAttributes:
+            enabled: true
+          # These belong on the singleton `cluster` collector — running them on
+          # every node would duplicate cluster-scoped data. Chart default is ON.
+          clusterMetrics:
+            enabled: false
+          kubernetesEvents:
+            enabled: false
+        # Node syslog sink: rsyslog on each node forwards *.info to 127.0.0.1:14514
+        # (see kube-cluster/k0s-files/50-otel-rsyslog.conf). hostPort maps the node
+        # UDP :14514 to this DaemonSet pod. kube-vnet auto-allows hostPort ingress.
+        ports:
+          - name: syslog-udp
+            port: 14514
+            targetPort: 14514
+            protocol: UDP
+            hostPort: 14514
+        config:
+          receivers:
+            syslog:
+              udp:
+                listen_address: 0.0.0.0:14514
+              protocol: rfc5424
+          processors:
+            batch: {}
+            # Node/host identity on EVERY signal. The chart injects K8S_NODE_NAME +
+            # OTEL_RESOURCE_ATTRIBUTES(host.name=<node>), so the `env` detector sets
+            # host.name to the real node (not the pod). `system` adds host.arch/os.*,
+            # `k8snode` adds k8s.node.name/uid. override:false keeps env's host.name.
+            resourcedetection/env:
+              detectors: [env, system, k8snode]
+              timeout: 5s
+              override: false
+              k8snode:
+                node_from_env_var: K8S_NODE_NAME
+            # Fallback: if host.name wasn't set by env, derive it from k8s.node.name.
+            resource/hostname:
+              attributes:
+                - {key: host.name, from_attribute: k8s.node.name, action: insert}
+          exporters:
+            # otlp_grpc = the gRPC OTLP exporter (the bare `otlp` name is deprecated).
+            otlp_grpc:
+              endpoint: opentelemetry-gateway.opentelemetry-gateway.svc.cluster.local:4317
+              tls: {insecure: true}
+              retry_on_failure: {enabled: true}
+              sending_queue: {enabled: true}
+          service:
+            # Preset receivers are APPENDED to these pipelines; k8sattributes is
+            # PREPENDED to processors of the standard logs/metrics pipelines. The
+            # non-standard `logs/syslog` name is left untouched by presets.
+            pipelines:
+              metrics:
+                receivers: []      # + hostmetrics, kubeletstats (presets)
+                processors: [resourcedetection/env, resource/hostname, batch]
+                exporters: [otlp_grpc]
+              logs:
+                receivers: []      # + filelog (preset)
+                processors: [resourcedetection/env, resource/hostname, batch]
+                exporters: [otlp_grpc]
+              logs/syslog:
+                receivers: [syslog]
+                processors: [resourcedetection/env, resource/hostname, batch]
+                exporters: [otlp_grpc]
+              # The chart's built-in daemon config ships a traces pipeline (otlp
+              # receiver) that defaults to the `debug` exporter; Helm deep-merge
+              # can't delete it, so repoint it at the otlp gateway. No trace sources
+              # today (the otlp receiver is in-pod, no hostPort) — this is just a
+              # ready seed for future app auto-instrumentation, and removes the
+              # dangling `debug` reference.
+              traces:
+                receivers: [otlp]
+                processors: [resourcedetection/env, resource/hostname, batch]
+                exporters: [otlp_grpc]
+
+      # ===================== cluster (singleton) =====================
+      cluster:
+        enabled: true
+        suffix: cluster
+        mode: deployment
+        replicas: 1
+        presets:
+          clusterMetrics:
+            enabled: true
+          kubernetesEvents:
+            enabled: true
+          kubernetesAttributes:
+            enabled: true
+        config:
+          receivers:
+            # Annotation-based Prometheus scraping (classic kubernetes-pods job):
+            # keep only pods with prometheus.io/scrape=true, honour
+            # prometheus.io/path + prometheus.io/port. Today only the flux
+            # controllers carry these; kube-vnet requires each target namespace to
+            # admit this collector (see vnet.yaml -> otel-scrape).
+            prometheus:
+              config:
+                scrape_configs:
+                  - job_name: kubernetes-pods
+                    kubernetes_sd_configs:
+                      - role: pod
+                        # Restrict discovery to namespaces wired for scrape ingress in
+                        # vnet.yaml. kube-vnet default-denies pod ingress, so scraping
+                        # cluster-wide would find annotated third-party pods (traefik,
+                        # cert-manager, coredns, ...) we can't reach -> continuous
+                        # scrape-fail noise. To scrape another namespace: add it here
+                        # AND add an ingress binding for its pods in vnet.yaml.
+                        namespaces:
+                          names: [flux-system]
+                    relabel_configs:
+                      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+                        action: keep
+                        regex: "true"
+                      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+                        action: replace
+                        target_label: __metrics_path__
+                        regex: (.+)
+                      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+                        action: replace
+                        regex: ([^:]+)(?::\d+)?;(\d+)
+                        replacement: $$1:$$2      # $$ -> literal $ after otel env expansion
+                        target_label: __address__
+                      - action: labelmap
+                        regex: __meta_kubernetes_pod_label_(.+)
+                      - source_labels: [__meta_kubernetes_namespace]
+                        target_label: namespace
+                      - source_labels: [__meta_kubernetes_pod_name]
+                        target_label: pod
+          processors:
+            batch: {}
+          exporters:
+            # otlp_grpc = the gRPC OTLP exporter (the bare `otlp` name is deprecated).
+            otlp_grpc:
+              endpoint: opentelemetry-gateway.opentelemetry-gateway.svc.cluster.local:4317
+              tls: {insecure: true}
+              retry_on_failure: {enabled: true}
+              sending_queue: {enabled: true}
+          service:
+            pipelines:
+              metrics:
+                receivers: [prometheus]   # + k8s_cluster (clusterMetrics preset)
+                processors: [batch]        # + k8sattributes (prepended)
+                exporters: [otlp_grpc]
+              logs:
+                receivers: []              # + k8sobjects (kubernetesEvents preset)
+                processors: [batch]        # + k8sattributes (prepended)
+                exporters: [otlp_grpc]

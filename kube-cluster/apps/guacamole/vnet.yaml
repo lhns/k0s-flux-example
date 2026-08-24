@@ -1,0 +1,15 @@
+---
+# guacamole dials guacd (:4822) inside this namespace. Under pod-level kube-vnet
+# isolation, intra-namespace ingress is denied, so give guacd a private channel
+# that only guacamole may use. Both sides join via pod labels (equivalent to a
+# VirtualNetworkBinding with a podSelector) since we own both Deployments; the
+# bare net.<name> form works because the vnet is in this same namespace:
+#   guacd:     kube-vnet/net.guacd: ingress   (accepts)
+#   guacamole: kube-vnet/net.guacd: egress    (initiates)
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: guacd
+  namespace: guacamole
+spec:
+  description: "guacamole -> guacd (:4822), intra-namespace."

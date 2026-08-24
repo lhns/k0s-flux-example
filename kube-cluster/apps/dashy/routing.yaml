@@ -1,0 +1,31 @@
+---
+# dashy.kube.example.com redirects to the canonical dashy.example.com. Served by the
+# default *.example.com wildcard cert (tls: {}); redirectRegex 308s before the
+# backend (or Authelia) is reached, so no auth/service middleware is needed here.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: dashy-kube-redirect
+  namespace: dashy
+spec:
+  redirectRegex:
+    regex: "^https://dashy.kube.example.com/(.*)"
+    replacement: "https://dashy.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: dashy-kube-redirect
+  namespace: dashy
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`dashy.kube.example.com`)
+      services:
+        - name: dashy
+          port: 8080
+      middlewares:
+        - name: dashy-kube-redirect
+  tls: {}

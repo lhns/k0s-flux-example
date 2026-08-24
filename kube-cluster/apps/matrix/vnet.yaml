@@ -1,0 +1,39 @@
+# Under pod-level kube-vnet isolation, intra-namespace ingress is denied by
+# default, so each internal edge gets a private same-namespace VirtualNetwork.
+# Bare net.<name> = same-ns; the server pod carries net.<name>: ingress and the
+# client carries net.<name>: egress. Cross-ns Postgres uses the shared
+# `postgres` vnet (allowedNamespaces.all: true) — no edit there, pods just opt
+# in with net.postgres.postgres: egress.
+---
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: matrix-redis
+  namespace: matrix
+spec:
+  description: "synapse -> synapse-redis (:6379), intra-namespace."
+---
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: matrix-mas
+  namespace: matrix
+spec:
+  description: "synapse -> mas (:8080) OIDC/introspection, intra-namespace."
+---
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: matrix-synapse
+  namespace: matrix
+spec:
+  description: "mas -> synapse (:8008) admin API, intra-namespace."
+---
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: matrix-bridges
+  namespace: matrix
+spec:
+  description: "synapse -> bridge appservice ports (whatsapp :29318, telegram :29317,
+    signal :29328, instagram :29330, discord :29334), intra-namespace."

@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # CNPG (db) + Reflector (db secret) + Traefik (route) + ceph-rbd (file PVC).
+    # Read by the root generator; inert to kustomize. No `namespace:` transformer —
+    # database.yaml/db-role-secret.yaml pin `namespace: postgres`; the rest is `outline`.
+    dependsOn: infra-postgres,infra-reflector,infra-traefik,infra-ceph-csi-rbd
+resources:
+- resources.yaml
+- routing.yaml
+- vnet.yaml
+- secret.yaml
+- database.yaml
+- db-role-secret.yaml

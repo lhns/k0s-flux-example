@@ -1,0 +1,53 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: strimzi
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: strimzi-kafka-operator
+  namespace: strimzi
+spec:
+  interval: 1h0m0s
+  url: oci://quay.io/strimzi-helm/strimzi-kafka-operator
+  ref:
+    # Bump to roll a new operator. The chart version tracks the operator version,
+    # and the operator's supported Kafka versions move with it — check the Strimzi
+    # CHANGELOG before bumping, because dropping a Kafka minor is a breaking change
+    # for any Kafka CR pinned to it (1.1.0 supports only Kafka 4.3.0 / 4.2.1).
+    tag: "1.1.0"
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: strimzi-kafka-operator
+  namespace: strimzi
+spec:
+  interval: 10m0s
+  chartRef:
+    kind: OCIRepository
+    name: strimzi-kafka-operator
+  values:
+    # Watch every namespace. Today only opentelemetry-gateway holds a Kafka, but
+    # cluster-wide watch matches how CNPG and kube-vnet run here, so a future Kafka
+    # elsewhere needs no operator change.
+    watchAnyNamespace: true
+
+    # kube-vnet owns network policy in this cluster. Strimzi's generated
+    # NetworkPolicies are purely ADDITIVE, so leaving this on would silently punch
+    # allow-rules through the default-deny baseline and leave two sources of truth
+    # for the same edges. Off -> every ingress edge to Kafka is an explicit vnet
+    # membership in infra/opentelemetry-gateway/vnet.yaml.
+    # If a Kafka CR ever hangs NotReady with the cluster operator logging connection
+    # timeouts to broker pods, flip this true TEMPORARILY to confirm it is a policy
+    # problem, then fix the vnet rather than leaving it on.
+    generateNetworkPolicy: false
+
+    # CRDs + ClusterRoles ship as chart templates, so Flux installs them with the
+    # release — no separate CRD Kustomization needed.
+    createGlobalResources: true
+
+    leaderElection:
+      enable: true

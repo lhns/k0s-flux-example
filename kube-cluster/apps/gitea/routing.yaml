@@ -1,0 +1,81 @@
+---
+# The local login form redirects straight to the Authelia OIDC source, so there
+# is one way in. Carried over verbatim from the Swarm traefik labels; the `$$`
+# there was Compose escaping and disappears here.
+#
+# Host-agnostic on purpose ([^/]+ rather than a literal host) so it works on
+# gitea.kube.example.com during migration and gitea.example.com after.
+#
+# NOTE the escape hatch this removes: with this attached there is no way to
+# reach /user/login in a browser. If Authelia is down, recovery is
+# `kubectl -n gitea exec deploy/gitea -- gitea admin user ...`, or temporarily
+# dropping the middleware from the route below.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gitea-login-redirect
+  namespace: gitea
+spec:
+  redirectRegex:
+    regex: "^(https?://[^/]+)/user/login(\\?.*)?$"
+    replacement: "${1}/user/oauth2/authelia${2}"
+    permanent: false
+---
+# Gitea owns its own auth — an OIDC login source for humans, plus tokens for the
+# API, the Actions runner and git-over-HTTPS. So NO `authelia` forwardAuth
+# middleware here: it would break every git client and the runner, which cannot
+# complete an interactive SSO flow.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: gitea
+  namespace: gitea
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`gitea.example.com`)
+      services:
+        - name: gitea
+          port: 3000
+      middlewares:
+        - name: gitea-login-redirect
+  tls: {}
+---
+# gitea.kube.example.com 301-redirects to the canonical gitea.example.com, matching every
+# other migrated app (see apps/miniflux/routing.yaml).
+#
+# It SERVED the app during the migration instead — the staging URL used to verify
+# SSO, the repo mount and the database restore before the public host was pointed
+# at the cluster. Authelia had
+# `https://gitea.kube.example.com/user/oauth2/authelia/callback` registered as a
+# redirect URI from the start, which is what made that possible without touching
+# Authelia. That callback is now unused but harmless, and worth keeping if this
+# host is ever pressed into service as a staging URL again.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gitea-kube-redirect
+  namespace: gitea
+spec:
+  redirectRegex:
+    regex: "^https://gitea.kube.example.com/(.*)"
+    replacement: "https://gitea.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: gitea-kube
+  namespace: gitea
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`gitea.kube.example.com`)
+      services:
+        - name: gitea
+          port: 3000
+      middlewares:
+        - name: gitea-kube-redirect
+  tls: {}

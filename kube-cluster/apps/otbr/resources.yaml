@@ -1,0 +1,321 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: otbr
+---
+# The LAN attachment, and the reason this cannot be an ordinary pod.
+#
+# A Thread border router is an IPv6 *router*: it advertises the mesh prefix into the LAN
+# with Router Advertisements and forwards between wpan0 and the LAN. RAs are link-local
+# multicast, so they need a real L2 presence — the pod network is IPv4 single-stack and a
+# MetalLB VIP is unicast and NAT'd. macvlan gives this pod its own MAC and IP on the LAN.
+# Same reasoning as ../matter-server, which is the neighbouring address .8.
+#
+# Two plugins chained:
+#   macvlan — the interface itself, parented to the node's LAN NIC.
+#   tuning  — the IPv6 sysctls. These CANNOT be set by the container: containerd mounts
+#             /proc/sys read-only for non-privileged pods, and the image's entrypoint does
+#             try (`sudo sysctl --system`) and fails harmlessly with "Read-only file
+#             system". They also cannot go in securityContext.sysctls, because
+#             net.ipv6.conf.all.forwarding is not on kubelet's safe list and would need
+#             allowlisting in k0sctl.yaml's workerProfiles — a cluster-wide change for one
+#             pod. The tuning plugin sets them in the pod netns at CNI time instead, which
+#             is already how matter-server gets accept_ra_rt_info_max_plen.
+#
+#   forwarding=1 is what makes this a router at all.
+#   accept_ra=2 (not 1) is required *because* forwarding is on: Linux ignores RAs on an
+#   interface once forwarding is enabled unless accept_ra is explicitly 2. Without it this
+#   pod never learns the upstream prefix and cannot do border routing.
+#
+# NOTE: deliberately NO gateway in the ipam block, as in matter-server. A gateway here
+# would install a default route via net1 and hijack the pod's egress away from eth0,
+# breaking cluster DNS and API access.
+#
+# 10.20.3.7 is macvlan space by repo convention (10.20.2.x is MetalLB VIPs and k0s nodes).
+# The LAN is one flat 10.20.0.0/16 so 10.20.2.7 would work technically, but a macvlan pod
+# sitting in the MetalLB range is invisible to MetalLB, which would happily hand the same
+# address to a Service later. Must also stay outside the router's DHCP pool.
+apiVersion: k8s.cni.cncf.io/v1
+kind: NetworkAttachmentDefinition
+metadata:
+  name: lan
+  namespace: otbr
+spec:
+  config: |
+    {
+      "cniVersion": "0.3.1",
+      "name": "lan",
+      "plugins": [
+        {
+          "type": "macvlan",
+          "master": "ens18",
+          "mode": "bridge",
+          "ipam": {
+            "type": "static",
+            "addresses": [{"address": "10.20.3.7/16"}]
+          }
+        },
+        {
+          "type": "tuning",
+          "sysctl": {
+            "net.ipv6.conf.all.forwarding": "1",
+            "net.ipv6.conf.IFNAME.accept_ra": "2"
+          }
+        }
+      ]
+    }
+---
+# The Active Operational Dataset lives here — network key, PAN ID, channel, network name,
+# plus the MLE/MAC security frame counters. It *is* the Thread network's identity: lose this
+# volume and every commissioned device is orphaned and has to be re-commissioned by hand,
+# exactly like matter-server's fabric credentials.
+#
+# cephfs, matching matter-server, and this was ceph-rbd first by mistake. The repo's
+# "embedded database file -> block" rule is about SQLite-style access (mmap, byte-range
+# locks); otbr-agent keeps a single flat key-value file rewritten via tmp-file-plus-rename,
+# which is the file-only case cephfs is for. 36K in practice.
+#
+# The decisive argument is backup, not semantics. Backrest mounts the whole fastappdata
+# CephFS filesystem, and the cephfs StorageClass provisions subvolumes inside it, so dynamic
+# cephfs volumes are at least reachable. Dynamic RBD volumes are block images in pool
+# rbd.kube with no mount and no path — nothing can back them up. Putting the one
+# irreplaceable file here on RBD made it the only thing in the repo that could not be
+# recovered. (Coverage still needs the Backrest plan — task #89.)
+#
+# RWX, as matter-server does. Single-writer is enforced by strategy: Recreate below, which
+# the fixed macvlan address and the single radio require anyway.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: otbr-dataset
+  namespace: otbr
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: cephfs
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otbr
+  namespace: otbr
+spec:
+  replicas: 1
+  # Recreate for three independent reasons: the RWO volume, the fixed macvlan address, and
+  # the single radio — two border routers cannot share one RCP.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: otbr
+  template:
+    metadata:
+      annotations:
+        # Attach the LAN interface as net1, in addition to the pod network on eth0.
+        k8s.v1.cni.cncf.io/networks: lan
+      labels:
+        app.kubernetes.io/name: otbr
+        app.kubernetes.io/instance: otbr
+        # Home Assistant reaches the REST API on the ClusterIP over eth0, the policed
+        # interface. Everything that makes this a border router — RAs, mesh forwarding,
+        # mDNS — happens on net1, which kube-vnet does NOT see: NetworkPolicy is not
+        # applied to secondary interfaces. See the README; for a router that is a larger
+        # hole than it is for matter-server, and it is accepted deliberately.
+        kube-vnet/net.otbr: ingress
+    spec:
+      enableServiceLinks: false
+      # No initContainer. socat is mounted from the image that ships it and the launcher comes
+      # from a ConfigMap, so nothing is copied or chmod-ed at pod start — the kubelet already had
+      # to mount that image to run the copy, so the copy bought nothing.
+      #
+      # The image ships no socat, no netcat and no curl (verified: it is Ubuntu 18.04, glibc
+      # 2.27), and the RCP is not a local device — it is the SLZB's serial-over-IP port.
+      # Something has to bridge TCP to a pty, and it must run in the OTBR container itself: a pty
+      # belongs to the /dev/pts instance of the container that created it, so a sidecar cannot
+      # hand one over. Files can be shared, which is why socat arrives as a volume.
+      #
+      # glibc 2.27 is too old for any current prebuilt socat, so this uses the musl loader and
+      # socat's libraries from the alpine image and invokes them explicitly, sidestepping the
+      # host libc entirely. See socat-launcher.
+      containers:
+        - name: otbr
+          # Upstream publishes exactly one tag, `latest`, so a tag tracks nothing and the
+          # digest is the only honest pin — same call as apps/webtop.
+          #
+          # Verified, not assumed: Docker Hub reports a tag count of 1 for openthread/otbr.
+          # This is the ONLY image here that legitimately carries a bare digest; every other
+          # pin in the repo is tag@digest, so a bare digest should be read as "upstream ships
+          # no usable tag" rather than as an oversight.
+          #
+          # DO NOT BUMP THIS WITHOUT A THREAD NETWORK TO TEST ON. Renovate's digest updates
+          # are dashboard-gated (renovate.json) because this pin is not really a software
+          # version — it is one half of a contract with the RCP firmware on the SLZB-MR5U,
+          # which lives outside the cluster and outside this repo, so nothing in CI can tell
+          # whether a digest works. The only test is the border router coming back.
+          #
+          # TWO digests are now known bad, both failing identically on
+          #     otPlatRadioSetMacKey() at radio.cpp:964: InvalidArgument
+          # immediately after the RCP reset:
+          #     58a44e6c  PR #104, 2026-08-06
+          #     42b358ed  PR #122, 2026-08-08
+          # That is not two unlucky builds. Every otbr image published since 4f723b80 has
+          # disagreed with this radio's firmware, so treat the next digest as bad until proven
+          # otherwise — and expect the fix to be a FIRMWARE update on the SLZB-MR5U rather than
+          # a newer image. Bumping the pin alone has now failed twice.
+          #
+          # The failure is SILENT: otbr-agent is not PID 1, so its abort leaves the pod Running
+          # and only the readiness probe on :8081 goes red. Thread stays down with nothing
+          # announcing it. Watch `kubectl -n otbr get pod` for 0/1 after any bump.
+          image: openthread/otbr@sha256:4f723b80b1976327930635cb477d62ff99ece3b39e117a1f501bce8713f9ca36
+          securityContext:
+            capabilities:
+              add:
+                # NET_ADMIN: create the wpan0 TUN interface, add routes, run ip6tables for
+                # the Thread firewall. NET_RAW: ICMPv6 (Router Advertisements, ND).
+                # Not privileged — the container still cannot write /proc/sys, which is
+                # why the sysctls come from the CNI tuning plugin above.
+                - NET_ADMIN
+                - NET_RAW
+          env:
+            - name: TZ
+              value: Europe/Berlin
+            # How otbr-agent reaches the radio. `spinel+hdlc+forkpty://` is one of only
+            # three transports OpenThread implements (the others are +uart and +spi);
+            # there is deliberately no TCP scheme, because the RCP split leaves the
+            # timing-critical lower MAC on the radio and 802.15.4 has hard deadlines.
+            # otbr-agent forks this program with a pty attached and speaks HDLC over it.
+            #
+            # The pty is safe for binary spinel: otbr-agent passes a cfmakeraw termios as
+            # forkpty()'s third argument, so the slave is raw from creation and nothing
+            # translates 0x0a or eats 0x00. (Measured: through a pty that is *not* raw, an
+            # HDLC frame comes back mangled and echoed — hence the explicit note.)
+            #
+            # nodelay disables Nagle. Not cosmetic: this link is already out of spec on
+            # latency grounds, and buffering 40ms of spinel would make it worse.
+            - name: RADIO_URL
+              value: "spinel+hdlc+forkpty:///opt/socat-bin/socat.sh?forkpty-arg=-&forkpty-arg=tcp:10.20.1.50:7638,nodelay"
+            # The infrastructure ("backbone") interface: where RAs are sent, where mDNS is
+            # answered, where the mesh prefix is advertised. This MUST be net1. The image
+            # defaults it to eth0, which would advertise Thread into the pod network and
+            # be invisible to every real device on the LAN.
+            - name: BACKBONE_INTERFACE
+              value: net1
+            - name: TUN_INTERFACE_NAME
+              value: wpan0
+            # The image's entrypoint binds the REST API to $REST_HOST, which defaults to
+            # $HTTP_HOST, which defaults to 127.0.0.1 — i.e. unreachable from outside the
+            # pod unless set. 0.0.0.0 rather than :: because the path we actually use is
+            # the IPv4 ClusterIP; Thread traffic never goes through REST.
+            - name: REST_HOST
+              value: 0.0.0.0
+            # ...while the web UI stays on loopback. It is an unauthenticated admin
+            # interface that can erase the dataset, and this pod is on the LAN with no
+            # NetworkPolicy in front of net1. Reach it with `kubectl port-forward` when
+            # needed. Explicit rather than relying on the default, since REST_HOST above
+            # would otherwise have silently taken this value.
+            - name: HTTP_HOST
+              value: 127.0.0.1
+            # NAT64 lets Thread devices reach IPv4 hosts. Off: it is not needed for Matter
+            # (the fabric is IPv6-only), it pulls in iptables NAT and DNS64, and the
+            # entrypoint aborts the container outright if it fails to start. One fewer way
+            # for a first deployment to fail. Flip to "1" if a Thread device ever needs
+            # IPv4.
+            - name: NAT64
+              value: "0"
+            # The Thread firewall is OFF, and not by preference — the entrypoint aborts
+            # the whole container without it, so this is what "running at all" costs here.
+            #
+            # It wants legacy ip6tables (`ip6tables -N OTBR_FORWARD_INGRESS`), and the
+            # nodes have no `ip6table_filter` module loaded: "can't initialize ip6tables
+            # table `filter': Table does not exist". The container cannot load it — the
+            # image has no kmod, and loading host modules would need SYS_MODULE. The image
+            # is Ubuntu 18.04 with iptables 1.6.1, which is legacy-only and cannot fall
+            # back to the nft backend the nodes actually use.
+            #
+            # What is lost: OTBR_FORWARD_INGRESS, the Thread 1.2 rule set filtering
+            # traffic coming *from* the mesh onto the infrastructure link. Mesh devices can
+            # now reach the LAN unfiltered. That is a real reduction, though a bounded one
+            # here — net1 already sits outside NetworkPolicy entirely (see README).
+            #
+            # To restore it: load ip6table_filter on the workers and persist it via
+            # k0sctl.yaml, then drop this variable.
+            - name: FIREWALL
+              value: "0"
+            # 6 = INFO. The default is 7 (DEBUG), which is a firehose of spinel frames.
+            # Set it back to 7 when debugging the radio link — that is where HDLC parse
+            # errors and RCP timeouts show up.
+            - name: DEBUG_LEVEL
+              value: "6"
+          ports:
+            - name: rest
+              containerPort: 8081
+          readinessProbe:
+            # tcpSocket, not httpGet /node/state: the REST API answers long before the
+            # node has attached to (or formed) a mesh, and a probe that failed while
+            # detached would restart the pod exactly when it is trying to re-attach.
+            # Mesh health is a thing to look at, not to gate readiness on.
+            tcpSocket:
+              port: rest
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 12
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/thread
+            - name: socat
+              mountPath: /opt/socat
+              readOnly: true
+            # The launcher, executed in place. A ConfigMap volume is read-only but executable,
+            # which is all this needs — the old initContainer wrote it and chmod-ed it because
+            # it had an emptyDir to write into.
+            - name: socat-launcher
+              mountPath: /opt/socat-bin
+              readOnly: true
+            # OTBR creates wpan0, a TUN interface, which needs the host's tun device node.
+            # This is the one piece of node access here; it is a single character device
+            # and cannot be narrowed further.
+            - name: tun
+              mountPath: /dev/net/tun
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: otbr-dataset
+        # alpine/socat, mounted rather than copied out of.
+        #
+        # TAG **and** digest. Upstream publishes real version tags here (unlike openthread/otbr),
+        # and with a bare digest a Renovate PR reads "update digest to e7b1771" — which is what a
+        # rebuild of the same version looks like AND what 1.8.0.3 -> 1.8.1.3 looks like. On an
+        # image with a history of breaking the border router (1.8.0.2, ot-br-posix#2719) that
+        # difference has to be legible. The digest keeps the pin immutable.
+        - name: socat
+          image:
+            # renovate: datasource=docker
+            reference: alpine/socat:1.8.1.3@sha256:3ed1cd38741bd445ebffa3aecb9d80c46a83db45f5b5ef03332976c7ca9814af
+            pullPolicy: IfNotPresent
+        - name: socat-launcher
+          configMap:
+            name: otbr-socat-launcher
+            defaultMode: 0755
+        - name: tun
+          hostPath:
+            path: /dev/net/tun
+            type: CharDevice
+---
+# The REST API, for Home Assistant's OpenThread Border Router integration:
+# http://otbr.otbr:8081. Not exposed through Traefik and not given a MetalLB VIP — it is an
+# internal control channel with no authentication of its own, and the pod is already on the
+# LAN via net1 for the traffic that needs to be.
+apiVersion: v1
+kind: Service
+metadata:
+  name: otbr
+  namespace: otbr
+spec:
+  selector:
+    app.kubernetes.io/name: otbr
+  ports:
+    - name: rest
+      port: 8081
+      targetPort: rest

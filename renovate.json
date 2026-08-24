@@ -1,0 +1,107 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "ignorePaths": ["templates/**", "scripts/**"],
+  "platformAutomerge": false,
+  "flux": {
+    "managerFilePatterns": [
+      "/\\.ya?ml$/"
+    ]
+  },
+  "kubernetes": {
+    "managerFilePatterns": [
+      "/\\.ya?ml$/"
+    ]
+  },
+  "github-actions": {
+    "enabled": false
+  },
+  "customManagers": [
+    {
+      "description": "Track the k0s version in k0sctl.yaml (the k0s-upgrade wrapper reads it from here).",
+      "customType": "regex",
+      "managerFilePatterns": ["/kube-cluster/k0sctl\\.yaml$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+version:\\s*\"(?<currentValue>[^\"]+)\""
+      ],
+      "versioningTemplate": "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)\\+k0s\\.(?<build>\\d+)$"
+    },
+    {
+      "description": "Kubernetes image volumes. The built-in kubernetes manager looks for `image: <string>`, but an image volume spells it `image: {reference: repo:tag}` — a mapping — so it sees nothing and the reference would silently stop being bumped. Anchored on an explicit `# renovate: datasource=docker` comment rather than matching every `reference:` in the repo, because composed artifacts (apps/freshrss) use that same key for a placeholder the generator rewrites, which must NOT be tracked.",
+      "customType": "regex",
+      "managerFilePatterns": ["/kube-cluster/.*\\.ya?ml$/"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+reference:\\s*[\"']?(?<depName>[^\"'\\s:]+):(?<currentValue>[^\"'\\s@]+)"
+      ]
+    },
+    {
+      "description": "Release archives fetched by URL in an ImageComposition `fetch:` layer (infra/opentelemetry-gateway/tiered-storage-plugin.yaml). Nothing built in sees a version buried in a download URL. IMPORTANT: this manager can only bump the URL — the sibling `digest:` has to be recomputed by hand from the new bytes, and a URL/digest mismatch is TERMINAL in the composer. So the matched dependency is dashboard-gated in packageRules and must never automerge.",
+      "customType": "regex",
+      "managerFilePatterns": ["/kube-cluster/.*\\.ya?ml$/"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)\\s+url:\\s*\\S+/download/(?<currentValue>v[^/\\s]+)/"
+      ]
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Automerge patch (bugfix) releases only. platformAutomerge:false so Renovate merges via the API (works on a private/free repo without GitHub auto-merge or branch protection). Minor + major become review PRs. Gated by the lint CI: the RENOVATE_TOKEN fine-grained PAT (Contents:RW + Pull requests:RW) opens PRs as a real user so the lint workflow runs. That PAT can't read the Checks API (no Checks permission on this account), so lint.yml also posts a `lint` commit STATUS (which Renovate can read) — that flips the branch green and lets automerge proceed.",
+      "matchUpdateTypes": ["patch"],
+      "automerge": true
+    },
+    {
+      "description": "The k0s version rolls the whole cluster (via Autopilot) on merge, so never automerge it — always a human-reviewed PR.",
+      "matchDepNames": ["k0sproject/k0s"],
+      "automerge": false,
+      "addLabels": ["k0s"]
+    },
+    {
+      "description": "Hold semaphore at 2.17.x. The whole v2.18.x line's closed pro_impl terraform store panics 'unknown store type' on the bolt DB backend (bolt is deprecated upstream). v2.17.39 is the last bolt-compatible release. Lift this cap only after migrating semaphore off bolt.",
+      "matchPackageNames": ["semaphoreui/semaphore"],
+      "allowedVersions": "<2.18.0"
+    },
+    {
+      "description": "Reject v26.02.x on mautrix/signal: it is a DOWNGRADE wearing a major-version costume. mautrix tags releases v0.YYMM.P, but for about two weeks in Feb 2026 dock.mau.dev also published the same builds as vYY.MM.P — v26.02.1 and v26.02.2 are byte-identical aliases of v0.2602.1/v0.2602.2 (verified: v26.02.2 and v0.2602.2 share one manifest, and neither exists as a GitHub release). Renovate compares major 26 against major 0, calls it a major upgrade, and would roll the bridge back six months onto a database already migrated forward — schema downgrades are not supported, and signal's pairing backfill is a one-shot that cannot be redone. Scoped narrowly rather than pinning the whole image to ^v0\\. : only these two tags exist (probed v26.01 through v26.08 and v25.12), telegram and whatsapp have none, and a format-wide rule would silently hide a genuine move to calver if upstream ever makes one.",
+      "matchPackageNames": ["dock.mau.dev/mautrix/signal"],
+      "allowedVersions": "!/^v26\\.02\\./"
+    },
+    {
+      "description": "Lock dock.mau.dev/mautrix/meta to its `ig-` tags. That image ships TWO DIFFERENT BRIDGES from one repo: the plain tags are Facebook Messenger, the ig- prefixed ones are Instagram (upstream README: 'this repo contains two bridges ... different build script, different docker tags'). They are separate images, not aliases — ig-v0.2608.0 is sha256:4b2704de and v0.2608.0 is sha256:662f3d52. We run Instagram. Without this rule nothing stops Renovate offering v0.2609.0 as an upgrade for an ig-v0.2608.0 pin, which would start the Messenger bridge against a database populated by the Instagram one — a silent, schema-level wrong-bridge swap rather than an obvious failure. The regex versioning parses YYMM.P out of the prefix so real Instagram releases still get PRs; allowedVersions is the belt to that braces.",
+      "matchPackageNames": ["dock.mau.dev/mautrix/meta"],
+      "versioning": "regex:^ig-v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$",
+      "allowedVersions": "/^ig-v/"
+    },
+    {
+      "description": "Do not let Renovate touch ghcr.io/lhns/mautrix-discord. It is our own fork of mautrix-discord v0.7.7 carrying the backfill throttle + retry patch (branch backfill-throttle-retry), tagged v<upstream>-throttle.<n>. No upstream release stream maps onto that tag scheme, so anything Renovate could offer would either be an unrelated build or silently drop the patch. Rebasing onto a newer upstream is a deliberate act: re-apply the four diffs (documented in apps/matrix/README.md), rebuild via the fork's build-image workflow, bump the pin by hand. Discord initial backfill is a ONE-SHOT per portal, so running an accidentally un-patched image is not a recoverable mistake — it truncates channels permanently.",
+      "matchPackageNames": ["ghcr.io/lhns/mautrix-discord"],
+      "enabled": false
+    },
+    {
+      "description": "openthread/otbr needs a human and a Thread network, so it waits on the dependency dashboard instead of opening PRs. Upstream ships only `latest`, so every update is a digest update, and a digest update here is not a software bump in the usual sense: the image's otbr-agent has to agree with the RCP firmware on the SLZB-MR5U, which lives outside the cluster and outside this repo, so nothing in CI can tell whether a given digest works. It bit on 2026-08-06 (PR #104, digest 58a44e6c): otbr-agent aborted on otPlatRadioSetMacKey InvalidArgument right after the RCP reset, taking Thread down — and because only the readiness probe failed while the pod stayed Running, nothing announced it. Approve these from the dashboard when there is time to watch the border router come back.",
+      "matchPackageNames": ["openthread/otbr"],
+      "dependencyDashboardApproval": true,
+      "automerge": false,
+      "addLabels": ["thread-radio"]
+    },
+    {
+      "description": "The five spliit-cloud images are built from ONE commit and must move together. The web<->api contract (tRPC, and the paths nginx proxies) is not versioned, so a web from one commit against an api from another is a real breakage that Renovate cannot see -- left alone it treats them as five unrelated packages and opens five PRs that can land in any order. Grouping them into a single PR makes a mismatch impossible. The fork publishes no semver (only `latest` and full commit shas, 0 releases), which is also why these are pinned to a sha tag rather than a version.",
+      "matchPackageNames": [
+        "ghcr.io/antonio-ivanovski/spliit-cloud-web",
+        "ghcr.io/antonio-ivanovski/spliit-cloud-api",
+        "ghcr.io/antonio-ivanovski/spliit-cloud-worker",
+        "ghcr.io/antonio-ivanovski/spliit-cloud-migrate",
+        "ghcr.io/antonio-ivanovski/spliit-cloud-mcp"
+      ],
+      "groupName": "spliit-cloud",
+      "automerge": false,
+      "addLabels": ["spliit-cloud"]
+    },
+    {
+      "description": "The Aiven tiered-storage plugin waits on the dependency dashboard, because a version bump is only HALF the change. The custom manager rewrites the download URL; the sibling `digest:` in the same ImageComposition layer has to be recomputed from the new archive by hand, and a URL/digest mismatch is terminal in oci-composer — the artifact stops building, and Kafka brokers are what consume it. Approve from the dashboard, then edit both url and digest together (see infra/opentelemetry-gateway/README.md).",
+      "matchPackageNames": ["Aiven-Open/tiered-storage-for-apache-kafka"],
+      "dependencyDashboardApproval": true,
+      "automerge": false,
+      "addLabels": ["kafka-plugin"]
+    }
+  ]
+}

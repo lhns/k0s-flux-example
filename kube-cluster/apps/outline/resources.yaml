@@ -1,0 +1,160 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: outline
+---
+# ===========================================================================
+# Redis — Outline's cache + websocket/pub-sub. No durable data, so emptyDir.
+# (standardnotes-cache pattern.)
+# ===========================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: outline-redis
+  namespace: outline
+spec:
+  selector:
+    app.kubernetes.io/name: outline-redis
+  ports:
+    - {name: redis, port: 6379, targetPort: 6379}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: outline-redis
+  namespace: outline
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: outline-redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: outline-redis
+        app.kubernetes.io/instance: outline
+        kube-vnet/net.outline-redis: ingress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: redis
+          image: redis:8-alpine
+          ports:
+            - {name: redis, containerPort: 6379}
+          readinessProbe:
+            exec: {command: ["redis-cli", "ping"]}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - {name: data, mountPath: /data}
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+# ===========================================================================
+# Local file storage (FILE_STORAGE=local). The source dir on Swarm was empty,
+# so this starts fresh. RWO ceph-rbd, single writer. Outline runs as uid 1001,
+# so fsGroup 1001 makes the (empty) volume writable.
+# ===========================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: outline-data
+  namespace: outline
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 5Gi
+---
+# ===========================================================================
+# Outline — the wiki. Auth is OIDC against our Authelia (client already
+# registered in apps/authelia), so NO Authelia forwardAuth on the route.
+# Postgres in the shared CNPG cluster; PGSSLMODE=disable for the self-signed CA.
+# SECRET_KEY/UTILS_SECRET encrypt data at rest -> reused verbatim from the old
+# compose (changing them would orphan the restored DB).
+# The one-time DB restore ran into the empty CNPG db before first boot (see
+# README); now live at replicas: 1.
+# ===========================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: outline
+  namespace: outline
+spec:
+  selector:
+    app.kubernetes.io/name: outline
+  ports:
+    - {name: http, port: 3000, targetPort: http}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: outline
+  namespace: outline
+  annotations:
+    # roll the pod when a referenced Secret changes (rotation): env-var values are
+    # never updated in a running pod, and mounted files still need a re-read.
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy: {type: Recreate}        # RWO file PVC -> single writer
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: outline
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: outline
+        app.kubernetes.io/instance: outline
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.postgres.postgres: egress
+        kube-vnet/net.outline-redis: egress
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        fsGroup: 1001               # Outline runs as nodejs (uid/gid 1001)
+      containers:
+        - name: outline
+          image: outlinewiki/outline:1.9.2
+          ports:
+            - {name: http, containerPort: 3000}
+          readinessProbe:
+            httpGet: {path: /_health, port: http}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 12
+          env:
+            - {name: NODE_ENV, value: production}
+            - {name: TZ, value: Europe/Berlin}
+            - {name: URL, value: "https://outline.example.com"}
+            - {name: PORT, value: "3000"}
+            - {name: DEFAULT_LANGUAGE, value: en_US}
+            # --- storage ---
+            - {name: FILE_STORAGE, value: local}
+            - {name: FILE_STORAGE_LOCAL_ROOT_DIR, value: /var/lib/outline/data}
+            # --- redis ---
+            - {name: REDIS_URL, value: "redis://outline-redis:6379"}
+            # --- postgres (shared CNPG); password interpolated from the reflected secret ---
+            - {name: PGSSLMODE, value: disable}
+            - {name: OUTLINE_DB_PASSWORD, valueFrom: {secretKeyRef: {name: outline-db, key: password}}}
+            - {name: DATABASE_URL, value: "postgres://outline:$(OUTLINE_DB_PASSWORD)@postgres-rw.postgres.svc.cluster.local:5432/outline"}
+            # --- app secrets (data-at-rest keys; reused verbatim) ---
+            - {name: SECRET_KEY, valueFrom: {secretKeyRef: {name: outline, key: SECRET_KEY}}}
+            - {name: UTILS_SECRET, valueFrom: {secretKeyRef: {name: outline, key: UTILS_SECRET}}}
+            # --- OIDC (Authelia) ---
+            - {name: OIDC_CLIENT_ID, value: outline}
+            - {name: OIDC_CLIENT_SECRET, valueFrom: {secretKeyRef: {name: outline, key: OIDC_CLIENT_SECRET}}}
+            - {name: OIDC_AUTH_URI, value: "https://auth.example.com/api/oidc/authorization"}
+            - {name: OIDC_TOKEN_URI, value: "https://auth.example.com/api/oidc/token"}
+            - {name: OIDC_USERINFO_URI, value: "https://auth.example.com/api/oidc/userinfo"}
+            - {name: OIDC_USERNAME_CLAIM, value: preferred_username}
+            - {name: OIDC_DISPLAY_NAME, value: Authelia}
+            - {name: OIDC_SCOPES, value: "openid profile email"}
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/outline/data}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: outline-data

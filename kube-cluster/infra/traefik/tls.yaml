@@ -1,0 +1,40 @@
+---
+# The Traefik default cert (TLSStore/default below). Covers both the internal
+# *.kube.example.com zone and the apex *.example.com zone, so every app's Ingress gets a
+# valid cert for either host with no per-app tls config.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: lhns-de
+  namespace: traefik
+spec:
+  secretName: lhns-de
+  # Mirror the generated wildcard-cert secret into the namespaces whose workloads
+  # terminate TLS themselves rather than behind Traefik. Reflector.
+  #   stalwart — mail, on 465/993/25
+  #   coturn   — turns:5349 (turn.example.com is a single label, so *.example.com covers it)
+  secretTemplate:
+    annotations:
+      reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+      reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: stalwart,coturn
+      reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+      reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: stalwart,coturn
+  issuerRef:
+    name: letsencrypt-ionos-prod
+    kind: ClusterIssuer
+  dnsNames:
+    # kube.example.com is intentionally omitted — it's covered by *.example.com, and Let's
+    # Encrypt rejects an order listing both a name and a wildcard that covers it.
+    # (*.kube.example.com stays: two labels, NOT matched by the single-label *.example.com.)
+    - "*.kube.example.com"
+    - "*.example.com"
+    - "example.com"
+---
+apiVersion: traefik.io/v1alpha1
+kind: TLSStore
+metadata:
+  name: default
+  namespace: traefik
+spec:
+  defaultCertificate:
+    secretName: lhns-de

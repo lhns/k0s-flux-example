@@ -1,0 +1,38 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: kube-vnet
+  namespace: kube-vnet-system
+spec:
+  interval: 1h0m0s
+  url: oci://ghcr.io/lhns/charts/kube-vnet
+  ref:
+    # Bump to roll a new version.
+    tag: "0.7.2"
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kube-vnet
+  namespace: kube-vnet-system
+spec:
+  interval: 10m0s
+  # releaseName/storageNamespace default to name/namespace (kube-vnet /
+  # kube-vnet-system), matching the release k0s installed -> adopted in place.
+  chartRef:
+    kind: OCIRepository
+    name: kube-vnet
+  values:
+    operator:
+      # Manage every namespace. The operator always self-excludes its own namespace
+      # (kube-vnet-system), so [] safely means "manage everything, including
+      # kube-system". As of chart 0.5.0 an empty list means "disable nothing"; older
+      # charts fell back to the system-namespace default on [].
+      disabledNamespaces: []
+      clusterBaseline:
+        # pod = default-deny ingress everywhere (even same-namespace); ingress only
+        # via an explicit vnet membership/binding + the auto-allows (LB/NodePort svc,
+        # hostPort, apiserver-dialed webhooks). Cluster DNS stays up via the chart's
+        # dnsCarveout NetworkPolicy, auto-rendered because kube-system is managed.
+        ingressIsolationLevel: pod

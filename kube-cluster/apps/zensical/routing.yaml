@@ -1,0 +1,47 @@
+---
+# The blog — public static site. TLS via the default *.example.com wildcard.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: zensical
+  namespace: zensical
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`blog.example.com`)
+      services:
+        - name: zensical
+          port: 8000
+  tls: {}
+---
+# zensical.example.com, the apex example.com, and blog.kube.example.com all redirect to the
+# canonical blog.example.com (host-rewrite preserving scheme + path). The apex example.com is
+# covered by the default cert (it lists example.com alongside *.example.com).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: zensical-redirect
+  namespace: zensical
+spec:
+  redirectRegex:
+    regex: "^([^:]*://)[^/]*"
+    replacement: "${1}blog.example.com"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: zensical-redirect
+  namespace: zensical
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`zensical.example.com`) || Host(`example.com`) || Host(`blog.kube.example.com`)
+      services:
+        - name: zensical
+          port: 8000
+      middlewares:
+        - name: zensical-redirect
+  tls: {}

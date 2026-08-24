@@ -1,0 +1,21 @@
+---
+# Home Assistant -> otbr :8081 (the REST API its OpenThread Border Router integration
+# talks to). Under pod-level kube-vnet isolation cross-namespace ingress is denied by
+# default, so expose a vnet the homeassistant namespace may join. HA opts in with the
+# egress label kube-vnet/net.otbr.otbr; otbr itself carries kube-vnet/net.otbr: ingress.
+#
+# This governs the ClusterIP path only, and that path is the *small* one. Everything that
+# makes this pod a border router happens on net1, which kube-vnet cannot see —
+# NetworkPolicy does not apply to secondary interfaces. matter-server carries the same
+# caveat, but here it is bigger in kind: this pod forwards packets between the Thread mesh
+# and the LAN, so an entire routed path exists outside the policy layer by design.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: otbr
+  namespace: otbr
+spec:
+  description: "Home Assistant -> otbr :8081 REST API."
+  allowedNamespaces:
+    names:
+      - homeassistant

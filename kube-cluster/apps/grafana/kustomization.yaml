@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # Needs the CNPG cluster + Database/DatabaseRole CRDs (infra-postgres) and
+    # Reflector (infra-reflector) to mirror the db secret into this namespace.
+    # Read by the root generator; inert to kustomize.
+    dependsOn: infra-postgres,infra-reflector
+resources:
+- resources.yaml
+- grafana-config-secret.yaml
+- db-role-secret.yaml
+- database.yaml

@@ -1,0 +1,31 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # CNPG (db) + Reflector (db secret) + Reloader (config/secret roll) + ceph-rbd
+    # (redis PVC). No global `namespace:` — database/db-role-secret live in postgres ns.
+    dependsOn: infra-postgres,infra-reflector,infra-reloader,infra-ceph-csi-rbd,infra-cert-manager
+resources:
+- resources.yaml
+- valkey.yaml
+- routing.yaml
+- vnet.yaml
+- database.yaml
+- db-role-secret.yaml
+- secret.yaml
+# configuration.yml -> a hashed ConfigMap so edits roll the pod (Reloader also covers
+# secret changes). index.php -> the user-info page.
+configMapGenerator:
+- name: authelia-config
+  namespace: authelia
+  files:
+  - configuration.yml
+- name: user-info-html
+  namespace: authelia
+  files:
+  - index.php
+- name: valkey-scripts
+  namespace: authelia
+  files:
+  - start-valkey.sh
+  - start-sentinel.sh
