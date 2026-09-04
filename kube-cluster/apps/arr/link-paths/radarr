@@ -1,0 +1,4 @@
+#!/bin/bash
+ln -sf /media/movies /movies
+ln -sf /media/movies2 /movies2
+ln -sf /media/downloads /downloads

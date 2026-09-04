@@ -1,0 +1,4 @@
+#!/bin/bash
+ln -sf /media/series /series
+ln -sf /media/series2 /series2
+ln -sf /media/downloads /downloads

@@ -2,6 +2,19 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: forgejo-runner
+---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: forgejo-runner
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
   labels:
     # Nothing enforces PodSecurity in this cluster today, so these change no behaviour. They are
     # here to state the exception AT the namespace boundary: this is a namespace that legitimately
@@ -27,21 +40,12 @@ automountServiceAccountToken: false
 # ===========================================================================
 # Forgejo Actions runner + its own Docker daemon.
 #
-# Modelled on apps/gitea-runner, which is proven here — but forgejo-runner v13
-# diverged from act_runner in exactly the area that manifest is most opinionated
-# about. What survives verbatim is the CONTAINMENT (privileged sidecar bound to
-# loopback, disposable emptyDir image store, non-privileged jobs, egress policy).
-# What is gone is the entire identity apparatus: no registration token, no
-# .runner file, no PVC to hold it, and therefore no StatefulSet.
+# Modelled on apps/gitea-runner, minus the identity apparatus: v13 keeps the
+# uuid/token in config.yaml, so there is no .runner file, no PVC and no need for a
+# StatefulSet (gitea-runner is one only because its name came from metadata.name).
 #
-# A Deployment is the honest shape now. gitea-runner is a StatefulSet only
-# because GITEA_RUNNER_NAME came from metadata.name, so a Deployment's rolling
-# random names would register a new runner on every roll. In v13 identity is the
-# uuid/token pair in config.yaml and the display name is fixed server-side at
-# registration, so pod-name stability buys nothing at all.
-#
-# THIS IS A PRIVILEGED WORKLOAD. Read the README before changing it — in
-# particular, the real perimeter is who can trigger a workflow, not this file.
+# THIS IS A PRIVILEGED WORKLOAD. Read the README first -- the real perimeter is who
+# can trigger a workflow, not this file.
 # ===========================================================================
 apiVersion: apps/v1
 kind: Deployment
@@ -49,8 +53,6 @@ metadata:
   name: forgejo-runner
   namespace: forgejo-runner
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   # One pod. Two replicas would share one connection and fight over jobs; scale
@@ -167,12 +169,16 @@ spec:
             requests:
               cpu: "1"
               memory: 2Gi
+              # The 40Gi+10Gi emptyDir sizeLimits below are a ceiling, not a working set
+              # (observed: 0-1.6G). Requested so the scheduler stops treating this pod's
+              # disk demand as zero and stacking runners onto one node.
+              ephemeral-storage: 10Gi
             limits:
               cpu: "8"
               memory: 12Gi
       containers:
         - name: runner
-          image: code.forgejo.org/forgejo/runner:13.0.0
+          image: code.forgejo.org/forgejo/runner:13.1.0
           # The image's CMD is a bare `/bin/forgejo-runner`, which prints help and
           # exits — so the subcommand has to be given explicitly or the pod
           # CrashLoops on something that looks like success.

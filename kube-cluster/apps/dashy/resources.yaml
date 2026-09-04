@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: dashy
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: dashy
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -29,7 +42,7 @@ spec:
       containers:
         - name: dashy
           # Pinned to a real release tag so Renovate tracks version bumps.
-          image: lissy93/dashy:4.5.12
+          image: lissy93/dashy:4.6.9
           env:
             - name: TZ
               value: Europe/Berlin

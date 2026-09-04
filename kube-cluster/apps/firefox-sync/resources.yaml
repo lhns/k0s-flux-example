@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: firefox-sync
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: firefox-sync
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # Self-hosted Firefox Sync server (syncstorage-rs, postgres backend). Stateless —
 # all state is in the two CNPG databases (schema created by the server on startup).
 # Token verification is against Mozilla FxA (external). Migrated from Docker Swarm,
@@ -13,8 +26,6 @@ metadata:
   name: firefox-sync
   namespace: firefox-sync
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   replicas: 1

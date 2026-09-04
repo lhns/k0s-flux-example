@@ -1,0 +1,124 @@
+# Traefik reaches these pods on eth0, which stays in the pod network -- the
+# gateway only rewrites the DEFAULT route, and the pod/service CIDRs are in
+# NOT_ROUTED_TO_GATEWAY_CIDRS. So ingress is unaffected by the tunnel.
+#
+# All six are behind authelia; none of them should ever be exposed unauthenticated.
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: sabnzbd
+  namespace: arr
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`sabnzbd.example.com`)
+      services:
+        - name: sabnzbd
+          port: 8080
+      middlewares:
+        - name: authelia
+  tls: {}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: sonarr
+  namespace: arr
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`sonarr.example.com`)
+      services:
+        - name: sonarr
+          port: 8989
+      middlewares:
+        - name: authelia
+  tls: {}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: radarr
+  namespace: arr
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`radarr.example.com`)
+      services:
+        - name: radarr
+          port: 7878
+      middlewares:
+        - name: authelia
+  tls: {}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: lidarr
+  namespace: arr
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`lidarr.example.com`)
+      services:
+        - name: lidarr
+          port: 8686
+      middlewares:
+        - name: authelia
+  tls: {}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: prowlarr
+  namespace: arr
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`prowlarr.example.com`)
+      services:
+        - name: prowlarr
+          port: 9696
+      middlewares:
+        - name: authelia
+  tls: {}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: slskd
+  namespace: arr
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`slskd.example.com`)
+      services:
+        - name: slskd
+          port: 5030
+      middlewares:
+        - name: authelia
+  tls: {}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: autopulse
+  namespace: arr
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`autopulse.example.com`)
+      services:
+        - name: autopulse
+          port: 2875
+      middlewares:
+        - name: authelia
+  tls: {}

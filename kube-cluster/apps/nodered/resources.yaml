@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: nodered
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: nodered
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # Node-RED's /data (flows.json, flows_cred.json, settings.js, .config.*, node_modules,
 # projects) — copied once from the old Swarm volume fastappdata:/docker/nodered
 # (excluding its 189M log/). File-based, single-writer -> CephFS + Recreate.
@@ -46,7 +59,7 @@ spec:
       containers:
         - name: nodered
           # Runs as the image's node-red user (uid/gid 1000); /data is chowned 1000.
-          image: nodered/node-red:5.0.4
+          image: nodered/node-red:5.0.6
           env:
             - name: TZ
               value: Europe/Berlin

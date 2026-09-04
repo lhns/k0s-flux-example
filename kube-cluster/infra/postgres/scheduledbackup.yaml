@@ -1,6 +1,12 @@
-# Daily base backup as a Ceph volume snapshot (cheap CoW). Combined with continuous
-# WAL archiving (the plugin), this gives point-in-time recovery. 6-field cron
-# (sec min hour dom mon dow) → 02:00 daily.
+# Daily base backup through the barman-cloud plugin to ObjectStore/postgres-store, alongside
+# the continuous WAL archiving the same plugin does, giving point-in-time recovery.
+#
+# Not volumeSnapshot: CNPG has no retention for volume-snapshot backups, so nothing ever
+# deleted them (45 accumulated) and, because barman prunes WAL only up to the oldest barman
+# backup, the WAL archive was never trimmed either -- 97 GiB in 49 days, unbounded. The
+# plugin's ObjectStore retentionPolicy handles both, and keeps Postgres off the NVMe pool.
+#
+# 6-field cron (sec min hour dom mon dow) → 02:00 daily.
 apiVersion: postgresql.cnpg.io/v1
 kind: ScheduledBackup
 metadata:
@@ -9,6 +15,8 @@ metadata:
 spec:
   schedule: "0 0 2 * * *"
   backupOwnerReference: self
-  method: volumeSnapshot
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
   cluster:
     name: postgres

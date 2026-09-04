@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: zensical
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: zensical
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # The blog SOURCE (docs/ markdown + overrides/ theme), copied once from the old Swarm
 # volume fastappdata:/docker/zensical. Mounted read-only; zensical builds from it into
 # an ephemeral emptyDir. Small + read-mostly -> CephFS RWX (both pods can mount it RO
@@ -47,7 +60,7 @@ spec:
       containers:
         - name: zensical
           # Runs as root, so it can write the ephemeral emptyDir /docs (site/, .cache/).
-          image: zensical/zensical:0.0.55
+          image: zensical/zensical:0.0.58
           env:
             - name: TZ
               value: Europe/Berlin

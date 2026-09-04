@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: lldap
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: lldap
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # LLDAP directory server (LDAP + web UI). Config is entirely env-driven (the old
 # lldap_config.toml was placeholders overridden by env). Directory data lives in
 # the shared CNPG cluster (migrated from the old Swarm Postgres). KEY_SEED +
@@ -13,8 +26,6 @@ metadata:
   name: lldap
   namespace: lldap
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   # DB restored from the old Swarm Postgres (see README), now live. Single replica,

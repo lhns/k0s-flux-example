@@ -1,0 +1,20 @@
+# The stack talks to itself: sonarr/radarr/lidarr call sabnzbd and prowlarr,
+# decluttarr and autopulse call the *arr APIs, and seerr does from its own
+# namespace. kube-vnet's baseline is default-deny ingress at POD level, so even
+# same-namespace traffic needs a vnet -- without this decluttarr just logs
+# "Connection to sonarr timed out".
+#
+# Everything joins with `both` rather than mapping each caller to each callee:
+# the members are all part of one application and the pairs change whenever an
+# app gains a feature. seerr joins from outside via allowedNamespaces.
+---
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: arr-api
+  namespace: arr
+spec:
+  description: "Intra-stack HTTP between the *arr apps, their helpers and seerr."
+  allowedNamespaces:
+    names:
+      - seerr

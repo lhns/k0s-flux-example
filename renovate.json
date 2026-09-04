@@ -3,6 +3,8 @@
   "extends": ["config:recommended"],
   "ignorePaths": ["templates/**", "scripts/**"],
   "platformAutomerge": false,
+  "prConcurrentLimit": 20,
+  "prHourlyLimit": 6,
   "flux": {
     "managerFilePatterns": [
       "/\\.ya?ml$/"
@@ -12,9 +14,6 @@
     "managerFilePatterns": [
       "/\\.ya?ml$/"
     ]
-  },
-  "github-actions": {
-    "enabled": false
   },
   "customManagers": [
     {
@@ -41,12 +40,28 @@
       "matchStrings": [
         "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)\\s+url:\\s*\\S+/download/(?<currentValue>v[^/\\s]+)/"
       ]
+    },
+    {
+      "description": "Base images in an ImageBuild's inline Dockerfile (apps/jetkvm). The built-in dockerfile manager only reads real Dockerfiles, so a recipe living inside a YAML string is invisible to it and its FROM pins would never be bumped. oci-composer requires every FROM to be digest-pinned, so the tag AND the digest are captured and Renovate updates them together. Anchored on an explicit `# renovate: datasource=docker` comment on the preceding line, so it matches only where we asked for it.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/kube-cluster/.*\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+FROM\\s+(?<depName>[^:\\s]+):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"
+      ]
     }
   ],
   "packageRules": [
     {
-      "description": "Automerge patch (bugfix) releases only. platformAutomerge:false so Renovate merges via the API (works on a private/free repo without GitHub auto-merge or branch protection). Minor + major become review PRs. Gated by the lint CI: the RENOVATE_TOKEN fine-grained PAT (Contents:RW + Pull requests:RW) opens PRs as a real user so the lint workflow runs. That PAT can't read the Checks API (no Checks permission on this account), so lint.yml also posts a `lint` commit STATUS (which Renovate can read) — that flips the branch green and lets automerge proceed.",
+      "description": "Automerge patch (bugfix) releases only. platformAutomerge:false so Renovate merges via the API (works on a private/free repo without GitHub auto-merge or branch protection). Minor + major become review PRs. Gated by the lint CI: the RENOVATE_TOKEN fine-grained PAT (Contents, Commit statuses, Issues, Pull requests and Workflows: RW) opens PRs as a real user so the lint workflow runs. That PAT can't read the Checks API (no Checks permission on this account), so lint.yml also posts a `lint` commit STATUS (which Renovate can read) — that flips the branch green and lets automerge proceed.",
       "matchUpdateTypes": ["patch"],
+      "automerge": true
+    },
+    {
+      "description": "Auto-merge image digest updates. Docker only: a Flux commit bump is also typed 'digest', but that is new source code.",
+      "matchUpdateTypes": ["digest"],
+      "matchDatasources": ["docker"],
       "automerge": true
     },
     {
@@ -102,6 +117,23 @@
       "dependencyDashboardApproval": true,
       "automerge": false,
       "addLabels": ["kafka-plugin"]
+    },
+    {
+      "description": "Keep jetkvm on Node 22. Upstream's cloud-api requires it: engines ^22.21.1.",
+      "matchFileNames": ["kube-cluster/apps/jetkvm/images.yaml"],
+      "matchDepNames": ["node"],
+      "allowedVersions": "<23"
+    },
+    {
+      "description": "One PR for all VictoriaMetrics images. Mixed versions across the cluster are unsupported.",
+      "matchPackageNames": [
+        "victoriametrics/victoria-metrics",
+        "victoriametrics/vminsert",
+        "victoriametrics/vmselect",
+        "victoriametrics/vmstorage"
+      ],
+      "groupName": "victoriametrics",
+      "automerge": false
     }
   ]
 }

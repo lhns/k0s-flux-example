@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: backrest
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: backrest
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # ===========================================================================
 # backrest's own state + secrets. /data = SQLite oplog (oplog.sqlite + WAL,
 # kvdb.sqlite) + jwt-secret; /config = config.json (holds the restic repo
@@ -51,6 +64,8 @@ spec:
 apiVersion: v1
 kind: PersistentVolume
 metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
   name: backrest-appdata
 spec:
   accessModes: [ReadWriteMany]
@@ -86,6 +101,8 @@ spec:
 apiVersion: v1
 kind: PersistentVolume
 metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
   name: backrest-fastappdata
 spec:
   accessModes: [ReadWriteMany]
@@ -121,6 +138,8 @@ spec:
 apiVersion: v1
 kind: PersistentVolume
 metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
   name: backrest-userdata
 spec:
   accessModes: [ReadWriteMany]
@@ -156,6 +175,8 @@ spec:
 apiVersion: v1
 kind: PersistentVolume
 metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
   name: backrest-repos
 spec:
   accessModes: [ReadWriteMany]

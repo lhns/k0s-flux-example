@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: victoriatraces
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: victoriatraces
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # ===========================================================================
 # VictoriaTraces data dir — 72G on the appdata CephFS, MOUNTED in place
 # (jellyfin/syncthing static-PV pattern), NOT copied. capacity 1Gi is a dummy
@@ -11,6 +24,8 @@ metadata:
 apiVersion: v1
 kind: PersistentVolume
 metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
   name: victoriatraces-data
 spec:
   accessModes: [ReadWriteMany]
@@ -76,6 +91,12 @@ spec:
       containers:
         - name: victoriatraces
           image: victoriametrics/victoria-traces:v0.11.0
+          # Memory only, per apps/webtop/README.md -- a CPU limit would throttle, not protect.
+          resources:
+            requests:
+              memory: 512Mi
+            limits:
+              memory: 2Gi
           args:
             - -retentionPeriod=2
             - -storageDataPath=/victoria-traces-data
@@ -146,7 +167,12 @@ spec:
       enableServiceLinks: false
       containers:
         - name: otelcol
-          image: otel/opentelemetry-collector-contrib:0.159.0
+          image: otel/opentelemetry-collector-contrib:0.160.0
+          resources:
+            requests:
+              memory: 128Mi
+            limits:
+              memory: 512Mi
           ports:
             - name: metrics
               containerPort: 8888

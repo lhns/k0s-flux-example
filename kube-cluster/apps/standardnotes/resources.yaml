@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: standardnotes
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: standardnotes
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # ===========================================================================
 # MariaDB — the DB backend for the Standard Notes server. The server speaks the
 # MySQL protocol (DB_TYPE=mysql, TypeORM mysql driver) and MariaDB is wire-
@@ -28,8 +41,6 @@ metadata:
   name: standardnotes-db
   namespace: standardnotes
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   serviceName: standardnotes-db
@@ -48,7 +59,12 @@ spec:
       enableServiceLinks: false
       containers:
         - name: mariadb
-          image: mariadb:12.3.2
+          image: mariadb:12.3.3
+          resources:
+            requests:
+              memory: 128Mi
+            limits:
+              memory: 512Mi
           ports:
             - {name: mysql, containerPort: 3306}
           env:
@@ -112,6 +128,11 @@ spec:
       containers:
         - name: redis
           image: redis:8-alpine
+          resources:
+            requests:
+              memory: 32Mi
+            limits:
+              memory: 128Mi
           ports:
             - {name: redis, containerPort: 6379}
           readinessProbe:
@@ -214,8 +235,6 @@ metadata:
   name: standardnotes-server
   namespace: standardnotes
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   replicas: 1
@@ -247,7 +266,10 @@ spec:
               until nc -z localstack 4566; do echo "waiting for localstack"; sleep 3; done
       containers:
         - name: server
-          image: standardnotes/server:latest
+          # Digest-pinned like the web image below. A bare :latest means Always-pull, no
+          # Renovate tracking, and a restart silently running unreviewed migrations
+          # against standardnotes-db.
+          image: standardnotes/server:latest@sha256:6b371bc0c3ae755500b82f4c580fae7fd768e5f9214cdc2f195fc130cf6ffdcd
           ports:
             - {name: api, containerPort: 3000}
             - {name: files, containerPort: 3104}
@@ -352,7 +374,7 @@ spec:
         # The image is digest-pinned so the sed targets can't silently drift on a
         # :latest rebuild — and the grep guards fail the pod if a target is missing.
         - name: patch-firstparty-allowlist
-          image: standardnotes/web:latest@sha256:9db2acbd6c7c11bfb8183342c61ff30996ab054219da298aba788f1c39cee20c
+          image: standardnotes/web:latest@sha256:f0015a8bf471debb21dd1d60ef2a89bf4956e10847b8eb28eeff52f0d11b521e
           command:
             - sh
             - -c
@@ -368,7 +390,7 @@ spec:
             - {name: html, mountPath: /work}
       containers:
         - name: web
-          image: standardnotes/web:latest@sha256:9db2acbd6c7c11bfb8183342c61ff30996ab054219da298aba788f1c39cee20c
+          image: standardnotes/web:latest@sha256:f0015a8bf471debb21dd1d60ef2a89bf4956e10847b8eb28eeff52f0d11b521e
           ports:
             - {name: http, containerPort: 80}
           readinessProbe:

@@ -4,6 +4,19 @@ kind: Namespace
 metadata:
   name: coturn
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: coturn
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # Shared STUN/TURN. Two consumers today: snikket (Jingle A/V for XMPP) and
 # synapse (Matrix 1:1 VoIP via turn_uris). Both use coturn's REST-API credential
 # scheme against one shared secret, which is why a single instance can serve them.

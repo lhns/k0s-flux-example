@@ -1,0 +1,14 @@
+# Lets autopulse trigger library scans and seerr read the library. Both call
+# jellyfin's HTTP API from other namespaces, and kube-vnet default-denies pod
+# ingress, so without this they time out rather than getting a 401.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: jellyfin-api
+  namespace: jellyfin
+spec:
+  description: "jellyfin HTTP API, for autopulse scan triggers and seerr library sync."
+  allowedNamespaces:
+    names:
+      - arr
+      - seerr

@@ -31,39 +31,21 @@ spec:
     parameters:
       max_connections: "500"
       shared_buffers: "512MB"   # ~25% of the 2Gi limit below
-    # Synchronous replication: a commit is not acknowledged until at least one
-    # standby has the WAL. RPO=0.
+    # Synchronous replication: a commit is not acknowledged until a standby has the WAL.
+    # RPO=0.
     #
-    # Why this exists: replication was asynchronous, and this cluster promotes a
-    # lot -- pg_control_checkpoint reported timeline 28, i.e. 27 promotions since
-    # 2026-07-08, driven by the Ceph instability underneath ceph-rbd. Every async
-    # promotion silently discards the commits the new primary had not received yet.
+    # This cluster promotes a lot (timeline 28 by 2026-08-21, driven by Ceph instability
+    # under ceph-rbd) and every ASYNC promotion silently discards commits the new primary
+    # had not received. That cost real data: four Synapse sequences moved BACKWARDS and
+    # the rollback took device_inbox rows with it -- the table holding Megolm session
+    # keys -- so messages the senders were told had been delivered could not be decrypted.
     #
-    # That is not theoretical here. On 2026-08-21 synapse would not start:
+    # Sequences going backwards is NOT the documented post-crash skip (that moves them
+    # forward). It requires losing committed transactions.
     #
-    #   Postgres sequence 'device_inbox_sequence' is inconsistent with associated
-    #   stream position of 'to_device' in the 'stream_positions' table
-    #
-    # Four sequences had moved BACKWARDS relative to the positions Synapse had
-    # recorded (device_inbox 2170<2185, un_partial_stated_room_stream 19<50,
-    # pushers 2278<2301, events_backfill 53315<53331). A rollback also took
-    # device_inbox rows with it -- that table carries Megolm session keys -- which
-    # is why messages from two unrelated homeservers could not be decrypted: the
-    # senders had been told delivery succeeded.
-    #
-    # NOTE this is NOT the documented "sequences may skip values after a crash"
-    # behaviour (SEQ_LOG_VALS pre-logs ~32 ahead, so a crash moves a sequence
-    # FORWARD, never back). Going backwards requires losing committed
-    # transactions, which is exactly what an async promotion does.
-    #
-    # number: 1, not 2. Both give RPO=0 -- the data is on >=2 nodes before commit
-    # either way. Requiring 2 would only mean a third copy, at the cost of blocking
-    # writes whenever ANY single standby is unavailable, which with a rolling
-    # update or one bad Ceph node is a routine event.
-    #
-    # method: any (quorum) rather than first (priority): any healthy standby can
-    # satisfy the requirement, so the two are interchangeable and losing either is
-    # a non-event.
+    # number: 1, not 2 -- both give RPO=0, but 2 blocks writes whenever any single
+    # standby is away, which a rolling update makes routine. method: any, so either
+    # standby satisfies it.
     synchronous:
       method: any
       number: 1

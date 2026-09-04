@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: webtop
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: webtop
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # The whole desktop lives in /config (the `abc` user's home): dotfiles, anything
 # apt-installed into the home dir, downloads, and browser profiles. Those profiles
 # are SQLite (places.sqlite, cookies.sqlite), which puts this in the repo's
@@ -69,7 +82,7 @@ spec:
           # Selkies since the June 2025 rebase (no longer KasmVNC-based): pixelflux for
           # pixels, pcmflux for audio, Xwayland for legacy X11 apps.
           # `PIXELFLUX_WAYLAND=false` forces the old X11 path if ever needed.
-          image: lscr.io/linuxserver/webtop:ubuntu-kde@sha256:5005ffafe50117dfd8b28e3c37efd2cf603e37bc3741d472b1540739492d3ee0
+          image: lscr.io/linuxserver/webtop:ubuntu-kde@sha256:d91fb284794d554d89b4b210ebe56a538c755dfb2054a3741ed7471363cd5369
           env:
             - name: PUID
               value: "1000"

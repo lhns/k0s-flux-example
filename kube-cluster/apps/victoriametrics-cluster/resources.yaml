@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: victoriametrics-cluster
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: victoriametrics-cluster
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # ===========================================================================
 # vmstorage data dir — 94G on the appdata CephFS, MOUNTED in place (static-PV
 # pattern), NOT copied. capacity 1Gi is a dummy (ignored for static cephfs);
@@ -11,6 +24,8 @@ metadata:
 apiVersion: v1
 kind: PersistentVolume
 metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
   name: vmstorage-data
 spec:
   accessModes: [ReadWriteMany]
@@ -86,7 +101,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: vmstorage
-          image: victoriametrics/vmstorage:v1.150.0-cluster
+          image: victoriametrics/vmstorage:v1.151.0-cluster
           args:
             - -retentionPeriod=12
             - -storageDataPath=/storage
@@ -165,7 +180,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: vminsert
-          image: victoriametrics/vminsert:v1.150.0-cluster
+          image: victoriametrics/vminsert:v1.151.0-cluster
           args:
             - -storageNode=vmstorage:8400
             - -maxLabelsPerTimeseries=50
@@ -236,7 +251,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: vmselect
-          image: victoriametrics/vmselect:v1.150.0-cluster
+          image: victoriametrics/vmselect:v1.151.0-cluster
           args:
             - -storageNode=vmstorage:8401
             - -search.cacheTimestampOffset=120m
@@ -305,7 +320,12 @@ spec:
       enableServiceLinks: false
       containers:
         - name: otelcol
-          image: otel/opentelemetry-collector-contrib:0.159.0
+          image: otel/opentelemetry-collector-contrib:0.160.0
+          resources:
+            requests:
+              memory: 256Mi
+            limits:
+              memory: 1Gi
           ports:
             - {name: metrics, containerPort: 8888}
             - {name: health, containerPort: 13133}

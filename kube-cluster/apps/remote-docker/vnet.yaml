@@ -1,0 +1,10 @@
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: remote-docker
+  namespace: remote-docker
+spec:
+  description: "SSH-over-WebSocket tunnel :2280, for CI runners that use this workspace as their Docker daemon."
+  allowedNamespaces:
+    names:
+      - github-runner

@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: nextcloud
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: nextcloud
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # ===========================================================================
 # Redis — Nextcloud's local/distributed/locking cache. No durable data (all
 # state is in Postgres + the data dir), so emptyDir. No auth (kube-vnet isolates
@@ -40,6 +53,11 @@ spec:
       containers:
         - name: redis
           image: redis:8-alpine
+          resources:
+            requests:
+              memory: 32Mi
+            limits:
+              memory: 128Mi
           ports:
             - {name: redis, containerPort: 6379}
           readinessProbe:
@@ -78,6 +96,8 @@ spec:
 apiVersion: v1
 kind: PersistentVolume
 metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
   name: nextcloud-data
 spec:
   accessModes: [ReadWriteMany]
@@ -135,8 +155,6 @@ metadata:
   name: nextcloud
   namespace: nextcloud
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   replicas: 1

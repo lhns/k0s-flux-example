@@ -6,7 +6,10 @@ metadata:
     # Marks this as the VolumeSnapshotClass Velero uses for rbd.csi.ceph.com volumes.
     velero.io/csi-volumesnapshot-class: "true"
 driver: rbd.csi.ceph.com
-deletionPolicy: Retain
+# Delete, not Retain: Retain keeps the Ceph snapshot when the VolumeSnapshot goes, and
+# nothing reaps those -- pv-reaper watches PVs, not VolumeSnapshotContents. That stranded
+# 816 of 932 csi-snap images in rbd.kube.
+deletionPolicy: Delete
 parameters:
   clusterID: ceph-cluster
   csi.storage.k8s.io/snapshotter-secret-name: csi-cephfs-secret

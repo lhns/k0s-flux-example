@@ -1,0 +1,49 @@
+# Routed pods -> the gateway pod, over VXLAN.
+#
+# kube-vnet's cluster baseline is default-deny INGRESS at pod level, so the VXLAN
+# the webhook builds between a routed pod and the gateway is blocked until both
+# ends join a vnet. Egress is unrestricted, so only the gateway's ingress side
+# actually needs opening -- the client-side label is declared anyway, because a
+# binding pair documents both ends and survives a baseline change to egress.
+#
+# The webhook pod is not covered here: the API server dials it, and kube-vnet's
+# baseline auto-allows apiserver-dialed webhooks.
+---
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: gateway
+  namespace: pod-gateway
+spec:
+  description: "Routed pods -> pod-gateway VXLAN endpoint and its in-tunnel DNS/DHCP."
+  allowedNamespaces:
+    names:
+      - arr
+---
+# The gateway pod. A binding rather than a label because the pod template belongs
+# to the chart, not to us. Selects the `main` controller only, so the webhook
+# Deployment is not pulled into this network.
+#
+# direction: both, and the clients are `both` too. VXLAN picks a random source
+# port with dst 8472, so the gateway's DHCP reply is a NEW flow rather than a
+# conntrack reply -- an egress-only membership lets DISCOVER out and has the
+# OFFER dropped at the client. ICMP still works throughout, which hides it.
+#
+# The key is app.kubernetes.io/CONTROLLER, which is the bjw-s common chart's
+# convention -- not `component`. With the wrong key the binding silently matches
+# nothing, no ingress policy is generated, and the client's VXLAN is dropped
+# while ICMP still answers, which makes it look like a DHCP fault.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetworkBinding
+metadata:
+  name: pod-gateway-vxlan
+  namespace: pod-gateway
+spec:
+  virtualNetworkRef:
+    name: gateway
+    namespace: pod-gateway
+  direction: both
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: pod-gateway
+      app.kubernetes.io/controller: main

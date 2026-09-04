@@ -2,3 +2,16 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: traefik-reflector
+---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: traefik-reflector
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m

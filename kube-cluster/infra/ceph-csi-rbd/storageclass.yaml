@@ -21,3 +21,8 @@ parameters:
   csi.storage.k8s.io/node-stage-secret-namespace: ceph-csi-cephfs
 reclaimPolicy: Retain
 allowVolumeExpansion: true
+# Without discard, deleting files inside the filesystem never releases the blocks back to
+# the rbd image, so the image stays at its high-water mark and the pool never shrinks.
+# Only applies to volumes provisioned after this; existing PVs were patched in place.
+mountOptions:
+  - discard

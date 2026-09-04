@@ -20,6 +20,8 @@ metadata:
 spec:
   interval: 10m0s
   prune: true
+  # Job.spec.template is immutable; the Job no-ops unless the k0s version moved.
+  force: true
   path: ./{{ .path | required "k0sUpgrade.path is required when k0sUpgrade is set" }}
   sourceRef:
     kind: GitRepository

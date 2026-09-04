@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: gitea
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: gitea
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # ===========================================================================
 # The repositories — 27G, MOUNTED IN PLACE from the existing CephFS `appdata`
 # fs, not copied (sftpgo/syncthing/jellyfin pattern). Copying 27G onto a pool
@@ -17,6 +30,8 @@ metadata:
 apiVersion: v1
 kind: PersistentVolume
 metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
   name: gitea-git
 spec:
   accessModes: [ReadWriteMany]
@@ -76,8 +91,6 @@ metadata:
   name: gitea
   namespace: gitea
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   # Was 0 while the database was restored — Gitea runs an xorm schema sync on
@@ -122,7 +135,7 @@ spec:
           # upgrade — accepted deliberately, and irreversible: Gitea migrates the
           # schema on first boot. The Swarm database is never written to, so the
           # fallback survives regardless.
-          image: gitea/gitea:1.27.2
+          image: gitea/gitea:1.27.3
           env:
             - name: TZ
               value: Europe/Berlin

@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: stalwart
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: stalwart
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # ===========================================================================
 # Stalwart mail server. DB-centric: all config + all mail live in the shared
 # CNPG Postgres (reached via the bootstrap /etc/stalwart/config.json). The data
@@ -16,8 +29,6 @@ metadata:
   name: stalwart
   namespace: stalwart
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   # Live. (Was 0 for the cutover; Swarm stopped + the 1.5G DB restored into CNPG.)
@@ -48,7 +59,7 @@ spec:
         runAsGroup: 0
       containers:
         - name: stalwart
-          image: stalwartlabs/stalwart:v0.16.18
+          image: stalwartlabs/stalwart:v0.16.20
           env:
             - name: STALWART_PUBLIC_URL
               value: https://mail.example.com
@@ -165,8 +176,6 @@ metadata:
   name: bulwark
   namespace: stalwart
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   replicas: 1
@@ -186,7 +195,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: bulwark
-          image: ghcr.io/bulwarkmail/webmail:1.8.1
+          image: ghcr.io/bulwarkmail/webmail:1.9.2
           env:
             - name: APP_NAME
               value: Mail
@@ -266,8 +275,6 @@ metadata:
   name: umleiter
   namespace: stalwart
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   replicas: 1

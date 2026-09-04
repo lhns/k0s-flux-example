@@ -60,14 +60,40 @@ spec:
     snapshotsEnabled: false
     deployNodeAgent: false
     schedules:
-      daily:
+      # Each tier carves its slot out of the one below: hourly skips 03:00, daily skips the
+      # 1st. So exactly one backup runs at any given time, and the longer-lived tier owns it.
+      hourly:
         disabled: false
-        schedule: "0 3 * * *"
+        schedule: "0 0-2,4-23 * * *"
         useOwnerReferencesInBackup: false
         template:
+          ttl: 72h0m0s
+          snapshotVolumes: true
+          excludedNamespaces:
+            - postgres
+            - opentelemetry-gateway
+      daily:
+        disabled: false
+        schedule: "0 3 2-31 * *"
+        useOwnerReferencesInBackup: false
+        template:
+          # TTL only; no retainCount: https://github.com/vmware-tanzu/velero/issues/7804
           ttl: 720h0m0s
           snapshotVolumes: true
           # postgres is fully managed by CNPG (its own snapshot + WAL backups), so
           # skip it here to avoid redundant/crash-consistent snapshots of its PVCs.
           excludedNamespaces:
             - postgres
+            # Telemetry buffer: constant rewrites pinned ~20Gi per broker per day.
+            - opentelemetry-gateway
+      monthly:
+        disabled: false
+        schedule: "0 3 1 * *"
+        useOwnerReferencesInBackup: false
+        template:
+          # 6 months
+          ttl: 4320h0m0s
+          snapshotVolumes: true
+          excludedNamespaces:
+            - postgres
+            - opentelemetry-gateway

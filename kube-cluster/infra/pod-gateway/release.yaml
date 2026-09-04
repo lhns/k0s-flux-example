@@ -1,0 +1,172 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: angelnu
+  namespace: pod-gateway
+spec:
+  interval: 1h0m0s
+  url: https://angelnu.github.io/helm-charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: pod-gateway
+  namespace: pod-gateway
+spec:
+  interval: 10m0s
+  chart:
+    spec:
+      chart: pod-gateway
+      version: "7.1.1"
+      interval: 1h0m0s
+      sourceRef:
+        kind: HelmRepository
+        name: angelnu
+  values:
+    controllers:
+      # Two replicas for the same reason cert-manager needed them: failurePolicy
+      # is Fail, so while a single webhook restarts, every pod CREATE in a routed
+      # namespace is rejected outright -- including helper pods for maintenance.
+      webhook:
+        replicas: 2
+      main:
+        containers:
+          gluetun:
+            enabled: true
+            env:
+              TZ: Europe/Berlin
+              VPN_SERVICE_PROVIDER: nordvpn
+              VPN_TYPE: wireguard
+              # Must match settings.VPN_INTERFACE below: gateway_init.sh builds its
+              # SNAT/kill-switch rules around that interface name, gluetun creates it.
+              VPN_INTERFACE: wg0
+              SERVER_COUNTRIES: Netherlands
+              UPDATER_PERIOD: 24h
+              # NOT DNS_KEEP_NAMESERVER=on, which the design brief specifies. With it,
+              # the gateway's dnsmasq forwards to CoreDNS, and since dnsmasq validates
+              # DNSSEC while CoreDNS returns no usable chain, every external name is
+              # BOGUS -> SERVFAIL. It also sent client lookups out via the node
+              # resolver instead of the tunnel. gluetun's own DoT resolver fixes both.
+              # Cluster names still work: dnsmasq keeps a server=/local/ route to
+              # K8S DNS from DNS_LOCAL_CIDRS.
+              DNS_KEEP_NAMESERVER: "off"
+              # DOT off, and an explicit upstream: dnsmasq already owns :53 in this
+              # pod, so gluetun's own resolver cannot bind and retries in a loop
+              # forever. With it disabled gluetun just writes DNS_ADDRESS into
+              # resolv.conf, which is what dnsmasq forwards to -- over the tunnel.
+              DOT: "off"
+              DNS_ADDRESS: 1.1.1.1
+              # gluetun's firewall sees the packet AFTER kube-proxy DNAT, so it must
+              # allow pod and service CIDRs, not just the vxlan subnet -- otherwise
+              # every reply into the cluster is dropped by gluetun, not by us.
+              FIREWALL_OUTBOUND_SUBNETS: 172.16.0.0/24,172.18.0.0/16,172.19.0.0/16,10.0.0.0/8
+            envFrom:
+              - secretRef:
+                  name: pod-gateway-gluetun
+
+    # The chart's default egress policy allows UDP 1194 (OpenVPN) and 10.0.0.0/8
+    # (k3s cluster IPs). Both are wrong here: this is WireGuard, and 10.0.0.0/8 is
+    # our LAN while the cluster lives in 172.18/172.19. Left as shipped it blocks
+    # CoreDNS and the gateway never resolves a NordVPN endpoint.
+    networkpolicies:
+      main:
+        enabled: true
+        controller: main
+        policyTypes:
+          - Egress
+        rules:
+          egress:
+            # DNS by pod selector AND ClusterIP: kube-proxy DNATs before the policy
+            # is evaluated, so what the policy sees is a CoreDNS pod address.
+            - to:
+                - namespaceSelector:
+                    matchLabels:
+                      kubernetes.io/metadata.name: kube-system
+                  podSelector:
+                    matchLabels:
+                      k8s-app: kube-dns
+                - ipBlock:
+                    cidr: 172.19.0.10/32
+              ports:
+                - protocol: UDP
+                  port: 53
+                - protocol: TCP
+                  port: 53
+            # The tunnel itself.
+            - to:
+                - ipBlock:
+                    cidr: 0.0.0.0/0
+              ports:
+                - protocol: UDP
+                  port: 51820
+            # gluetun's 24h server-list refresh, over HTTPS. Without it the updater
+            # errors and falls back to the list baked into the image. gluetun's own
+            # firewall is the real control here; this policy is the outer layer.
+            - to:
+                - ipBlock:
+                    cidr: 0.0.0.0/0
+              ports:
+                - protocol: TCP
+                  port: 443
+            # VXLAN from the routed pods, plus everything else in-cluster.
+            - to:
+                - ipBlock:
+                    cidr: 172.18.0.0/16
+                - ipBlock:
+                    cidr: 172.19.0.0/16
+
+    # Deliberately empty. The chart's own copy mechanism renders the ConfigMap
+    # directly into each routed namespace, which would force this component to
+    # own those namespaces so they exist at install time. Reflector copies it
+    # instead (annotations added by the postRenderer below), so each app keeps
+    # its own namespace and there is no ordering knot.
+    routed_namespaces: []
+
+    settings:
+      # Sent to the K8S gateway rather than through the tunnel. Without the pod and
+      # service CIDRs here a routed pod loses CoreDNS, the API server and every
+      # other pod the moment the default route is deleted.
+      NOT_ROUTED_TO_GATEWAY_CIDRS: "172.18.0.0/16 172.19.0.0/16 10.0.0.0/8"
+      VPN_INTERFACE: wg0
+      # Gateway-side kill switch: drop anything not leaving via wg0. This is the
+      # only enforcement layer this deployment actually has -- see README.
+      VPN_BLOCK_OTHER_TRAFFIC: true
+      VPN_TRAFFIC_PORT: 51820
+      VPN_LOCAL_CIDRS: "10.0.0.0/8 172.18.0.0/16 172.19.0.0/16"
+
+    webhook:
+      # Renders to namespaceSelector matchLabels {routed-gateway: "true"}. Scoped by
+      # label so it can never select kube-system or this namespace; failurePolicy is
+      # unset in the chart, which means the API-server default Fail -- what we want.
+      namespaceSelector:
+        type: label
+        label: routed-gateway
+      # Route by default, opt out per pod with the label setGateway: "false".
+      # A forgotten label therefore means more isolation, not less.
+      gatewayDefault: true
+      gatewayLabel: setGateway
+      gatewayAnnotation: setGateway
+  # client_init.sh reads settings.sh from a ConfigMap named `pod-gateway` in the
+  # POD's own namespace, so a copy has to reach every routed namespace. Reflector
+  # watches and copies whenever the target namespace appears, which decouples this
+  # component from the lifecycle of the namespaces it routes.
+  #
+  # Keep this list and the `routed-gateway: "true"` namespace labels in sync.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: ConfigMap
+              name: pod-gateway
+            patch: |
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: pod-gateway
+                namespace: pod-gateway
+                annotations:
+                  reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+                  reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: arr
+                  reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+                  reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: arr

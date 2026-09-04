@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: kasmvnc
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: kasmvnc
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # Same reasoning as webtop: the home directory holds browser profiles, which are
 # SQLite, so this is the repo's "embedded SQLite -> block" rule rather than the
 # file-only cephfs case. Single-writer by definition.
@@ -27,8 +40,6 @@ metadata:
   name: kasmvnc
   namespace: kasmvnc
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   # RWO home volume -> Recreate (never two writers).
@@ -126,7 +137,7 @@ spec:
         # credential in plaintext in git is not something this repo does. A sidecar keeps
         # it in the Secret.
         - name: proxy
-          image: nginx:1.31.3-alpine
+          image: nginx:1.31.5-alpine
           command: [sh, -c]
           args:
             - |

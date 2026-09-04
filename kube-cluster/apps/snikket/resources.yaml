@@ -4,6 +4,19 @@ kind: Namespace
 metadata:
   name: snikket
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: snikket
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # Prosody's data + uploads. ceph-rbd (block) rather than cephfs: prosody is a
 # single writer with its own on-disk format, and the repo's rule sends
 # single-writer stores to block (apps/homeassistant/resources.yaml).

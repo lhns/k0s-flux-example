@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: immich
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: immich
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # ===========================================================================
 # Media library + external libraries — MOUNTED in place from the existing
 # CephFS filesystems (appdata/fastappdata/userdata on the same ceph-cluster),
@@ -14,6 +27,8 @@ metadata:
 apiVersion: v1
 kind: PersistentVolume
 metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
   name: immich-upload
 spec:
   accessModes: [ReadWriteMany]
@@ -50,6 +65,8 @@ spec:
 apiVersion: v1
 kind: PersistentVolume
 metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
   name: immich-userdata
 spec:
   accessModes: [ReadOnlyMany]
@@ -87,6 +104,8 @@ spec:
 apiVersion: v1
 kind: PersistentVolume
 metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
   name: immich-sftpgo
 spec:
   accessModes: [ReadOnlyMany]
@@ -147,8 +166,6 @@ metadata:
   name: immich-postgres
   namespace: immich
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   replicas: 1
@@ -168,6 +185,11 @@ spec:
       containers:
         - name: postgres
           image: ghcr.io/immich-app/postgres:16-vectorchord0.4.3-pgvectors0.2.0
+          resources:
+            requests:
+              memory: 512Mi
+            limits:
+              memory: 2Gi
           env:
             - name: POSTGRES_USER
               value: immich
@@ -236,6 +258,11 @@ spec:
       containers:
         - name: redis
           image: valkey/valkey:9
+          resources:
+            requests:
+              memory: 64Mi
+            limits:
+              memory: 256Mi
           ports:
             - name: redis
               containerPort: 6379
@@ -266,8 +293,6 @@ metadata:
   name: immich-server
   namespace: immich
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   # DB restored + Swarm immich stopped (library + DB freed), now live (PG16).
@@ -298,6 +323,12 @@ spec:
       containers:
         - name: immich-server
           image: ghcr.io/immich-app/immich-server:v3.1.0
+          # Memory only, per apps/webtop/README.md -- a CPU limit would throttle, not protect.
+          resources:
+            requests:
+              memory: 512Mi
+            limits:
+              memory: 2Gi
           env:
             - name: TZ
               value: Europe/Berlin

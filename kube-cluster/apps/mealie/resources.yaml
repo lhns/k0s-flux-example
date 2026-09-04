@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: mealie
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: mealie
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # Mealie's /app/data (recipe images, backups, and the .secret JWT-signing key). The
 # DB lives in CNPG, so this volume holds files only (no local SQLite) -> CephFS RWX,
 # which lets the Deployment do start-first rolling updates.
@@ -24,8 +37,6 @@ metadata:
   name: mealie
   namespace: mealie
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   # DB in CNPG; /app/data (files only) on CephFS RWX -> start-first rolling updates
@@ -52,7 +63,7 @@ spec:
     spec:
       containers:
         - name: mealie
-          image: ghcr.io/mealie-recipes/mealie:v3.23.1
+          image: ghcr.io/mealie-recipes/mealie:v3.25.0
           env:
             - name: TZ
               value: Europe/Berlin

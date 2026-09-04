@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: feishin
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: feishin
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -30,7 +43,7 @@ spec:
     spec:
       containers:
         - name: feishin
-          image: ghcr.io/jeffvli/feishin:latest
+          image: ghcr.io/jeffvli/feishin:latest@sha256:5c0b3a1f307f8d9508c9fd5dcef04349b6cda1740ae95d478498dc86e3e432bf
           env:
             # Pin the server so users can only toggle username/password.
             - name: SERVER_LOCK

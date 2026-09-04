@@ -1,0 +1,188 @@
+# Roles and databases for the *arr stack in the shared CNPG cluster, migrated
+# from the Swarm Postgres. One login role per app; the *arr apps each want a
+# -main and a -log database, both owned by that app's role.
+#
+# retain on both: never drop these, they hold the libraries.
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: sonarr
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: sonarr
+  ensure: present
+  login: true
+  passwordSecret:
+    name: sonarr-db
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: sonarr-main
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: sonarr-main
+  owner: sonarr
+  databaseReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: sonarr-log
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: sonarr-log
+  owner: sonarr
+  databaseReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: radarr
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: radarr
+  ensure: present
+  login: true
+  passwordSecret:
+    name: radarr-db
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: radarr-main
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: radarr-main
+  owner: radarr
+  databaseReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: radarr-log
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: radarr-log
+  owner: radarr
+  databaseReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: prowlarr
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: prowlarr
+  ensure: present
+  login: true
+  passwordSecret:
+    name: prowlarr-db
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: prowlarr-main
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: prowlarr-main
+  owner: prowlarr
+  databaseReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: prowlarr-log
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: prowlarr-log
+  owner: prowlarr
+  databaseReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: lidarr
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: lidarr
+  ensure: present
+  login: true
+  passwordSecret:
+    name: lidarr-db
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: lidarr-main
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: lidarr-main
+  owner: lidarr
+  databaseReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: lidarr-log
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: lidarr-log
+  owner: lidarr
+  databaseReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: autopulse
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: autopulse
+  ensure: present
+  login: true
+  passwordSecret:
+    name: autopulse-db
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: autopulse
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: autopulse
+  owner: autopulse
+  databaseReclaimPolicy: retain

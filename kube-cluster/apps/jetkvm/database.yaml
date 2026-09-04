@@ -1,0 +1,31 @@
+---
+# JetKVM's login role in the shared CNPG cluster (miniflux/mealie/homebox precedent).
+# Password from secret/jetkvm-db (postgres ns). retain: never drop.
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: jetkvm
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: jetkvm
+  ensure: present
+  login: true
+  passwordSecret:
+    name: jetkvm-db
+  databaseRoleReclaimPolicy: retain
+---
+# The jetkvm database, owned by that role. Empty at creation: Prisma builds the schema from
+# migrations, run by the initContainer in resources.yaml rather than at app startup.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: jetkvm
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: jetkvm
+  owner: jetkvm
+  databaseReclaimPolicy: retain

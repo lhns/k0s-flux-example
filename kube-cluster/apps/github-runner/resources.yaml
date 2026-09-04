@@ -1,0 +1,154 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: github-runner
+---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: github-runner
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
+# No RBAC and no mounted token. A workflow author already has a shell here; do not also hand them
+# a credential for the API server.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: github-runner
+  namespace: github-runner
+automountServiceAccountToken: false
+---
+# ===========================================================================
+# GitHub Actions runner for example-user/example-repo.
+#
+# NOTHING HERE IS PRIVILEGED. The Docker daemon lives in apps/remote-docker, reached over an
+# SSH-in-WebSocket tunnel; the client runs inside this container and rewrites every bind mount
+# into an NFS-backed volume, so the workspace and /actions-runner/externals resolve without any
+# path here matching the daemon's filesystem.
+#
+# ONE RUNNER PER REPOSITORY. GitHub has no user-account runner scope -- only repository,
+# organization and enterprise -- and runner groups, the mechanism for sharing a runner across
+# repos, are org/enterprise only. Another repo means another Deployment: copy this one, give it a
+# unique name, RUNNER_NAME, REMOTE_DOCKER_USER, REPO_URL and secret keys, and enrol its public key
+# in apps/remote-docker/release.yaml.
+#
+# example-repo is PRIVATE, so the fork-PR hazard of a public repo does not apply: only people with
+# access to it can trigger a workflow here. That is still the perimeter -- see the README.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: runner-example-repo
+  namespace: github-runner
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: runner-example-repo
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: runner-example-repo
+        app.kubernetes.io/instance: github-runner
+        # Reaches the workspace's :2280 in the remote-docker namespace.
+        kube-vnet/net.remote-docker.remote-docker: egress
+    spec:
+      serviceAccountName: github-runner
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # Long, so a drain lets a running job finish rather than killing a build.
+      terminationGracePeriodSeconds: 3600
+      containers:
+        - name: runner
+          # ImageBuild placeholder; the root generator rewrites this to the spec-hash tag.
+          image: github-runner
+          securityContext:
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: RuntimeDefault
+            # NO `capabilities: drop: [ALL]` here, unlike apps/forgejo-runner. That image is
+            # USER 1000 and needs no capabilities; this one runs as root (RUN_AS_ROOT defaults
+            # true) while /actions-runner and /_work are owned by `runner`, so it writes them
+            # through CAP_DAC_OVERRIDE. Dropping ALL takes that away and every write fails as
+            # root -- "Access to the path '/actions-runner/_diag' is denied" in a crash loop.
+          env:
+            - name: TZ
+              value: Europe/Berlin
+            # --- the runner itself -------------------------------------------------
+            - name: RUNNER_NAME
+              value: k8s-example-repo
+            - name: RUNNER_SCOPE
+              value: repo
+            - name: REPO_URL
+              value: https://github.com/example-user/example-repo
+            - name: ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: github-runner
+                  key: ACCESS_TOKEN_EXAMPLE_REPO
+            # The image self-updates by default, which fights the pinned tag.
+            - name: DISABLE_AUTO_UPDATE
+              value: "true"
+            # --- the docker daemon, via remote-docker ------------------------------
+            # ws:// not wss://: the agent serves plain ws and never terminates TLS (ADR 0034).
+            # TLS is the ingress's job, and this never leaves the cluster -- the SSH handshake
+            # inside the tunnel is what authenticates and encrypts.
+            - name: REMOTE_DOCKER_HOST
+              value: ws://remote-docker.remote-docker.svc.cluster.local:2280
+            - name: REMOTE_DOCKER_USER
+              value: example-repo
+            - name: REMOTE_DOCKER_WORKSPACE
+              value: k8s
+            # Never let the session exit. It is started once by the entrypoint and nothing
+            # restarts it, so the default 30m idle teardown removed the socket out from
+            # under an idle runner -- `docker` then failed with "no such file or directory"
+            # on /run/rd/docker.sock until the pod was restarted. Negative disables it;
+            # zero would mean the 30m default, not "off".
+            - name: REMOTE_DOCKER_DAEMON_IDLE
+              value: "-1s"
+            - name: REMOTE_DOCKER_STATE_DIR
+              value: /run/rd/state
+            - name: REMOTE_DOCKER_ENDPOINT
+              value: /run/rd/docker.sock
+            - name: DOCKER_HOST
+              value: unix:///run/rd/docker.sock
+          volumeMounts:
+            - name: rd
+              mountPath: /run/rd
+            - name: keys
+              mountPath: /secrets
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              # The JOB runs in this container, so this is a build's ceiling, not just the
+              # agent's. Note /proc is not namespaced: `free` reports the node's 31Gi and
+              # `nproc` its 20 CPUs, so `make -j$(nproc)` will happily launch 20 compilers
+              # and get OOMKilled against this limit. Pin -j in the workflow.
+              memory: 8Gi
+      volumes:
+        # State dir and the client's endpoint socket. Disposable: the session is rebuilt on start.
+        - name: rd
+          emptyDir:
+            sizeLimit: 1Gi
+        # The client's SSH identity, projected to the fixed name the entrypoint installs from.
+        - name: keys
+          secret:
+            secretName: github-runner
+            items:
+              - key: example-repo-id_ed25519
+                path: id_ed25519
+            defaultMode: 0400

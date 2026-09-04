@@ -11,6 +11,13 @@ metadata:
   namespace: flux-system
 spec:
   interval: 10m0s
+  # This release only emits Kustomizations; whether each one then reconciles is its own
+  # Ready condition. Waiting here would make a single unhealthy app block every generator
+  # change, after burning the full timeout on each attempt.
+  install:
+    disableWait: true
+  upgrade:
+    disableWait: true
   chart:
     spec:
       chart: "."

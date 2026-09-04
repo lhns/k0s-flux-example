@@ -1,0 +1,5 @@
+#!/bin/bash
+ln -sf /media/music/library /music
+ln -sf /media/music/videos /videos
+ln -sf /media/music/import /import
+ln -sf /media/downloads /downloads

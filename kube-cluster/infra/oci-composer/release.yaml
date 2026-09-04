@@ -10,19 +10,10 @@ spec:
   ref:
     # Pinned release; bump to roll a new version.
     #
-    # This is a DEV BUILD, not a release: 0.5.0 is written and merged but not tagged upstream, so
-    # the only installable artifacts are per-commit builds. `0.0.0-dev.g8041d11` is the chart at
-    # commit 8041d11, and its appVersion is the same string, which resolves to the image
-    # ghcr.io/lhns/kube-oci-composer:0.0.0-dev.g8041d11 — byte-identical to the `sha-8041d11` tag
-    # (both sha256:5e437477a2d0ec7287a7db1a537760db8556ac4cb02095b43c2b8c413e90ab27). So the
-    # chart's own defaults pin the right images and nothing is overridden below.
-    #
-    # Swap to "0.5.0" once it is tagged; there is no other change to make.
-    #
-    # 0.4.0 -> 0.5.0 is a BREAKING upgrade. The serving endpoint is gone and a registry is the
-    # only publication path, so `spec.publish` became `spec.push` on every ImageComposition and
-    # `registry.publish.mode` became mandatory. See the README and the upstream 0.5.0 changelog.
-    tag: "0.0.0-dev.g8041d11"
+    # 0.4.0 -> 0.5.0 was BREAKING: serving is gone and a registry is the only publication path,
+    # so `spec.publish` became `spec.push` on every ImageComposition and ImageBuild, and
+    # registry.publish.mode below is mandatory.
+    tag: "0.5.0"
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease

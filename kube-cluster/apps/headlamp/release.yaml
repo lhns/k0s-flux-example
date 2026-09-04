@@ -4,6 +4,19 @@ kind: Namespace
 metadata:
   name: headlamp
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: headlamp
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
@@ -23,7 +36,7 @@ spec:
   chart:
     spec:
       chart: headlamp
-      version: "0.44.0"
+      version: "0.45.0"
       interval: 1h0m0s
       sourceRef:
         kind: HelmRepository

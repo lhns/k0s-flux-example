@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: opentelemetry-gateway
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: opentelemetry-gateway
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # ===========================================================================
 # The ingest gateway. A plain Deployment, not an OpenTelemetryCollector CR:
 #   * the CR would put ingest behind the MONITORING stack's operator, inverting the
@@ -53,7 +66,15 @@ spec:
               app.kubernetes.io/name: opentelemetry-gateway
       containers:
         - name: otelcol
-          image: otel/opentelemetry-collector-contrib:0.159.0
+          image: otel/opentelemetry-collector-contrib:0.160.0
+          # Every signal in the cluster enters here. Unbounded it grows with a burst and
+          # takes the node down; bounded it is OOMKilled alone. There is no memory_limiter
+          # processor, so this is the only backstop.
+          resources:
+            requests:
+              memory: 256Mi
+            limits:
+              memory: 1Gi
           args:
             - --config=/conf/config.yaml
             # Required by transform/docker-logs-resource-attributes (flatten_data).
@@ -119,7 +140,12 @@ spec:
       enableServiceLinks: false
       containers:
         - name: otelcol
-          image: otel/opentelemetry-collector-contrib:0.159.0
+          image: otel/opentelemetry-collector-contrib:0.160.0
+          resources:
+            requests:
+              memory: 64Mi
+            limits:
+              memory: 256Mi
           args:
             - --config=/conf/config.yaml
           env:

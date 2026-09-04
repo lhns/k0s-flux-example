@@ -3,11 +3,26 @@ kind: Namespace
 metadata:
   name: navidrome
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: navidrome
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # Music library on the "archive" cephfs (same Ceph cluster => clusterID
 # fastappdata, different fsName). Read-only — navidrome only ever reads it.
 apiVersion: v1
 kind: PersistentVolume
 metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
   name: navidrome-music
 spec:
   accessModes: [ReadOnlyMany]
@@ -85,7 +100,9 @@ spec:
         fsGroup: 0
       containers:
         - name: navidrome
-          image: deluan/navidrome:latest
+          # Digest-pinned: navidrome migrates its DB on start, so an unpinned :latest makes
+          # every restart an unreviewed schema change.
+          image: deluan/navidrome:latest@sha256:9012939114fbb1bb641b81cf96dec5ded15f0aafefe8d47a511d7cb919658e40
           env:
             # Auth is handled entirely by the external Authelia (forwardAuth):
             # navidrome trusts the Remote-User header it injects.

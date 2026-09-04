@@ -3,14 +3,25 @@ kind: Namespace
 metadata:
   name: miniflux
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: miniflux
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: miniflux
   namespace: miniflux
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   # DB restored (see README), now live.

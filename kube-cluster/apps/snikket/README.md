@@ -86,7 +86,7 @@ because account creation cannot work against a directory Snikket does not own. C
 and circles still work; they create no accounts.
 
 The username must match the JID localpart you want: `lhns` in lldap means
-`lhns@xmpp.example.com`.
+`admin@xmpp.example.com`.
 
 ## Router and edge
 

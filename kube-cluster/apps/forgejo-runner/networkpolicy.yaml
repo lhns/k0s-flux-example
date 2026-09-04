@@ -1,23 +1,14 @@
 # ===========================================================================
 # Egress containment for the runner.
 #
-# WHY THIS EXISTS: every job container the dind daemon starts is SNAT'd to this
-# pod's IP, so jobs inherit the pod's network reach. Without this policy a
-# workflow — i.e. anyone who can push to a CI-enabled repo, since the
-# registration token is instance-scoped — could reach the Ceph monitors at
-# 10.20.2.101-103, the Kubernetes API server, every LAN host, and every other pod
-# in the cluster.
+# Every job container the dind daemon starts is SNAT'd to this pod's IP, so jobs
+# inherit the pod's reach. Without this, a workflow -- anyone who can push to a
+# CI-enabled repo -- could reach the Ceph monitors, the API server and every LAN
+# host.
 #
-# WHY IT DOES NOT CONFLICT WITH kube-vnet: kube-vnet's cluster baseline is
-# INGRESS-only (`ingressIsolationLevel: pod`) and it states explicitly that
-# egress is unrestricted. A NetworkPolicy with `policyTypes: [Egress]` therefore
-# adds a rule set kube-vnet never writes; the two are additive, and nothing here
-# touches the ingress side kube-vnet owns.
-#
-# NOTE this does not constrain traffic *inside* the pod's network namespace —
-# job containers on the docker bridge talking to each other, or to the act_runner
-# cache server on the pod IP, never cross the pod boundary and are not subject to
-# NetworkPolicy at all. That is fine: the point here is what leaves the pod.
+# Additive to kube-vnet, whose baseline is ingress-only. It does not constrain
+# traffic inside the pod netns (job containers talking to each other), which never
+# crosses the pod boundary.
 # ===========================================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

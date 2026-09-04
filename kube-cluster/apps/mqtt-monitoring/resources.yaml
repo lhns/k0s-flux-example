@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: mqtt-monitoring
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: mqtt-monitoring
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # mqtt-monitoring subscribes to MQTT topics and exports them as OpenTelemetry metrics.
 # Stateless (no volume), no inbound ports (no Service/routing) — it only makes outbound
 # connections: MQTT to the in-cluster mosquitto, and OTLP to the collector.
@@ -12,8 +25,6 @@ metadata:
   name: mqtt-monitoring
   namespace: mqtt-monitoring
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   replicas: 1

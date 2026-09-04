@@ -1,0 +1,174 @@
+# Both images are built here because upstream publishes neither.
+#
+# cloud-api ships a Dockerfile but no image: its only workflow is pull-request.yml and its only
+# tag is challenge-base. The UI is not merely unpublished but unpublishABLE by upstream for our
+# purposes -- ui/.env.cloud-production hardcodes VITE_CLOUD_API=https://api.jetkvm.com and Vite
+# bakes VITE_* into the bundle at build time, so the API hostname is compiled in. There is no
+# runtime configuration to override it with. Vite gives real environment variables precedence
+# over .env files, which is why the build arg below is enough and the file needs no patching.
+#
+# Neither repository is forked. The context comes from a GitRepository and the recipe is inline,
+# so the two files upstream does not have live here instead of in a fork we would have to rebase.
+---
+# Pinned to the head of main. cloud-api's default branch is `dev`; main is where releases land
+# ("Release dev -> main" #60), and it has not moved since 2026-04-29.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: jetkvm-cloud-api
+  namespace: jetkvm
+spec:
+  interval: 1h
+  url: https://github.com/jetkvm/cloud-api
+  ref:
+    commit: 988a07d4181e1e66b73903e5c5ba0cb0c4495389
+---
+# The UI lives in the firmware monorepo. subpath: ui in the ImageBuild below is what makes that
+# usable without forking: the build context becomes ui/, which is self-contained (its own
+# package.json and package-lock.json).
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: jetkvm-kvm
+  namespace: jetkvm
+spec:
+  interval: 1h
+  url: https://github.com/jetkvm/kvm
+  ref:
+    # A stable release, not one of the release/0.5.9-devYYYYMMDDHHMM tags that dominate the list.
+    # renovate: datasource=github-tags depName=jetkvm/kvm
+    tag: release/0.5.8
+  # Flux excludes *.png from every artifact by default -- ExcludeExt in fluxcd/pkg/sourceignore is
+  # "*.jpg,*.jpeg,*.gif,*.png,*.wmv,*.flv,*.tar.gz,*.zip". The UI imports src/assets/*.png, so the
+  # build died on `Rolldown failed to resolve import "@assets/logo-blue.png"` while the .svg files
+  # beside it came through, which is what makes this look like a broken alias rather than a missing
+  # file. Setting `ignore` REPLACES that default list, so state only what this build does not need;
+  # source-controller drops .git and friends regardless of what is written here.
+  ignore: |
+    .github/
+---
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageBuild
+metadata:
+  name: jetkvm-cloud-api
+  namespace: jetkvm
+spec:
+  interval: 1h
+  platforms: [linux/amd64]
+  context:
+    sourceRef:
+      kind: GitRepository
+      name: jetkvm-cloud-api
+  # Upstream's own Dockerfile cannot be used as-is: `FROM node:21.1.0-alpine` is not
+  # digest-pinned and the FROM guard refuses it. Since it has to be rewritten anyway, three
+  # other things are fixed at the same time -- each marked below.
+  dockerfile:
+    inline: |
+      # (1) Node 22, not 21. package.json declares "engines": {"node": "22.x"}, so upstream's
+      # own image fails its own engines check and runs an EOL runtime.
+      # renovate: datasource=docker
+      FROM node:22.23.2-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS packages
+      WORKDIR /usr/src/app
+      # Prisma's schema engine dlopens libssl and refuses to run without it. bookworm-slim ships no
+      # openssl, so `prisma migrate deploy` warned "failed to detect the libssl/openssl version",
+      # fell back to openssl-1.1.x and died with a bare "Schema engine error:". Installed in this
+      # stage because the final one inherits from it, so both the build and the migrate
+      # initContainer get it. Upstream's alpine base did not need this; Debian does.
+      RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+      COPY package.json package-lock.json ./
+      # (2) npm ci, not npm install: the lockfile is committed, so honour it.
+      RUN npm ci
+
+      FROM packages AS builder
+      WORKDIR /usr/src/app
+      COPY . .
+      RUN npx prisma generate
+      RUN npm run build
+
+      # A fresh base rather than `FROM packages`. That stage's node_modules holds every
+      # devDependency -- typescript, vitest, the whole toolchain -- and inheriting it put all of
+      # that in the runtime image. The layer was large enough that pushing it to the registry kept
+      # failing outright while the UI's much smaller image went through.
+      #
+      # Installing production dependencies here still leaves the Prisma CLI available, because
+      # `prisma` is a dependency and not a devDependency -- so `prisma migrate deploy` in the
+      # migrate initContainer runs from this image exactly as before.
+      # renovate: datasource=docker
+      FROM node:22.23.2-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS app
+      WORKDIR /usr/src/app
+      RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+      COPY package.json package-lock.json ./
+      RUN npm ci --omit=dev
+      COPY --from=builder /usr/src/app/prisma ./prisma
+      COPY --from=builder /usr/src/app/node_modules/.prisma ./node_modules/.prisma
+      COPY --from=builder /usr/src/app/dist ./dist
+      # (3) Upstream does `COPY .env.example ./.env` here. Deliberately dropped. The app calls
+      # `import 'dotenv/config'`, and while dotenv does not override real environment variables,
+      # it does supply every variable we DON'T set -- and .env.example is not empty. It would
+      # bake in CORS_ORIGINS=https://app.jetkvm.com,http://localhost:5173, which blocks our own
+      # origin, and a localhost DATABASE_URL. Omitting the file makes unset mean unset; dotenv
+      # ignores a missing .env silently. Every other key in it is blank, so nothing is lost.
+      ENV NODE_ENV=production
+      ENV PORT=3000
+      EXPOSE 3000
+      CMD ["node", "./dist/index.js"]
+  push:
+    # No repository and no tags. The controller pushes to the in-cluster Service, and the root
+    # generator patches spec.push.tags with a hash of this spec plus the referenced
+    # GitRepository's -- the same hash it writes into the image reference in resources.yaml.
+    # See templates/kustomizations.yaml. Setting tags here would be overwritten.
+    history: 10
+---
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageBuild
+metadata:
+  name: jetkvm-ui
+  namespace: jetkvm
+spec:
+  interval: 1h
+  platforms: [linux/amd64]
+  context:
+    sourceRef:
+      kind: GitRepository
+      name: jetkvm-kvm
+      # The firmware monorepo's ui/ directory becomes the context root.
+      subpath: ui
+  args:
+    # Compiled into the bundle by Vite; there is no runtime override. Part of the input hash,
+    # so changing the API hostname rebuilds and moves the tag.
+    - name: VITE_CLOUD_API
+      value: https://jetkvm-api.example.com
+  dockerfile:
+    inline: |
+      # renovate: datasource=docker
+      FROM node:22.23.2-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS build
+      WORKDIR /src
+      COPY package.json package-lock.json ./
+      # The `prepare` lifecycle script is `cd .. && husky ui/.husky`. With ui/ as the context
+      # root its parent is not the repository, so npm ci would run husky against a path that
+      # does not exist and fail. Removing just that one script is narrower than --ignore-scripts,
+      # which would also skip the native postinstalls that swc and friends need.
+      RUN npm pkg delete scripts.prepare && npm ci
+      COPY . .
+      # Declared after npm ci so a hostname change does not invalidate the dependency layer.
+      ARG VITE_CLOUD_API
+      # build:prod runs paraglide's i18n compile, then tsc, then `vite build
+      # --mode=cloud-production`, which writes to dist/ with base "/".
+      RUN npm run build:prod
+
+      # renovate: datasource=docker
+      FROM nginx:1.31.5-alpine@sha256:72ba65eb42c10344912a84ff42408db7d34f2feb642204570ab8fc5ffd29f1d3
+      COPY --from=build /src/dist /usr/share/nginx/html
+      # SPA fallback, but NOT for /assets/ -- a hashed bundle that 404s must stay a 404. Serving
+      # index.html in its place makes a stale or failed deploy look like a working page that
+      # renders nothing, with 200s all the way down. Single quotes keep $uri from the shell.
+      RUN printf '%s\n' \
+            'server {' \
+            '  listen 8080;' \
+            '  root /usr/share/nginx/html;' \
+            '  location /assets/ { try_files $uri =404; }' \
+            '  location / { try_files $uri $uri/ /index.html; }' \
+            '}' > /etc/nginx/conf.d/default.conf
+      EXPOSE 8080
+  push:
+    history: 10

@@ -1,0 +1,24 @@
+# config.yaml — decluttarr v2
+general:
+  log_level: INFO
+  test_run: false          # dry-run: logs what it WOULD remove, removes nothing. Flip to False once verified.
+  timer: 10               # minutes between queue checks
+  ssl_verification: true
+
+jobs:
+  remove_failed_imports:
+    message_patterns:
+      - "Not a Custom Format upgrade for existing*"
+      - "Not an upgrade for existing*"
+  # Everything else intentionally left off:
+  #   remove_failed_downloads, remove_stalled, remove_slow,
+  #   remove_orphans, remove_metadata_missing, remove_missing_files,
+  #   remove_unmonitored, search_missing, search_unmet_cutoff, detect_deletions
+
+instances:
+  sonarr:
+    - base_url: "http://sonarr:8989"
+      api_key: !ENV SONARR_API_KEY
+  radarr:
+    - base_url: "http://radarr:7878"
+      api_key: !ENV RADARR_API_KEY

@@ -1,0 +1,68 @@
+# The runner image, with the remote-docker client in it.
+#
+# The client has to run INSIDE the runner container, not as a sidecar. It serves the client's own
+# filesystem over NFS, and the runner bind-mounts two paths into a `container:` job -- the
+# workspace and /actions-runner/externals. A sidecar is a different filesystem, so those paths
+# would be invisible to it and container jobs would start with nothing.
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageBuild
+metadata:
+  name: github-runner
+  namespace: github-runner
+spec:
+  interval: 1h
+  platforms: [linux/amd64]
+  # Content-addressed on purpose. A `RUN curl` in the Dockerfile is hashed only as TEXT, so new
+  # bytes at the same URL would not move the spec-hash tag and the rebuild would never happen.
+  context:
+    fetch:
+      url: https://github.com/lhns/remote-docker/releases/download/v0.5.1/remote-docker_0.5.1_linux_amd64.tar.gz
+      digest: sha256:37e08db3bf00ca8089ce5441d22e872e08b12190b6131b79a55ef010bc6a7805
+      unpack: tar.gz
+  dockerfile:
+    inline: |
+      # renovate: datasource=docker
+      FROM myoung34/github-runner:2.337.0-ubuntu-noble@sha256:1b947d2475cc6f4c3edf0e91dd879b091857e41a311be917016243479bb34101
+
+      # NOTHING IS INSTALLED HERE ON PURPOSE. This base is the runner AGENT on a plain
+      # Ubuntu -- not GitHub's ubuntu-latest, which is a VM image (actions/runner-images)
+      # carrying tens of GB of toolchain. Adding a package here would half-match it: the
+      # workflow then passes on this runner and fails on a hosted one, or the reverse, and
+      # the difference lives in this cluster rather than in the repo. A job that needs a
+      # toolchain names it with `container:`, which resolves the same in both places.
+
+      # The tarball's root; see spec.context.fetch above.
+      COPY remote-docker /usr/local/bin/remote-docker
+
+      # Wraps the image's own entrypoint rather than replacing it: the session must be up before
+      # the runner makes its first Docker call, and /entrypoint.sh still does the registration.
+      COPY <<'EOF' /usr/local/bin/with-remote-docker
+      #!/bin/sh
+      set -eu
+      : "${REMOTE_DOCKER_STATE_DIR:=/run/rd/state}"
+      export REMOTE_DOCKER_STATE_DIR
+      mkdir -p "$REMOTE_DOCKER_STATE_DIR"
+
+      # The key arrives read-only from a Secret; the client wants it 0600 in its own state dir.
+      if [ -f /secrets/id_ed25519 ]; then
+        install -m 0600 /secrets/id_ed25519 "$REMOTE_DOCKER_STATE_DIR/id_ed25519"
+      fi
+
+      # Idempotent: the state dir is an emptyDir, so this is normally a fresh create, but a
+      # restart that kept state must not fail here.
+      remote-docker remote create "$REMOTE_DOCKER_WORKSPACE" \
+        --host "$REMOTE_DOCKER_HOST" --user "$REMOTE_DOCKER_USER" --no-context || true
+      remote-docker remote start
+
+      exec /entrypoint.sh "$@"
+      EOF
+      RUN chmod 0755 /usr/local/bin/with-remote-docker
+
+      ENTRYPOINT ["/usr/local/bin/with-remote-docker"]
+      # CMD MUST be repeated. Setting ENTRYPOINT resets the base image's CMD to empty, so
+      # without this /entrypoint.sh runs with no arguments: it registers the runner, finds
+      # nothing to exec, exits 0, and its EXIT trap deregisters again -- a clean-looking
+      # restart loop that never listens for a job.
+      CMD ["./bin/Runner.Listener", "run", "--startuptype", "service"]
+  push:
+    history: 10

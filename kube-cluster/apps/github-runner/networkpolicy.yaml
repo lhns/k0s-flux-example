@@ -1,0 +1,74 @@
+# ===========================================================================
+# Egress containment for the runners.
+#
+# WHY THIS EXISTS: a workflow is arbitrary code, run by anyone who can push to a registered repo --
+# and one of these repos is not ours. Without this policy a job could reach the Ceph monitors at
+# 10.20.2.101-103, the Kubernetes API server, every LAN host and every other pod.
+#
+# WHAT IT DOES NOT COVER: the job CONTAINERS do not run here. They run on the daemon in
+# apps/remote-docker and inherit that pod's network reach, not this one. This policy governs the
+# runner agent -- the tunnel, the GitHub API, and action downloads the agent itself performs.
+#
+# WHY IT DOES NOT CONFLICT WITH kube-vnet: the cluster baseline is INGRESS-only
+# (`ingressIsolationLevel: pod`) and states that egress is unrestricted. A `policyTypes: [Egress]`
+# policy adds a rule set kube-vnet never writes; the two are additive.
+# ===========================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: github-runner-egress
+  namespace: github-runner
+spec:
+  # Both runners, by instance -- each Deployment has its own app.kubernetes.io/name.
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: github-runner
+  policyTypes: [Egress]
+  egress:
+    # --- DNS -------------------------------------------------------------
+    # By POD selector, not the kube-dns ClusterIP: a ClusterIP is DNAT'd by kube-proxy before the
+    # policy is evaluated, so what the policy sees is a CoreDNS pod address. The ClusterIP is
+    # allowed too, harmlessly, in case a CNI evaluates the other way round.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+        - ipBlock:
+            cidr: 172.19.0.10/32
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # --- the workspace, i.e. the Docker daemon ---------------------------
+    # Required explicitly: the workspace is a ClusterIP inside 172.16.0.0/12, which the internet
+    # rule below excludes. Without this the runners have no daemon at all.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: remote-docker
+      ports:
+        - protocol: TCP
+          port: 2280
+
+    # --- the public internet, and nothing private ------------------------
+    # github.com, the runner's own download of actions, and image pulls the agent makes. The
+    # `except` list is the actual containment:
+    #   10.0.0.0/8      the LAN -- nodes, Ceph mons, the API server VIP
+    #   172.16.0.0/12   the pod network (172.18/16) AND the service network (172.19/16)
+    #   192.168/16, 169.254/16   other private space and link-local (cloud metadata)
+    #
+    # A workflow that legitimately needs something on the LAN fails here. That is the intended
+    # trade -- widen deliberately rather than dropping the policy.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16

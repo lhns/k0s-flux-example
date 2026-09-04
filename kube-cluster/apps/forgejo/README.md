@@ -153,7 +153,7 @@ warranted to preserve data that does not exist. **Mirrors must be re-pointed at 
 upstreams, not at Gitea**, or Forgejo would mirror a mirror and the chain breaks the moment Gitea
 is retired.
 
-### Status: 151 of 175 across; 24 private mirrors still need a credential
+### Status: 151 of 175 across; the 24 private mirrors still need a credential, so Gitea stays
 
 `~/gitea2forgejo/` on the jumphost holds the whole thing — `classify.sh`, `migrate.sh`, `plan.tsv`
 (175 rows, one per repo, pre-reviewed), `dead.list`, `state/` (per-repo `done` / `failed`), and both

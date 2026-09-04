@@ -27,10 +27,12 @@ spec:
     spec:
       containers:
         - name: pgbouncer
+          # No CPU limit, same reason as cluster.yaml: pgbouncer is single-threaded and
+          # every app connects through it, so CFS throttling here surfaces as connection
+          # latency in apps whose own metrics look clean.
           resources:
             requests:
               cpu: "100m"
               memory: "100Mi"
             limits:
-              cpu: "500m"
               memory: "200Mi"

@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: bitwarden
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: bitwarden
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # Vaultwarden's /data (attachments, sends, icon cache, config.json, and rsa_key —
 # the JWT signing key), copied once from the old Swarm volume
 # fastappdata:/docker/bitwarden (excluding its nested db/ Postgres dir). CephFS RWX so
@@ -25,8 +38,6 @@ metadata:
   name: bitwarden
   namespace: bitwarden
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   # DB restored + /data copied (see README), now live.
@@ -55,7 +66,7 @@ spec:
     spec:
       containers:
         - name: bitwarden
-          image: ghcr.io/dani-garcia/vaultwarden:1.37.1
+          image: ghcr.io/dani-garcia/vaultwarden:1.37.2
           env:
             - name: TZ
               value: Europe/Berlin

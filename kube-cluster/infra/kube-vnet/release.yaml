@@ -9,7 +9,7 @@ spec:
   url: oci://ghcr.io/lhns/charts/kube-vnet
   ref:
     # Bump to roll a new version.
-    tag: "0.7.2"
+    tag: "0.7.3"
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -27,8 +27,7 @@ spec:
     operator:
       # Manage every namespace. The operator always self-excludes its own namespace
       # (kube-vnet-system), so [] safely means "manage everything, including
-      # kube-system". As of chart 0.5.0 an empty list means "disable nothing"; older
-      # charts fell back to the system-namespace default on [].
+      # kube-system". An empty list means "disable nothing".
       disabledNamespaces: []
       clusterBaseline:
         # pod = default-deny ingress everywhere (even same-namespace); ingress only

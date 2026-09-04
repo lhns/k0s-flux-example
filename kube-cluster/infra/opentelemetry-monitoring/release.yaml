@@ -4,6 +4,19 @@ kind: Namespace
 metadata:
   name: opentelemetry
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: opentelemetry
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
@@ -40,7 +53,7 @@ spec:
   chart:
     spec:
       chart: opentelemetry-kube-stack
-      version: "0.20.2"
+      version: "0.20.6"
       interval: 1h0m0s
       sourceRef:
         kind: HelmRepository
@@ -87,7 +100,7 @@ spec:
         image:
           repository: otel/opentelemetry-collector-contrib
           # renovate: datasource=docker depName=otel/opentelemetry-collector-contrib
-          tag: "0.159.0"
+          tag: "0.160.0"
         # Unset the chart-default node/kubelet scrape file so it doesn't clash with
         # our config (we don't use the packaged prometheus scrape presets here).
         scrape_configs_file: ""

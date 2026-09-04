@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: victoriametrics
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: victoriametrics
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # ===========================================================================
 # VictoriaMetrics data dir — 744G on the appdata CephFS, MOUNTED in place
 # (jellyfin/syncthing static-PV pattern), NOT copied. capacity 1Gi is a dummy
@@ -11,6 +24,8 @@ metadata:
 apiVersion: v1
 kind: PersistentVolume
 metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
   name: victoriametrics-data
 spec:
   accessModes: [ReadWriteMany]
@@ -78,13 +93,17 @@ spec:
         runAsGroup: 0
       containers:
         - name: victoriametrics
-          image: victoriametrics/victoria-metrics:v1.150.0
+          image: victoriametrics/victoria-metrics:v1.151.0
           args:
             - -retentionPeriod=12
             - -maxLabelsPerTimeseries=50
             - -search.cacheTimestampOffset=15m
             - -maxLabelValueLen=8192
             - -storageDataPath=/victoria-metrics-data
+            # Without this VM sizes its caches to 60% of whatever it can see, and with no
+            # cgroup limit that was the whole 32Gi node -- it sat at 11.6Gi. Now it is 70%
+            # of the limit below. Raise both together, never this alone.
+            - -memory.allowedPercent=70
           ports:
             - name: http
               containerPort: 8428
@@ -98,6 +117,13 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /victoria-metrics-data
+          # Memory only. A CPU limit would throttle query bursts -- see apps/webtop/README.md
+          # for the repo's rule and the valkey readiness-probe incident behind it.
+          resources:
+            requests:
+              memory: 8Gi
+            limits:
+              memory: 10Gi
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -154,7 +180,12 @@ spec:
       enableServiceLinks: false
       containers:
         - name: otelcol
-          image: otel/opentelemetry-collector-contrib:0.159.0
+          image: otel/opentelemetry-collector-contrib:0.160.0
+          resources:
+            requests:
+              memory: 256Mi
+            limits:
+              memory: 1Gi
           ports:
             - name: metrics
               containerPort: 8888
@@ -210,7 +241,13 @@ spec:
       enableServiceLinks: false
       containers:
         - name: otelcol
-          image: otel/opentelemetry-collector-contrib:0.159.0
+          image: otel/opentelemetry-collector-contrib:0.160.0
+          # recovery exporter: dormant at replicas 0, sized for when it is scaled up
+          resources:
+            requests:
+              memory: 128Mi
+            limits:
+              memory: 512Mi
           ports:
             - name: metrics
               containerPort: 8888

@@ -1,0 +1,207 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: jetkvm
+---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: jetkvm
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloud-api
+  namespace: jetkvm
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  # NOT a preference, and not a capacity decision. activeConnections and inFlight in
+  # src/webrtc-signaling.ts are in-process Map/Set with no Redis behind them. A device's
+  # WebSocket and the browser's POST /webrtc/session must be served by the SAME process or the
+  # offer never meets its answer. Sticky sessions do not help: the device and the browser are
+  # different clients that have to converge on one pod.
+  replicas: 1
+  strategy:
+    # For the same reason. RollingUpdate briefly runs two pods, and during that window
+    # signalling fails non-deterministically depending on which pod each side lands on.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloud-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cloud-api
+        app.kubernetes.io/instance: jetkvm
+        # Ingress from traefik; egress to the CNPG primary. Egress to Google
+        # (www.googleapis.com certs, accounts.google.com) is internet traffic, which the
+        # ingress-only baseline leaves unrestricted and unlabelled.
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.postgres.postgres: egress
+    spec:
+      initContainers:
+        # Migrations do NOT run at startup. Upstream's compose has a separate app-migrate
+        # service and gates the app on it, so that gate becomes this. Same image: its final
+        # stage inherits node_modules from the packages stage, so the Prisma CLI is present.
+        - name: migrate
+          image: jetkvm-cloud-api
+          command: [npm, run, prisma-migrate]
+          env:
+            - name: JETKVM_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: jetkvm-db
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://jetkvm:$(JETKVM_DB_PASSWORD)@postgres-rw.postgres.svc.cluster.local:5432/jetkvm?sslmode=disable&schema=public
+      containers:
+        - name: cloud-api
+          # Placeholder rewritten by the root generator to the registry reference plus the
+          # spec-hash tag of the ImageBuild of this name. See images.yaml.
+          image: jetkvm-cloud-api
+          env:
+            # $(VAR) interpolation requires the referenced variable to be declared FIRST.
+            - name: JETKVM_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: jetkvm-db
+                  key: password
+            - name: DATABASE_URL
+              value: postgresql://jetkvm:$(JETKVM_DB_PASSWORD)@postgres-rw.postgres.svc.cluster.local:5432/jetkvm?sslmode=disable&schema=public
+            - name: PORT
+              value: "3000"
+            # The device connects to wss://API_HOSTNAME/ -- the root, "for legacy reasons" per
+            # the source. This is why the API owns its own hostname rather than a subpath of
+            # the SPA's, and why no ForwardAuth may sit on / (it would strip the device's
+            # Authorization header).
+            - name: API_HOSTNAME
+              value: jetkvm-api.example.com
+            - name: APP_HOSTNAME
+              value: jetkvm.example.com
+            # Must be set explicitly: see the .env note in images.yaml. Left unset it is not
+            # empty, it is upstream's app.jetkvm.com default, which blocks our own SPA.
+            - name: CORS_ORIGINS
+              value: https://jetkvm.example.com
+            # toICEServers() filters to entries starting with "stun:" and silently drops
+            # everything else -- a turn: URL here does nothing. coturn already answers
+            # unauthenticated STUN on 3478 (use-auth-secret gates allocations, not binding
+            # requests), so this needs no change on that side.
+            - name: ICE_SERVERS
+              value: stun:turn.example.com:3478
+            # LOWERCASE, and deliberately not x-forwarded-for. The lookup is
+            # req.headers[process.env.REAL_IP_HEADER] with no toLowerCase(), and Node
+            # lower-cases every header key -- so "X-Real-IP", which upstream's own .env.example
+            # suggests, can never match and silently falls back to req.socket.remoteAddress,
+            # i.e. Traefik's pod IP. x-forwarded-for would match but is a LIST behind our two
+            # proxies ("1.2.3.4, 10.20.2.31"); the value is used whole, so parsing it as an
+            # address fails. This is the device's own observed source address, echoed back to
+            # it as its srflx candidate, so getting it wrong yields a useless candidate.
+            - name: REAL_IP_HEADER
+              value: x-real-ip
+            # SECURITY-CRITICAL. Upstream's comment is "leave empty to allow all" -- unset,
+            # anyone with a Google account can enrol a device against this instance.
+            - name: ALLOWED_IDENTITIES
+              value: admin@example.com
+            - name: COOKIE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: jetkvm
+                  key: COOKIE_SECRET
+            - name: GOOGLE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: jetkvm
+                  key: GOOGLE_CLIENT_ID
+            - name: GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: jetkvm
+                  key: GOOGLE_CLIENT_SECRET
+            # R2_* and CLOUDFLARE_TURN_* are deliberately unset; see the README on what that
+            # costs (firmware release hosting, and the browser's TURN credentials).
+          ports:
+            - name: http
+              containerPort: 3000
+          readinessProbe:
+            # /healthz returns {ready:true} unconditionally and never touches the database, so
+            # this means "the process is listening", not "the app works". A pod whose Prisma
+            # client cannot reach CNPG passes this probe.
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 6
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloud-api
+  namespace: jetkvm
+spec:
+  selector:
+    app.kubernetes.io/name: cloud-api
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ui
+  namespace: jetkvm
+spec:
+  # Static bundle behind nginx, no shared state -- unlike cloud-api this one may roll normally.
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ui
+        app.kubernetes.io/instance: jetkvm
+        # Ingress only. The SPA talks to the API from the BROWSER, over the public name, so
+        # there is no pod-to-pod edge between these two and no vnet.yaml in this app.
+        kube-vnet/net.traefik.traefik: ingress
+    spec:
+      containers:
+        - name: ui
+          image: jetkvm-ui
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ui
+  namespace: jetkvm
+spec:
+  selector:
+    app.kubernetes.io/name: ui
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

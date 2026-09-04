@@ -85,8 +85,7 @@ spec:
         - name: authelia
           port: 9091
 ---
-# The Authelia portal + OIDC endpoints. Inert until auth.example.com DNS is pointed at the
-# cluster LB (cutover). TLS via the default *.example.com wildcard.
+# The Authelia portal + OIDC endpoints. TLS via the default *.example.com wildcard.
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -103,8 +102,7 @@ spec:
   tls: {}
 ---
 # Extra portal domains (auth.example.net, auth.example.org) — not in the *.example.com
-# wildcard, so their own cert via IONOS DNS-01. Inert until their DNS points at the
-# cluster LB. (auth.<onion> is deferred — needs Tor.)
+# wildcard, so their own cert via IONOS DNS-01. (auth.<onion> is deferred — needs Tor.)
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:

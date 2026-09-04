@@ -3,38 +3,35 @@ kind: Namespace
 metadata:
   name: otbr
 ---
-# The LAN attachment, and the reason this cannot be an ordinary pod.
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: otbr
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
+# macvlan, not an ordinary pod: a Thread border router advertises the mesh prefix into
+# the LAN with Router Advertisements, which are link-local multicast and need a real L2
+# presence. Same as ../matter-server (.8).
 #
-# A Thread border router is an IPv6 *router*: it advertises the mesh prefix into the LAN
-# with Router Advertisements and forwards between wpan0 and the LAN. RAs are link-local
-# multicast, so they need a real L2 presence — the pod network is IPv4 single-stack and a
-# MetalLB VIP is unicast and NAT'd. macvlan gives this pod its own MAC and IP on the LAN.
-# Same reasoning as ../matter-server, which is the neighbouring address .8.
+# The tuning plugin sets the IPv6 sysctls at CNI time -- the container cannot
+# (/proc/sys is read-only) and securityContext.sysctls cannot either
+# (net.ipv6.conf.all.forwarding is not on kubelet's safe list).
+#   forwarding=1 makes it a router.
+#   accept_ra=2, not 1: with forwarding on, Linux ignores RAs unless accept_ra is 2, and
+#   without it this pod never learns the upstream prefix.
 #
-# Two plugins chained:
-#   macvlan — the interface itself, parented to the node's LAN NIC.
-#   tuning  — the IPv6 sysctls. These CANNOT be set by the container: containerd mounts
-#             /proc/sys read-only for non-privileged pods, and the image's entrypoint does
-#             try (`sudo sysctl --system`) and fails harmlessly with "Read-only file
-#             system". They also cannot go in securityContext.sysctls, because
-#             net.ipv6.conf.all.forwarding is not on kubelet's safe list and would need
-#             allowlisting in k0sctl.yaml's workerProfiles — a cluster-wide change for one
-#             pod. The tuning plugin sets them in the pod netns at CNI time instead, which
-#             is already how matter-server gets accept_ra_rt_info_max_plen.
+# NO gateway in the ipam block: it would install a default route via net1 and hijack
+# egress away from eth0, breaking cluster DNS and API access.
 #
-#   forwarding=1 is what makes this a router at all.
-#   accept_ra=2 (not 1) is required *because* forwarding is on: Linux ignores RAs on an
-#   interface once forwarding is enabled unless accept_ra is explicitly 2. Without it this
-#   pod never learns the upstream prefix and cannot do border routing.
-#
-# NOTE: deliberately NO gateway in the ipam block, as in matter-server. A gateway here
-# would install a default route via net1 and hijack the pod's egress away from eth0,
-# breaking cluster DNS and API access.
-#
-# 10.20.3.7 is macvlan space by repo convention (10.20.2.x is MetalLB VIPs and k0s nodes).
-# The LAN is one flat 10.20.0.0/16 so 10.20.2.7 would work technically, but a macvlan pod
-# sitting in the MetalLB range is invisible to MetalLB, which would happily hand the same
-# address to a Service later. Must also stay outside the router's DHCP pool.
+# 10.20.3.7 is macvlan space by convention -- 10.20.2.x is MetalLB, and a macvlan pod in
+# that range is invisible to MetalLB, which would hand the same address to a Service.
 apiVersion: k8s.cni.cncf.io/v1
 kind: NetworkAttachmentDefinition
 metadata:
@@ -65,22 +62,13 @@ spec:
       ]
     }
 ---
-# The Active Operational Dataset lives here — network key, PAN ID, channel, network name,
-# plus the MLE/MAC security frame counters. It *is* the Thread network's identity: lose this
-# volume and every commissioned device is orphaned and has to be re-commissioned by hand,
-# exactly like matter-server's fabric credentials.
+# The Active Operational Dataset: the Thread network's identity. Lose this volume and
+# every commissioned device is orphaned and must be re-commissioned by hand.
 #
-# cephfs, matching matter-server, and this was ceph-rbd first by mistake. The repo's
-# "embedded database file -> block" rule is about SQLite-style access (mmap, byte-range
-# locks); otbr-agent keeps a single flat key-value file rewritten via tmp-file-plus-rename,
-# which is the file-only case cephfs is for. 36K in practice.
-#
-# The decisive argument is backup, not semantics. Backrest mounts the whole fastappdata
-# CephFS filesystem, and the cephfs StorageClass provisions subvolumes inside it, so dynamic
-# cephfs volumes are at least reachable. Dynamic RBD volumes are block images in pool
-# rbd.kube with no mount and no path — nothing can back them up. Putting the one
-# irreplaceable file here on RBD made it the only thing in the repo that could not be
-# recovered. (Coverage still needs the Backrest plan — task #89.)
+# cephfs, not ceph-rbd (which it was at first, by mistake). Backrest mounts the
+# fastappdata filesystem and the cephfs class provisions subvolumes inside it, so those
+# are reachable; dynamic RBD volumes are block images with no path and nothing can back
+# them up. Coverage still needs the Backrest plan -- task #89.
 #
 # RWX, as matter-server does. Single-writer is enforced by strategy: Recreate below, which
 # the fixed macvlan address and the single radio require anyway.
@@ -141,33 +129,20 @@ spec:
       # host libc entirely. See socat-launcher.
       containers:
         - name: otbr
-          # Upstream publishes exactly one tag, `latest`, so a tag tracks nothing and the
-          # digest is the only honest pin — same call as apps/webtop.
+          # Bare digest, not tag@digest: upstream publishes exactly one tag (`latest`), so a tag
+          # tracks nothing. Every other pin in this repo is tag@digest.
           #
-          # Verified, not assumed: Docker Hub reports a tag count of 1 for openthread/otbr.
-          # This is the ONLY image here that legitimately carries a bare digest; every other
-          # pin in the repo is tag@digest, so a bare digest should be read as "upstream ships
-          # no usable tag" rather than as an oversight.
+          # DO NOT BUMP WITHOUT A THREAD NETWORK TO TEST ON. This pin is half a contract with the
+          # RCP firmware on the SLZB-MR5U, which lives outside the cluster -- nothing in CI can
+          # tell whether a digest works, so Renovate is dashboard-gated for it.
           #
-          # DO NOT BUMP THIS WITHOUT A THREAD NETWORK TO TEST ON. Renovate's digest updates
-          # are dashboard-gated (renovate.json) because this pin is not really a software
-          # version — it is one half of a contract with the RCP firmware on the SLZB-MR5U,
-          # which lives outside the cluster and outside this repo, so nothing in CI can tell
-          # whether a digest works. The only test is the border router coming back.
-          #
-          # TWO digests are now known bad, both failing identically on
-          #     otPlatRadioSetMacKey() at radio.cpp:964: InvalidArgument
-          # immediately after the RCP reset:
-          #     58a44e6c  PR #104, 2026-08-06
-          #     42b358ed  PR #122, 2026-08-08
-          # That is not two unlucky builds. Every otbr image published since 4f723b80 has
-          # disagreed with this radio's firmware, so treat the next digest as bad until proven
-          # otherwise — and expect the fix to be a FIRMWARE update on the SLZB-MR5U rather than
-          # a newer image. Bumping the pin alone has now failed twice.
+          # Two digests are known bad (58a44e6c, 42b358ed), both aborting identically in
+          # otPlatRadioSetMacKey() at radio.cpp:964 right after the RCP reset. Every image since
+          # this one has disagreed with the radio's firmware: treat the next as bad until proven
+          # otherwise, and expect the fix to be a firmware update, not a newer image.
           #
           # The failure is SILENT: otbr-agent is not PID 1, so its abort leaves the pod Running
-          # and only the readiness probe on :8081 goes red. Thread stays down with nothing
-          # announcing it. Watch `kubectl -n otbr get pod` for 0/1 after any bump.
+          # with only the :8081 readiness probe red. Watch for 0/1 after any bump.
           image: openthread/otbr@sha256:4f723b80b1976327930635cb477d62ff99ece3b39e117a1f501bce8713f9ca36
           securityContext:
             capabilities:
@@ -292,7 +267,7 @@ spec:
         - name: socat
           image:
             # renovate: datasource=docker
-            reference: alpine/socat:1.8.1.3@sha256:3ed1cd38741bd445ebffa3aecb9d80c46a83db45f5b5ef03332976c7ca9814af
+            reference: alpine/socat:1.8.1.3@sha256:5f275aa1b6e9889c851f61097142ee050fc6ac4615b4ea64ac1f2b0e81ff8d7f
             pullPolicy: IfNotPresent
         - name: socat-launcher
           configMap:

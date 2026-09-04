@@ -1,0 +1,72 @@
+---
+# The SPA. Public: the app itself gates on Google sign-in against the API.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: jetkvm
+  namespace: jetkvm
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`jetkvm.example.com`)
+      services:
+        - name: ui
+          port: 8080
+  tls: {}
+---
+# The API, on its own hostname because the device connects to wss://<host>/ -- the root.
+#
+# Two constraints follow and neither is negotiable. It cannot be mounted under a path of
+# jetkvm.example.com, and it must NOT be put behind Authelia or any other ForwardAuth: the device
+# authenticates itself with its own Authorization header, which middleware would strip or
+# challenge, and a KVM device cannot complete an interactive login.
+#
+# A single rule on / covers everything: the device WebSocket, the browser's second WebSocket at
+# /webrtc/signaling/client, and the REST API.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: jetkvm-api
+  namespace: jetkvm
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`jetkvm-api.example.com`)
+      services:
+        - name: cloud-api
+          port: 3000
+  tls: {}
+---
+# jetkvm.kube.example.com 301-redirects to the canonical jetkvm.example.com (default *.example.com cert).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: jetkvm-kube-redirect
+  namespace: jetkvm
+spec:
+  redirectRegex:
+    regex: "^https://jetkvm.kube.example.com/(.*)"
+    replacement: "https://jetkvm.example.com/${1}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: jetkvm-kube-redirect
+  namespace: jetkvm
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`jetkvm.kube.example.com`)
+      services:
+        - name: ui
+          port: 8080
+      middlewares:
+        - name: jetkvm-kube-redirect
+  tls: {}
+---
+# No .kube. redirect for the API hostname. Devices are configured with the canonical name and
+# a redirect is not something a WebSocket client follows usefully.

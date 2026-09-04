@@ -24,11 +24,13 @@
   metadata (never selectors/pod-templates), so it's authoritative and causes no
   rollouts.
 
-  Composed artifacts: a component may declare ImageComposition objects among its
-  own resources. They are found BY KIND rather than by filename, so any file may
-  hold them and a component may have several. For each one we compute a
-  SPEC-HASH tag and emit a kustomize `images:` entry mapping a placeholder --
-  named after the composition itself -- to the full reference.
+  Composed artifacts: a component may declare ImageComposition or ImageBuild
+  objects among its own resources. They are found BY KIND rather than by
+  filename, so any file may hold them and a component may have several of
+  either. For each one we compute a SPEC-HASH tag and emit a kustomize `images:`
+  entry mapping a placeholder -- named after the object itself -- to the full
+  reference. Both kinds behave identically here; only where they name their
+  input differs (layers[].sourceRef vs context.sourceRef).
 
   Both ends are then driven from that one hash: the `images:` entry rewrites the
   consumer (kustomize's built-in fieldSpecs already cover `containers[]/image`
@@ -37,7 +39,13 @@
   together, in one commit, with no substitution and nothing observing anything at
   runtime. See apps/freshrss and ADR 0017 in lhns/kube-oci-composer.
 
-  A composition must NOT set push.tags itself -- the patch replaces them.
+  Such an object must NOT set push.tags itself -- the patch replaces them.
+
+  Not covered: an ImageBuild whose Dockerfile is a `configMapRef`. The hash sees
+  the reference, not the ConfigMap's content, and a generated ConfigMap is not a
+  file in the dir for pass 1 to find -- so editing it would rebuild without
+  moving the tag. `inline` keeps the recipe inside the hashed spec and has no
+  such gap; prefer it, or expect push.onConflict to fail the build loudly.
 
   The repository is <publicHost>/<namespace>/<name>, which is where the composer
   publishes an object that names no `push.repository`. We deliberately do not set
@@ -85,8 +93,8 @@
 {{- end }}
 {{- $comps := list }}
 {{- range $k, $o := $objs }}
-{{- if eq $o.kind "ImageComposition" }}
-{{- /* A sourceRef layer names its input rather than containing it, so the pin that decides
+{{- if or (eq $o.kind "ImageComposition") (eq $o.kind "ImageBuild") }}
+{{- /* A sourceRef names its input rather than containing it, so the pin that decides
        the CONTENT lives in the referenced GitRepository, not here. Hashing the composition
        spec alone therefore does NOT see it: bumping freshrss-ext-autottl from v0.6.2 to
        v0.6.4 left the tag identical while the artifact changed. That is the one property
@@ -97,15 +105,20 @@
 
        `interval`/`timeout`/`suspend` are dropped from the source for the same reason they are
        dropped from the composition: they change when we poll, not what is built. */ -}}
-{{- $srcs := dict }}
+{{- $srcRefs := list }}
+{{- if eq $o.kind "ImageComposition" }}
 {{- range $l := (dig "spec" "layers" (list) $o) }}
-{{- $sr := dig "sourceRef" (dict) $l }}
-{{- if $sr }}
+{{- with (dig "sourceRef" (dict) $l) }}{{- $srcRefs = append $srcRefs . }}{{- end }}
+{{- end }}
+{{- else }}
+{{- with (dig "spec" "context" "sourceRef" (dict) $o) }}{{- $srcRefs = append $srcRefs . }}{{- end }}
+{{- end }}
+{{- $srcs := dict }}
+{{- range $sr := $srcRefs }}
 {{- $sk := printf "%s/%s" (dig "kind" "" $sr) (dig "name" "" $sr) }}
 {{- $src := get $objs $sk }}
 {{- if $src }}
 {{- $_ := set $srcs $sk (omit (dig "spec" (dict) $src) "interval" "timeout" "suspend") }}
-{{- end }}
 {{- end }}
 {{- end }}
 {{- $hashIn := omit $o.spec "publish" "push" "interval" "suspend" }}
@@ -117,6 +130,7 @@
 {{- end }}
 {{- $comps = append $comps (dict
       "name" $o.metadata.name
+      "kind" $o.kind
       "tag"  (printf "s%s" ($hashIn | toYaml | sha256sum | trunc 16))
       "repo" (printf "%s/%s/%s" $.Values.ociComposer.publicHost $o.metadata.namespace $o.metadata.name)) }}
 {{- end }}
@@ -138,7 +152,7 @@ spec:
   {{- with $comps }}
   images:
     {{- range . }}
-    # The placeholder IS the ImageComposition's own name, so an app connects the two by
+    # The placeholder IS the composition's or build's own name, so an app connects the two by
     # writing that name where the image reference goes -- nothing else to declare.
     - name: {{ .name }}
       newName: {{ .repo }}
@@ -187,11 +201,11 @@ spec:
     #
     # A merge patch, so a composition with no push block gets one rather than erroring.
     - target:
-        kind: ImageComposition
+        kind: {{ .kind }}
         name: {{ .name }}
       patch: |
         apiVersion: oci.lhns.de/v1alpha1
-        kind: ImageComposition
+        kind: {{ .kind }}
         metadata:
           name: {{ .name }}
         spec:

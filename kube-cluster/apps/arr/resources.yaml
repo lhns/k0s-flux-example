@@ -1,0 +1,664 @@
+#
+# Everything in this namespace is routed through the VPN: the webhook selects the
+# namespace by label and gatewayDefault is true, so there are no per-pod opt-ins
+# to forget. Workloads that must NOT be tunnelled live in apps/seerr instead.
+#
+# These mount the SAME CephFS config directories the Swarm stack used. They ran
+# at replicas 0 until the Swarm stack was stopped, because two writers on one
+# *arr database corrupts it. Rollback is scale to 0 and start Swarm again --
+# but note the configs now point at CNPG, so a rollback needs the config.xml
+# .pre-k8s backups restored alongside.
+#
+# No fsGroup and no pod-level securityContext: the s6-overlay entrypoint starts
+# as root, chowns /config and drops to abc. An fsGroup fights it and forces a
+# recursive chown of /media on every start.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: arr
+---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: arr
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+  labels:
+    # Selects this namespace for the pod-gateway mutating webhook, and is what
+    # makes every pod here routed by default. Must match a namespace listed in
+    # the reflection annotations on infra/pod-gateway's ConfigMap, or the
+    # injected init container has no settings.sh to read.
+    routed-gateway: "true"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sabnzbd
+  namespace: arr
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sabnzbd
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sabnzbd
+        app.kubernetes.io/instance: arr
+        kube-vnet/net.arr-api: both
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.pod-gateway.gateway: both
+    spec:
+      containers:
+        - name: sabnzbd
+          # renovate: datasource=docker
+          image: lscr.io/linuxserver/sabnzbd:5.1.2-ls270
+          # Memory only, per apps/webtop/README.md -- a CPU limit would throttle, not protect.
+          # Article cache and par2 repair grow to whatever is free; it sat at 4.1Gi BestEffort.
+          resources:
+            requests:
+              memory: 512Mi
+            limits:
+              memory: 4Gi
+          securityContext:
+            capabilities:
+              drop: [NET_ADMIN, NET_RAW]
+          env:
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
+            - name: TZ
+              value: Europe/Berlin
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: media
+              mountPath: /downloads
+              subPath: downloads
+            - name: incomplete
+              mountPath: /incomplete-downloads
+              subPath: incomplete-downloads
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: sabnzbd-config
+        - name: media
+          persistentVolumeClaim:
+            claimName: arr-media
+        - name: incomplete
+          persistentVolumeClaim:
+            claimName: arr-incomplete
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sabnzbd
+  namespace: arr
+spec:
+  selector:
+    app.kubernetes.io/name: sabnzbd
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sonarr
+  namespace: arr
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sonarr
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sonarr
+        app.kubernetes.io/instance: arr
+        kube-vnet/net.arr-api: both
+        kube-vnet/net.postgres.postgres: egress
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.pod-gateway.gateway: both
+    spec:
+      containers:
+        - name: sonarr
+          # renovate: datasource=docker
+          image: lscr.io/linuxserver/sonarr:4.0.19.2979-ls322
+          securityContext:
+            capabilities:
+              drop: [NET_ADMIN, NET_RAW]
+          env:
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
+            - name: TZ
+              value: Europe/Berlin
+            # debug is the default and writes *.debug.*.txt (101 M sonarr/radarr, 1.2 G
+            # lidarr). File logging cannot be turned off: NzbDroneLogger registers the
+            # targets unconditionally. stdout is unaffected.
+            - name: SONARR__LOG__LEVEL
+              value: info
+          ports:
+            - name: http
+              containerPort: 8989
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: media
+              mountPath: /media
+            - name: link-paths
+              mountPath: /custom-cont-init.d
+            # Stock linuxserver run script plus -exitimmediately, carried over
+            # from Swarm. Coupled to this image tag's s6 layout: if a bump moves
+            # svc-sonarr, startup breaks -- drop this mount if that happens.
+            - name: s6-run
+              mountPath: /etc/s6-overlay/s6-rc.d/svc-sonarr/run
+              subPath: run
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: sonarr-config
+        - name: s6-run
+          configMap:
+            name: arr-s6-run
+            defaultMode: 0755
+            items:
+              - key: sonarr
+                path: run
+        - name: media
+          persistentVolumeClaim:
+            claimName: arr-media
+        - name: link-paths
+          configMap:
+            name: arr-link-paths
+            defaultMode: 0755
+            items:
+              - key: sonarr
+                path: link-paths
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sonarr
+  namespace: arr
+spec:
+  selector:
+    app.kubernetes.io/name: sonarr
+  ports:
+    - name: http
+      port: 8989
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: radarr
+  namespace: arr
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: radarr
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: radarr
+        app.kubernetes.io/instance: arr
+        kube-vnet/net.arr-api: both
+        kube-vnet/net.postgres.postgres: egress
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.pod-gateway.gateway: both
+    spec:
+      containers:
+        - name: radarr
+          # renovate: datasource=docker
+          image: lscr.io/linuxserver/radarr:6.3.0.10514-ls314
+          securityContext:
+            capabilities:
+              drop: [NET_ADMIN, NET_RAW]
+          env:
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
+            - name: TZ
+              value: Europe/Berlin
+            # See SONARR__LOG__LEVEL above.
+            - name: RADARR__LOG__LEVEL
+              value: info
+          ports:
+            - name: http
+              containerPort: 7878
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: media
+              mountPath: /media
+            - name: link-paths
+              mountPath: /custom-cont-init.d
+            - name: s6-run
+              mountPath: /etc/s6-overlay/s6-rc.d/svc-radarr/run
+              subPath: run
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: radarr-config
+        - name: s6-run
+          configMap:
+            name: arr-s6-run
+            defaultMode: 0755
+            items:
+              - key: radarr
+                path: run
+        - name: media
+          persistentVolumeClaim:
+            claimName: arr-media
+        - name: link-paths
+          configMap:
+            name: arr-link-paths
+            defaultMode: 0755
+            items:
+              - key: radarr
+                path: link-paths
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: radarr
+  namespace: arr
+spec:
+  selector:
+    app.kubernetes.io/name: radarr
+  ports:
+    - name: http
+      port: 7878
+      targetPort: http
+---
+# hotio's plugins build -- the live instance. Its SQLite file is 401 KB and
+# dated Dec 2024 only because this instance does not use SQLite: config.xml
+# points at Postgres lidarr-main, which holds 2,987 artists / 104,849 albums /
+# 300,565 track files and was being written the morning of the migration.
+#
+# The blampe/hearring-aid tree is the abandoned experiment (42 MB SQLite, last
+# written Nov 2025) and is not deployed. Dropped with it: the RandomNinjaAtk
+# arr-scripts hook, which was already dormant -- its init file is dot-prefixed
+# so the runner skips it, /config/scripts was never created, and the
+# custom-services.d mount is commented out in the compose.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lidarr
+  namespace: arr
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: lidarr
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: lidarr
+        app.kubernetes.io/instance: arr
+        kube-vnet/net.arr-api: both
+        kube-vnet/net.postgres.postgres: egress
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.pod-gateway.gateway: both
+    spec:
+      containers:
+        - name: lidarr
+          # Digest-pinned: pr-plugins is a rolling tag with no versioned releases.
+          # renovate: datasource=docker
+          image: ghcr.io/hotio/lidarr:pr-plugins@sha256:ae0b3b14769fdfeb73fe5d9e61ebcda04edf202244bcbd6323d2fe1381154f57
+          securityContext:
+            capabilities:
+              drop: [NET_ADMIN, NET_RAW]
+          env:
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
+            - name: TZ
+              value: Europe/Berlin
+            # See SONARR__LOG__LEVEL above.
+            - name: LIDARR__LOG__LEVEL
+              value: info
+          ports:
+            - name: http
+              containerPort: 8686
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: bulk
+              mountPath: /config/MediaCover
+              subPath: lidarr/data/MediaCover
+            - name: bulk
+              mountPath: /config/extended
+              subPath: lidarr/data/extended
+            - name: media
+              mountPath: /media
+            - name: link-paths
+              mountPath: /custom-cont-init.d
+            # hotio's s6 path is service-lidarr, not svc-lidarr like linuxserver.
+            - name: s6-run
+              mountPath: /etc/s6-overlay/s6-rc.d/service-lidarr/run
+              subPath: run
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: lidarr-config
+        - name: bulk
+          persistentVolumeClaim:
+            claimName: arr-config
+        - name: s6-run
+          configMap:
+            name: arr-s6-run
+            defaultMode: 0755
+            items:
+              - key: lidarr
+                path: run
+        - name: media
+          persistentVolumeClaim:
+            claimName: arr-media
+        - name: link-paths
+          configMap:
+            name: arr-link-paths
+            defaultMode: 0755
+            items:
+              - key: lidarr
+                path: link-paths
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lidarr
+  namespace: arr
+spec:
+  selector:
+    app.kubernetes.io/name: lidarr
+  ports:
+    - name: http
+      port: 8686
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prowlarr
+  namespace: arr
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: prowlarr
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: prowlarr
+        app.kubernetes.io/instance: arr
+        kube-vnet/net.arr-api: both
+        kube-vnet/net.postgres.postgres: egress
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.pod-gateway.gateway: both
+    spec:
+      containers:
+        - name: prowlarr
+          # renovate: datasource=docker
+          image: lscr.io/linuxserver/prowlarr:2.5.2.5491-ls157
+          securityContext:
+            capabilities:
+              drop: [NET_ADMIN, NET_RAW]
+          env:
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
+            - name: TZ
+              value: Europe/Berlin
+            # See SONARR__LOG__LEVEL above.
+            - name: PROWLARR__LOG__LEVEL
+              value: info
+          ports:
+            - name: http
+              containerPort: 9696
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: s6-run
+              mountPath: /etc/s6-overlay/s6-rc.d/svc-prowlarr/run
+              subPath: run
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: prowlarr-config
+        - name: s6-run
+          configMap:
+            name: arr-s6-run
+            defaultMode: 0755
+            items:
+              - key: prowlarr
+                path: run
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prowlarr
+  namespace: arr
+spec:
+  selector:
+    app.kubernetes.io/name: prowlarr
+  ports:
+    - name: http
+      port: 9696
+      targetPort: http
+---
+# Inbound P2P (50300) is NOT exposed: behind the gateway the default route is
+# the tunnel, so a connection arriving on eth0 would reply via vxlan0, and
+# NordVPN offers no port forwarding anyway. Downloads work; we are not
+# directly connectable. The UI is reachable through Traefik as normal.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: slskd
+  namespace: arr
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: slskd
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: slskd
+        app.kubernetes.io/instance: arr
+        kube-vnet/net.arr-api: both
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.pod-gateway.gateway: both
+    spec:
+      containers:
+        - name: slskd
+          # renovate: datasource=docker
+          image: slskd/slskd:0.26.0
+          securityContext:
+            capabilities:
+              drop: [NET_ADMIN, NET_RAW]
+          env:
+            - name: SLSKD_REMOTE_CONFIGURATION
+              value: "true"
+            - name: SLSKD_UMASK
+              value: "000"
+            - name: TZ
+              value: Europe/Berlin
+          ports:
+            - name: http
+              containerPort: 5030
+          volumeMounts:
+            - name: fast
+              mountPath: /app
+            - name: config
+              mountPath: /app/share
+              subPath: slskd/share
+            - name: media
+              mountPath: /media
+            - name: incomplete
+              mountPath: /incomplete-downloads-slskd
+              subPath: incomplete-downloads-slskd
+      volumes:
+        - name: fast
+          persistentVolumeClaim:
+            claimName: slskd-app
+        - name: config
+          persistentVolumeClaim:
+            claimName: arr-config
+        - name: media
+          persistentVolumeClaim:
+            claimName: arr-media
+        - name: incomplete
+          persistentVolumeClaim:
+            claimName: arr-incomplete
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: slskd
+  namespace: arr
+spec:
+  selector:
+    app.kubernetes.io/name: slskd
+  ports:
+    - name: http
+      port: 5030
+      targetPort: http
+---
+# Not routed for its own sake -- it only talks to jellyfin in-cluster over eth0 --
+# but it lives here rather than getting a namespace of its own, and being in this
+# namespace means the webhook routes it. Harmless, and one less namespace.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: autopulse
+  namespace: arr
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: autopulse
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: autopulse
+        app.kubernetes.io/instance: arr
+        kube-vnet/net.jellyfin.jellyfin-api: egress
+        kube-vnet/net.arr-api: both
+        kube-vnet/net.postgres.postgres: egress
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.pod-gateway.gateway: both
+    spec:
+      containers:
+        - name: autopulse
+          # renovate: datasource=docker
+          image: ghcr.io/dan-online/autopulse:v2.0.0
+          securityContext:
+            capabilities:
+              drop: [NET_ADMIN, NET_RAW]
+          env:
+            - name: TZ
+              value: Europe/Berlin
+          ports:
+            - name: http
+              containerPort: 2875
+          volumeMounts:
+            - name: config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+      volumes:
+        - name: config
+          secret:
+            secretName: autopulse-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: autopulse
+  namespace: arr
+spec:
+  selector:
+    app.kubernetes.io/name: autopulse
+  ports:
+    - name: http
+      port: 2875
+      targetPort: http
+---
+# No Service and no ingress: it only calls the *arr APIs and exposes nothing.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: decluttarr
+  namespace: arr
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: decluttarr
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: decluttarr
+        app.kubernetes.io/instance: arr
+        kube-vnet/net.arr-api: both
+        kube-vnet/net.pod-gateway.gateway: both
+    spec:
+      containers:
+        - name: decluttarr
+          # renovate: datasource=docker
+          image: ghcr.io/manimatter/decluttarr:v2.1.0
+          securityContext:
+            capabilities:
+              drop: [NET_ADMIN, NET_RAW]
+          env:
+            - name: TZ
+              value: Europe/Berlin
+          envFrom:
+            - secretRef:
+                name: decluttarr
+          volumeMounts:
+            - name: config
+              mountPath: /app/config/config.yaml
+              subPath: config.yaml
+      volumes:
+        - name: config
+          configMap:
+            name: decluttarr-config

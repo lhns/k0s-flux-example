@@ -1,0 +1,95 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: remote-docker-workspace
+  namespace: remote-docker
+spec:
+  interval: 1h0m0s
+  url: oci://ghcr.io/lhns/charts/remote-docker-workspace
+  ref:
+    # Bump to roll a new version.
+    tag: "0.6.0"
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: remote-docker
+  namespace: remote-docker
+spec:
+  interval: 10m0s
+  chartRef:
+    kind: OCIRepository
+    name: remote-docker-workspace
+  values:
+    # Names every object `remote-docker` rather than `remote-docker-remote-docker-workspace`.
+    # The Service name is what routing.yaml and the runners address.
+    fullnameOverride: remote-docker
+
+    # A dockerd per enrolled account (ADR 0019). The Swarm service ran the shared
+    # daemon instead; this is the behaviour change at cutover, and it means every
+    # account keeps its own copy of every image. Deliberate: it stops one account
+    # casually seeing another's containers, which matters now that a third party's
+    # CI is enrolled. Note ADR 0019's own caveat -- separation, not isolation:
+    # each daemon is still privileged.
+    perUserDind: true
+
+    # overlay2 refuses to start on Ceph- and NFS-backed volumes, and the failure is
+    # a daemon that never comes up. ceph-rbd is a BLOCK volume with ext4 on top, so
+    # `dockerdArgs: ""` (overlay2, faster) should also work -- try it only once this
+    # is otherwise healthy.
+    dockerdArgs: "--storage-driver=fuse-overlayfs"
+    # dindImage deliberately left empty: the per-account daemons inherit the storage
+    # driver above, and stock docker:dind has no fuse-overlayfs and restart-loops.
+
+    persistence:
+      # Every account's /var/lib/docker: a full private image + build cache each, and
+      # nothing prunes them. Growing it needs persistence.graph.existingClaim (0.6.0) --
+      # as a StatefulSet volumeClaimTemplate the size here only applies to a claim that
+      # does not exist yet.
+      graph:
+        size: 40Gi
+        storageClass: ceph-rbd
+      # Host keys and the uid map. Losing it changes the SSH host key, and every
+      # client that has connected before reports REMOTE HOST IDENTIFICATION CHANGED.
+      state:
+        size: 1Gi
+        storageClass: ceph-rbd
+
+    # Bounds every account's dind together: a `container:` job runs on this daemon, not
+    # in the runner pod, so nothing else constrains it. Memory only, and a build that
+    # exceeds it is OOMKilled -- the alternative is starving containerd and taking the
+    # node NotReady.
+    resources:
+      requests:
+        memory: 1Gi
+      limits:
+        memory: 8Gi
+
+    # The chart's own Ingress is ingress-nginx flavoured. This cluster routes with
+    # Traefik CRDs and a wildcard cert -- see routing.yaml.
+    ingress:
+      enabled: false
+
+    # Reaches the pod template via the chart's label helper, which is what kube-vnet
+    # reads. Ingress-only baseline, so this is the label that lets Traefik in.
+    commonLabels:
+      kube-vnet/net.traefik.traefik: ingress
+      # Joins the vnet in vnet.yaml, which is what lets the runner namespace reach :2280.
+      kube-vnet/net.remote-docker: ingress
+
+    # Public keys, in plain YAML on purpose: they are public, and enrolling someone
+    # should be a reviewable one-line diff rather than a sops round-trip. The entry
+    # name IS the unix account. The chart renders these into its own Secret.
+    #
+    # Copied from the Swarm workspace's authorized_keys.d/lhns.pub. One account can hold
+    # several machines (ADR 0029); the chart renders each entry as <account>.pub, so this
+    # reproduces that file byte for byte.
+    #
+    # `remote-docker remote enroll` prints the public key for a new machine.
+    authorizedKeys:
+      lhns: |
+        ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDdN+C2UWdSDNvF/C9NHbLzYC6g7E2O9gIBlErZXZvSF remote-docker-vm
+        ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFZAsn0dZeSVvmtG1KvYbSOu+0eAFTERPtzCo92W+UYX remote-docker-localhost
+        ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBEpuqBI3nLfAGwzI7jV99KFOjYqNkxFMBeRQ1GFF4O0 remote-docker-PIERRE-LAPTOP-pierr
+      example-repo: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJKYQ+Qmvmgi1JO1HH3bQQWkBrsdbhNxLHp+Gfw8k2oR example-repo runner"

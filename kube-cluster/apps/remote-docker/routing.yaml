@@ -1,0 +1,25 @@
+# The tunnel is one long-lived request, not a page load.
+#
+# No Authelia: the client authenticates with SSH INSIDE the tunnel, and a ForwardAuth would
+# challenge or strip the upgrade. Same reasoning as apps/jetkvm's device WebSocket.
+#
+# No .kube.example.com redirect either -- a redirect is not something a WebSocket client follows
+# usefully.
+#
+# Traefik needs no WebSocket configuration, and infra/traefik already sets `readTimeout: 0s` on
+# both entrypoints, which is the one that would otherwise cut a long-lived stream.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: remote-docker
+  namespace: remote-docker
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`docker.example.com`)
+      services:
+        - name: remote-docker
+          port: 2280
+  # The lhns-de wildcard, via the TLSStore in infra/traefik/tls.yaml.
+  tls: {}

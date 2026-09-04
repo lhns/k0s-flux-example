@@ -97,7 +97,7 @@ Groups present: `victoriametrics-exporter`, `victoriametrics-exporter-latest`,
 No Grafana datasource needed — query vmselect directly from the jumphost:
 
 ```sh
-ssh lhns@10.20.5.15
+ssh admin@10.20.5.15
 kubectl port-forward -n victoriametrics-cluster svc/vmselect 18481:8481 >/dev/null 2>&1 &
 Q=http://127.0.0.1:18481/select/0/prometheus/api/v1
 # always url-encode: dotted metric names must be written {__name__="kafka...."}

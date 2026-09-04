@@ -4,6 +4,19 @@ kind: Namespace
 metadata:
   name: spliit
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: spliit
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # spliit-cloud, a community fork of spliit. Upstream has no accounts at all — its schema has no
 # User/Account/Session and groups are addressed by URL — so SSO there is impossible, not merely
 # unconfigured. The fork adds better-auth, and with it a generic OIDC provider that Authelia

@@ -2,6 +2,19 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: gitea-runner
+---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: gitea-runner
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
   labels:
     # Nothing enforces PodSecurity in this cluster today (only a `warn` on flux-system), so these
     # change no behaviour. They are here to state the exception AT the namespace boundary: this is
@@ -41,8 +54,6 @@ metadata:
   name: gitea-runner
   namespace: gitea-runner
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   # StatefulSet for a STABLE NAME, not for storage. GITEA_RUNNER_NAME comes from
@@ -139,13 +150,16 @@ spec:
             requests:
               cpu: "1"
               memory: 2Gi
+              # The 40Gi+10Gi emptyDir sizeLimits below are a ceiling, not a working set
+              # (observed: 0-1.6G). Requested so the scheduler stops treating this pod's
+              # disk demand as zero and stacking runners onto one node.
+              ephemeral-storage: 10Gi
             limits:
               cpu: "8"
               memory: 12Gi
       containers:
         - name: act-runner
-          # 0.6.1 is current; the Swarm runner was still on 0.2.13, and the
-          # stale runner rows in Gitea show 0.2.13/0.4.1.
+          # Stale runner rows in Gitea still show 0.2.13/0.4.1 from the Swarm runner.
           image: gitea/act_runner:0.6.1
           securityContext:
             # act_runner itself needs no privileges at all — it talks to the

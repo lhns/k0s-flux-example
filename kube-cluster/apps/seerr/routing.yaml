@@ -1,0 +1,35 @@
+# No authelia: seerr has its own user accounts and is meant to be reachable by
+# people who do not have SSO logins. jellyseerr.example.com keeps working via a 301.
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: seerr
+  namespace: seerr
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`seerr.example.com`)
+      services:
+        - name: seerr
+          port: 5055
+    - kind: Rule
+      match: Host(`jellyseerr.example.com`)
+      services:
+        - name: seerr
+          port: 5055
+      middlewares:
+        - name: seerr-legacy-redirect
+  tls: {}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: seerr-legacy-redirect
+  namespace: seerr
+spec:
+  redirectRegex:
+    regex: "^https://jellyseerr.example.com/(.*)"
+    replacement: "https://seerr.example.com/${1}"
+    permanent: true

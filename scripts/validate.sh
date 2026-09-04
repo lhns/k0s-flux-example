@@ -35,14 +35,22 @@ case "$ocver" in
 esac
 ocschema="https://raw.githubusercontent.com/lhns/kube-oci-composer/${ocref}/schemas/{{.ResourceKind}}-{{.Group}}-{{.ResourceAPIVersion}}.json"
 
+# A component that does not BUILD is a hard failure, and it has to be recorded in a file: the
+# loop below is the left-hand side of a pipe, so it runs in a subshell and a variable set there
+# would not survive. Without this the build error prints, kubeconform still summarises the
+# components that did build, and the script exits 0 -- CI green on a broken component.
+buildfail="$(mktemp)"
+trap 'rm -f "$buildfail"' EXIT
+
 run() {
+  : > "$buildfail"   # truncate: run() is retried, and stale entries would fail a healthy repo
   for k in kube-cluster/infra/*/kustomization.yaml \
            kube-cluster/apps/*/kustomization.yaml \
            kube-cluster/flux-system/kustomization.yaml; do
     [ -f "$k" ] || continue
     echo "  $(dirname "$k")" >&2
     echo "---"
-    kustomize build "$(dirname "$k")"
+    kustomize build "$(dirname "$k")" || echo "$(dirname "$k")" >> "$buildfail"
   done | kubeconform \
     -ignore-missing-schemas \
     -cache "$cache" \
@@ -65,6 +73,12 @@ for backoff in 0 10 30; do
   errors="$(printf '%s' "$out" | grep -oE 'Errors: [0-9]+' | grep -oE '[0-9]+$' || echo 0)"
   [ "${errors:-0}" = 0 ] && break
 done
+
+if [ -s "$buildfail" ]; then
+  echo "== kustomize build failed ==" >&2
+  sort -u "$buildfail" | sed 's/^/  /' >&2
+  exit 1
+fi
 
 if [ "${invalid:-0}" -gt 0 ]; then
   echo "== schema violations ==" >&2

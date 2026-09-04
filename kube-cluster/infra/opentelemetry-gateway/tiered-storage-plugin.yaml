@@ -9,8 +9,7 @@
 # could not mount its plugins and would not start.
 #
 # This is a RELOCATION, not an upgrade. Verified before the switch: the two archives contain 124 +
-# 52 = 176 jars, and the jar sets are byte-for-byte identical to what was on Ceph. 1.1.1 is also
-# still the current Aiven release.
+# 52 = 176 jars, and the jar sets are byte-for-byte identical to what was on Ceph.
 #
 # UPGRADING is now a four-line edit here — the two url/digest pairs — and nothing else. The
 # directory names deliberately carry no version (`to: /core`, not `/core-1.1.1`), so `classPath` in

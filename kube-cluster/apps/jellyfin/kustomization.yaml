@@ -9,6 +9,7 @@ metadata:
 resources:
 - resources.yaml
 - routing.yaml
+- vnet.yaml
 - database.yaml
 - db-role-secret.yaml
 - ssh-ffmpeg-key-secret.yaml

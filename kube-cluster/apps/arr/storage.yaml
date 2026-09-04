@@ -1,0 +1,250 @@
+# Mounted in place from the existing CephFS filesystems, not copied: this is a
+# cutover from the Swarm arr stack, so the configs, databases and libraries are
+# the same bytes on disk. Static CephFS PVs (immich/navidrome pattern) --
+# storageClassName "", staticVolume, per-fs fsName + rootPath, bound by
+# volumeName. capacity 1Gi is a dummy, ignored for static cephfs.
+#
+# One PV per filesystem root; each workload takes what it needs with subPath.
+# NEVER delete these PVs -- pv-reaper reclaims the underlying volume even with
+# reclaimPolicy Retain (see CLAUDE.md).
+---
+# Swarm ${DATA_PATH} -- every app's /config lives under here.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  name: arr-config
+spec:
+  accessModes: [ReadWriteMany]
+  capacity:
+    storage: 1Gi
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: arr-config
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: appdata
+      staticVolume: "true"
+      rootPath: /docker/arr
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: arr-config
+  namespace: arr
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: arr-config
+  resources:
+    requests:
+      storage: 1Gi
+---
+# The media library. READ-WRITE here, unlike jellyfin's PV over the same subtree
+# -- sonarr/radarr/lidarr import into it. Two PVs over one directory is fine;
+# they differ only in name and access mode.
+#
+# ${DOWNLOADS_PATH} (/media/downloads) is inside this tree and is reached by
+# subPath rather than its own PV, which keeps sabnzbd's completed downloads and
+# the library on one filesystem so *arr imports can hardlink instead of copy.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  name: arr-media
+spec:
+  accessModes: [ReadWriteMany]
+  capacity:
+    storage: 1Gi
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: arr-media
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: archive
+      staticVolume: "true"
+      rootPath: /media
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: arr-media
+  namespace: arr
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: arr-media
+  resources:
+    requests:
+      storage: 1Gi
+---
+# In-progress downloads. Separate from the library on purpose: this is the
+# ephemeral appdata tree, excluded from the snapshot schedules.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  name: arr-incomplete
+spec:
+  accessModes: [ReadWriteMany]
+  capacity:
+    storage: 1Gi
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: arr-incomplete
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: appdata
+      staticVolume: "true"
+      rootPath: /eph/docker/arr
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: arr-incomplete
+  namespace: arr
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: arr-incomplete
+  resources:
+    requests:
+      storage: 1Gi
+---
+# SSD tier -- slskd's application state, which is chatty.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  name: arr-fast
+spec:
+  accessModes: [ReadWriteMany]
+  capacity:
+    storage: 1Gi
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: arr-fast
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: fastappdata
+      staticVolume: "true"
+      rootPath: /docker/arr
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: arr-fast
+  namespace: arr
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: arr-fast
+  resources:
+    requests:
+      storage: 1Gi
+---
+# --- RBD volumes: SQLite must not live on a network filesystem ---------------
+# sabnzbd keeps history.db under /config/admin, slskd keeps its search and
+# transfer state under /app. Both are single-writer with strategy Recreate, so
+# RWO costs nothing. Sized well above current use (76 M and 384 M) because RBD
+# can be expanded but not shrunk.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sabnzbd-config
+  namespace: arr
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: slskd-app
+  namespace: arr
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 4Gi
+
+---
+# --- *arr configs: the small hot part, plus sonarr/radarr MediaCover ----------
+# `cephfs` is NVMe. sonarr and radarr serve MediaCover from here (~2.4 G); lidarr's
+# 17 G MediaCover and 1.8 G `extended` stay on appdata by subPath, cold and too big
+# to be worth NVMe. Logs and the pre-Postgres *.db leftovers were never copied.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sonarr-config
+  namespace: arr
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: cephfs
+  resources:
+    requests:
+      storage: 4Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: radarr-config
+  namespace: arr
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: cephfs
+  resources:
+    requests:
+      storage: 4Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lidarr-config
+  namespace: arr
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: cephfs
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prowlarr-config
+  namespace: arr
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: cephfs
+  resources:
+    requests:
+      storage: 2Gi

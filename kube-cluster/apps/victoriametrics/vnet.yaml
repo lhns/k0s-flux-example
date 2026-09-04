@@ -14,6 +14,6 @@ spec:
     names:
       # Grafana (grafana ns) queries the DB :8428 as its metrics datasource.
       - grafana
-      # TEMPORARY: lets a vmctl vm-native pod in victoriametrics-cluster read the
-      # single-node here to backfill the cluster. Remove after the migration.
+      # Lets a vmctl vm-native pod in victoriametrics-cluster read the single-node here
+      # to backfill. Drop it when the backfill finishes -- see TODO.md, currently blocked.
       - victoriametrics-cluster

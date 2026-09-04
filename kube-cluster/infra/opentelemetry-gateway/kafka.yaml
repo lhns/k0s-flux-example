@@ -21,6 +21,21 @@ metadata:
 spec:
   replicas: 3
   roles: [controller, broker]
+  # KAFKA_HEAP_OPTS was -Xms128M with no -Xmx, so the JVM defaulted max heap to a quarter
+  # of the NODE's RAM. The three identical brokers had drifted to 9.5Gi / 4.2Gi / 1.6Gi,
+  # and the 9.5Gi one helped push kube-worker-03 into the memory pressure that stalled
+  # containerd on 2026-09-02. Kafka serves reads from the page cache, not the heap, so 2g
+  # is ample -- the rest of the limit below is deliberately left to the page cache.
+  jvmOptions:
+    -Xms: 2g
+    -Xmx: 2g
+  # Memory only, per apps/webtop/README.md. resources lives here and not in Kafka.spec.kafka:
+  # with node pools the Kafka CRD has no resources field at all.
+  resources:
+    requests:
+      memory: 3Gi
+    limits:
+      memory: 4Gi
   storage:
     # JBOD with a single volume even though there's only one disk: it is the only
     # storage type that can later gain a disk without recreating the cluster.
@@ -28,9 +43,11 @@ spec:
     volumes:
       - id: 0
         type: persistent-claim
-        # LOCAL tier only. Topics keep a 2 GB hot window (local.retention.bytes) and
-        # tier the rest to S3, so this does not need to hold 10 days of telemetry.
-        size: 20Gi
+        # Local tier only: topics keep a 2 GB hot window and tier the rest to S3.
+        # Strimzi sizes the pool alike, so this is the largest broker's disk. Lowering it
+        # wedges the whole Kafka CR NotReady, silently dropping every other change to it.
+        # Headroom, not steady state -- a tiering failure cannot drain on its own.
+        size: 65Gi
         class: ceph-rbd
         deleteClaim: false
         kraftMetadata: shared

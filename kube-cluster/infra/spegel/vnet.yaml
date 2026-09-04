@@ -16,9 +16,7 @@ metadata:
 spec:
   memberships:
     - virtualNetworkRef:
-        # The `namespace` system vnet resolves to the pod's own namespace (here
-        # spegel's per-namespace vnet). As of kube-vnet 0.6.0 ref.namespace is
-        # honored (no longer ignored) and the recommended form for a system vnet
-        # is to omit it — otherwise a wrong namespace drops the membership.
+        # The `namespace` system vnet resolves to the pod's own namespace. Omit
+        # ref.namespace: it is honored, so a wrong one drops the membership.
         name: namespace
       direction: both

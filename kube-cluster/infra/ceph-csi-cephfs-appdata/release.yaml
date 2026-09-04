@@ -10,38 +10,20 @@ spec:
 ---
 # A SECOND CephFS CSI driver, serving only the `appdata` filesystem.
 #
-# Why a whole second deployment instead of another StorageClass: the CSI spec
-# keys everything off the DRIVER NAME. A PV names spec.csi.driver, the kubelet
-# resolves that name to exactly one socket per node
-# (<kubeletDir>/plugins/<driverName>/csi.sock), and one socket means one
-# process. Pools and filesystems are invisible at that layer -- they are just
-# StorageClass parameters handed to the same binary. So "one process per pool"
-# is only reachable as "one process per driver name".
+# A whole deployment rather than another StorageClass because CSI keys everything off
+# the DRIVER NAME: one name, one socket per node, one process. Filesystems are just
+# StorageClass parameters to that same process.
 #
-# That matters because the node plugin dies as a unit. ceph-csi 3.17.0 exits the
-# process when a gRPC call is stuck for 10 minutes (upstream #6286), and an
-# unresponsive mount blocks in the kernel indefinitely. Before this split, one
-# hung `appdata` volume (forgejo-git, whose PGs were stuck `activating`) killed
-# the single cephfs plugin ~40 times and took every OTHER cephfs mount on that
-# node with it -- including volumes on the NVMe-backed `fastappdata`, which
-# shared nothing with the sick filesystem except this process. Nine unrelated
-# apps went Unknown as a result.
+# That matters because the node plugin dies as a unit -- ceph-csi 3.17.0 exits when a
+# gRPC call is stuck for 10 minutes (upstream #6286), and a hung mount blocks in the
+# kernel indefinitely. Before this split one hung appdata volume killed the single
+# cephfs plugin ~40 times and unmounted every other cephfs volume on that node,
+# including NVMe ones that shared nothing with it. Nine unrelated apps went Unknown.
 #
-# With the split, `fastappdata` (StorageClass `cephfs`, driver
-# cephfs.csi.ceph.com) and `appdata` (StorageClass `cephfs-appdata`, driver
-# cephfs-appdata.csi.ceph.com) are separate processes on every node. A hang in
-# one can no longer unmount the other.
-#
-# NOT changed, deliberately:
-#   - csiConfig is identical (same cluster, same monitors, same subvolumeGroup
-#     `kube`); clusterID identifies the CLUSTER, not a filesystem.
-#   - No secret is created here. The StorageClass references
-#     csi-cephfs-secret in the ceph-csi-cephfs namespace by
-#     namespace-qualified name, so both drivers share one cephx identity.
-#   - instanceID is left at its default. It is deliberately NOT made unique:
-#     the two drivers address different filesystems (hence different metadata
-#     pools), so their volume journals cannot collide, and changing it would
-#     alter journal keys for no benefit.
+# NOT changed, deliberately: csiConfig is identical (clusterID identifies the CLUSTER,
+# not a filesystem); no secret is created here, both drivers share one cephx identity
+# via a namespace-qualified reference; instanceID stays default, since the two drivers
+# address different metadata pools and their journals cannot collide.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -52,7 +34,7 @@ spec:
   chart:
     spec:
       chart: ceph-csi-cephfs
-      version: "3.17.0"
+      version: "3.17.1"
       interval: 1h0m0s
       sourceRef:
         kind: HelmRepository
@@ -90,6 +72,8 @@ spec:
           - 10.20.2.103:6789
         cephFS:
           subvolumeGroup: kube
+          # see ../ceph-csi-cephfs/release.yaml
+          kernelMountOptions: "mount_timeout=300"
     # Shared with the cephfs driver (csi-cephfs-secret in ceph-csi-cephfs),
     # referenced namespace-qualified from the StorageClass.
     secret:

@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: guacamole
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: guacamole
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # guacd — the stateless Guacamole proxy daemon (RDP/VNC/SSH -> Guacamole protocol).
 # No DB, no volumes. Only receives from the guacamole webapp (kube-vnet guacd channel).
 apiVersion: apps/v1
@@ -61,8 +74,6 @@ metadata:
   name: guacamole
   namespace: guacamole
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   # Schema loaded + data migrated from MariaDB (one-time, see README), now live.
@@ -137,29 +148,16 @@ spec:
             # SSO takes precedence over the built-in DB login form.
             - name: EXTENSION_PRIORITY
               value: openid
-            # Trust X-Forwarded-For, so Tomcat reports the REAL client address.
+            # Trust X-Forwarded-For so Tomcat reports the real client. Without it every request
+            # looks like it came from a traefik pod, and the brute-force extension bans that
+            # address -- five failed logins lock out everyone.
             #
-            # Without this, every request appears to come from whichever traefik POD
-            # proxied it, and the bundled brute-force extension bans that address —
-            # meaning five failed logins by anyone lock out EVERYONE, and a real
-            # attacker is indistinguishable from a legitimate user. Observed: the ban
-            # tracker blocking "172.18.1.155", a traefik pod.
+            # Both hops must be listed or Tomcat stops walking at the first it does not know:
+            # 172.18.0.0/16 (traefik pods) and 10.20.2.31/.32/.33 (the swarm edge traefik).
             #
-            # TWO hops sit in front of guacamole, and both have to be listed or Tomcat
-            # stops walking at the first one it does not recognise:
-            #   172.18.0.0/16      the traefik pods
-            #   10.20.2.31/.32/.33  the docker swarm nodes running the edge traefik
-            #
-            # The swarm nodes are why an external user used to show up as 10.20.2.33 —
-            # Tomcat walked past the pod, hit the swarm node, did not recognise it, and
-            # reported that. The cluster traefik now preserves the edge's header
-            # (infra/traefik: forwardedHeaders.trustedIPs), so the real client is present
-            # in the chain and this list is what lets Tomcat reach it.
-            #
-            # THREE /32s, not 10.20.2.0/24, and not Tomcat's default (which covers 10/8):
-            # LAN clients reach the VIP directly and arrive from 10.20.2.0/24 themselves, so
-            # anything broader would classify a real client as a proxy, walk past it, and
-            # fall back to the traefik pod — reintroducing the exact bug this fixes.
+            # THREE /32s, not 10.20.2.0/24 and not Tomcat's 10/8 default: LAN clients arrive from
+            # 10.20.2.0/24 themselves, so anything broader treats a real client as a proxy and
+            # falls back to the traefik pod -- the exact bug this fixes.
             - name: REMOTE_IP_VALVE_ENABLED
               value: "true"
             - name: REMOTE_IP_VALVE_INTERNAL_PROXIES
@@ -174,26 +172,17 @@ spec:
             initialDelaySeconds: 20
             periodSeconds: 10
             failureThreshold: 12
-          # A DB-AWARE liveness check, and the reason it is not an httpGet.
+          # DB-aware liveness, which is why it is not an httpGet.
           #
-          # Guacamole's JDBC pool can wedge with zero usable connections — after a
-          # Postgres blip it logged `ping query 'SELECT 1' failed` and never
-          # recovered. In that state requests needing the database block FOREVER
-          # while everything else keeps answering: GET /, /api/languages and
-          # /api/patches all returned 200, so the readiness probe above stayed green
-          # and Kubernetes saw a perfectly healthy pod for ~15 hours while the UI was
-          # a white screen. Only POST /api/tokens hung.
+          # Guacamole's JDBC pool can wedge with zero usable connections and never recover.
+          # In that state GET /, /api/languages and /api/patches all still return 200, so the
+          # readiness probe stays green -- it sat healthy for ~15 hours over a white screen.
+          # Only POST /api/tokens hangs, and no httpGet probe can POST.
           #
-          # So the probe has to POST, which no httpGet probe can do. Semantics:
-          # ANY HTTP response means the request path is alive — 403 (bad token) and
-          # 429 (the brute-force extension banned 127.0.0.1, which it will, since
-          # these are failed logins) both count as healthy. Only a TIMEOUT, i.e.
-          # curl exit 28, means the pool is wedged, and that is what restarts the pod.
-          #
-          # Trade-off, stated plainly: if Postgres is genuinely down this restarts
-          # roughly every 3 minutes until it returns. That is noisy but harmless, and
-          # far better than silently serving a white screen for hours. The pool does
-          # not self-heal, so a restart is the only remediation available.
+          # Any HTTP response means alive, including 403 and 429 (the brute-force extension
+          # will ban 127.0.0.1). Only a timeout (curl exit 28) restarts the pod. If Postgres
+          # is genuinely down that restarts every ~3 minutes, which is noisy but the pool does
+          # not self-heal.
           livenessProbe:
             exec:
               command:

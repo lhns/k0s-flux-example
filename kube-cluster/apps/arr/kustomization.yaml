@@ -1,0 +1,38 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # infra-pod-gateway owns the namespace and must have the webhook up before
+    # any pod here is created -- a missing webhook does not block pod creation,
+    # it silently fails to mutate, and the pod comes up with internet access.
+    dependsOn: infra-ceph-csi-cephfs,infra-kube-vnet,infra-pod-gateway,infra-reflector
+resources:
+- storage.yaml
+- secret.yaml
+- db-role-secret.yaml
+- database.yaml
+- vnet.yaml
+- autopulse-secret.yaml
+- resources.yaml
+- routing.yaml
+- networkpolicy.yaml
+# Generated, not static: the content hash rolls the pods when a script or config
+# is edited, and the scripts stay real files that shellcheck can read.
+configMapGenerator:
+- name: arr-link-paths
+  namespace: arr
+  files:
+  - sonarr=link-paths/sonarr
+  - radarr=link-paths/radarr
+  - lidarr=link-paths/lidarr
+- name: arr-s6-run
+  namespace: arr
+  files:
+  - sonarr=s6-run/sonarr
+  - radarr=s6-run/radarr
+  - lidarr=s6-run/lidarr
+  - prowlarr=s6-run/prowlarr
+- name: decluttarr-config
+  namespace: arr
+  files:
+  - config.yaml=decluttarr/config.yaml

@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: code-scanner
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: code-scanner
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:

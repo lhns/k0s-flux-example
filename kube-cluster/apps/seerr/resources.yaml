@@ -1,0 +1,147 @@
+---
+# Its own namespace, deliberately: seerr must NOT be routed through the VPN, and
+# the arr namespace routes everything in it by default. Keeping it out is a
+# stronger guarantee than an opt-out label nobody remembers to check.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: seerr
+---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: seerr
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
+# Swarm ${DATA_PATH}/jellyseerr, mounted in place. Static CephFS PV.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  name: seerr-config
+spec:
+  accessModes: [ReadWriteMany]
+  capacity:
+    storage: 1Gi
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: seerr-config
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: appdata
+      staticVolume: "true"
+      rootPath: /docker/arr/jellyseerr
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: seerr-config
+  namespace: seerr
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: seerr-config
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: seerr
+  namespace: seerr
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: seerr
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: seerr
+        app.kubernetes.io/instance: seerr
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.postgres.postgres: egress
+        kube-vnet/net.arr.arr-api: egress
+        kube-vnet/net.jellyfin.jellyfin-api: egress
+    spec:
+      # The Swarm service ran `user: root`; /app/config on CephFS is owned such
+      # that the image's default user cannot write its logs (EACCES on
+      # /app/config/logs). Same reason no fsGroup: it would recursively chown.
+      securityContext:
+        runAsUser: 0
+      containers:
+        - name: seerr
+          # renovate: datasource=docker
+          image: ghcr.io/seerr-team/seerr:v3.4.1
+          securityContext:
+            capabilities:
+              drop: [NET_ADMIN, NET_RAW]
+          env:
+            - name: TZ
+              value: Europe/Berlin
+            - name: PORT
+              value: "5055"
+            - name: LOG_LEVEL
+              value: info
+            - name: DB_TYPE
+              value: postgres
+            - name: DB_HOST
+              value: postgres-rw.postgres.svc.cluster.local
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              value: jellyseerr
+            - name: DB_POOL_SIZE
+              value: "20"
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: seerr-db
+                  key: username
+            - name: DB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: seerr-db
+                  key: password
+          ports:
+            - name: http
+              containerPort: 5055
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+              subPath: data
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: seerr-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: seerr
+  namespace: seerr
+spec:
+  selector:
+    app.kubernetes.io/name: seerr
+  ports:
+    - name: http
+      port: 5055
+      targetPort: http

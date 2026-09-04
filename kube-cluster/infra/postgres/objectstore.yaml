@@ -8,6 +8,20 @@ metadata:
   namespace: postgres
 spec:
   retentionPolicy: "30d"
+  # RGW returns transient 502/504 under load; botocore's legacy default gives up
+  # after 4 retries, which is what fails backups and the retention pass. standard
+  # retries 5xx with capped exponential backoff -- not adaptive, whose rate
+  # limiter would throttle the upload in response to gateway errors.
+  #
+  # Retention lists every object in the bucket; at 300s that was 288 full
+  # listings a day against the bottleneck, for a 30 day policy.
+  instanceSidecarConfiguration:
+    retentionPolicyIntervalSeconds: 3600
+    env:
+      - name: AWS_RETRY_MODE
+        value: standard
+      - name: AWS_MAX_ATTEMPTS
+        value: "10"
   configuration:
     destinationPath: s3://kube-barman
     endpointURL: https://s3.example.com

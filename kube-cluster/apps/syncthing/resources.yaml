@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: syncthing
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: syncthing
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # ===========================================================================
 # Syncthing's entire home (/var/syncthing) — device identity (cert.pem/key.pem),
 # config.xml, the live SQLite index-v2, AND the 249G of synced folders — MOUNTED
@@ -13,6 +26,8 @@ metadata:
 apiVersion: v1
 kind: PersistentVolume
 metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
   name: syncthing-data
 spec:
   accessModes: [ReadWriteMany]

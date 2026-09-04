@@ -1,0 +1,28 @@
+---
+# seerr's login role and the jellyseerr database, migrated from the Swarm Postgres.
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: seerr
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: seerr
+  ensure: present
+  login: true
+  passwordSecret:
+    name: seerr-db
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: jellyseerr
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: jellyseerr
+  owner: seerr
+  databaseReclaimPolicy: retain

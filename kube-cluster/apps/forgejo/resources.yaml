@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: forgejo
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: forgejo
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # ===========================================================================
 # Storage — split across both Ceph tiers, which the image supports with no
 # config at all: the ROOT (non-rootless) image keeps Gitea's layout, so
@@ -66,8 +79,6 @@ metadata:
   name: forgejo
   namespace: forgejo
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   replicas: 1
@@ -110,7 +121,7 @@ spec:
           # months, so this needs a deliberate major bump to stay supported.
           # (v15 is the LTS, patched to 2027-07, if that trade ever looks wrong.)
           # Not on Docker Hub: codeberg.org is the project's own registry.
-          image: codeberg.org/forgejo/forgejo:16.0.2
+          image: codeberg.org/forgejo/forgejo:16.0.3
           env:
             - name: TZ
               value: Europe/Berlin

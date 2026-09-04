@@ -29,7 +29,7 @@ spec:
         runAsUser: 65534
       containers:
         - name: upgrade
-          image: alpine/k8s:1.36.2
+          image: alpine/k8s:1.37.0
           env:
             - name: K0S_VERSION
               value: "${K0S_VERSION}"

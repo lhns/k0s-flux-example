@@ -152,3 +152,47 @@ takes ownership of the exact same resources.
 
 > Rule: never `git mv` a stateful component between `apps/` and `infra/` without
 > the `prune: disabled` dance first — verify the workload never restarts.
+
+## Node maintenance (reboot, shutdown)
+
+`cordon` is **not** enough. It only sets `unschedulable`, which stops *new* pods
+landing there; it evicts nothing, so everything keeps running on the node you are
+about to stop. Use `drain`, which cordons *and* evicts:
+
+```sh
+kubectl drain <node> --ignore-daemonsets --delete-emptydir-data
+# ... reboot / shut down ...
+kubectl uncordon <node>
+```
+
+`--ignore-daemonsets` is required because DaemonSet pods are recreated on the same
+node and can never be drained. `--delete-emptydir-data` is required because drain
+refuses to evict any pod holding an `emptyDir`, which is node-local scratch that
+dies with the pod — the flag is you accepting that loss. Without it the drain
+aborts on the first such pod and does nothing.
+
+**Draining the node with the CNPG primary needs two eviction attempts, and that is
+normal.** The first returns `429 TooManyRequests` because the `postgres-primary`
+PDB is `minAvailable: 1` on `cnpg.io/instanceRole=primary`; CNPG reacts by
+switching over and demoting the old primary in place, its role label leaves the
+selector, and the second eviction is accepted. Measured 2026-08-09: Postgres back
+to `2/2` in 66s, whole node drained in 2m49s. See `kube-cluster/TODO.md` for the
+pathological variant, where the demoted primary would not become Ready in place
+and held the drain for 16 minutes — and for the list of hypotheses already ruled
+out with evidence.
+
+**Do not uncordon a node that is still `NotReady`.** Check it has rejoined and its
+CSI node plugins are Running first, or pods get scheduled onto a node that cannot
+mount their volumes:
+
+```sh
+kubectl get node <node>
+kubectl get pods -A -o wide | grep -E "<node>.*(nodeplugin|Crash|Error)"
+```
+
+> Kernel caveat: before 6.12.105, unmounting a CephFS volume on these nodes can
+> hit `kernel BUG at fs/super.c:650` ("Busy inodes after unmount of ceph") and
+> panic the machine instantly — `last` shows `crash`, never a clean shutdown.
+> Since draining unmounts every volume it evicts, a drain on an older kernel can
+> kill the node mid-drain. Confirm `uname -r` is >= 6.12.105 before relying on a
+> graceful drain.

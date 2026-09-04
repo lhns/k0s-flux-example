@@ -29,7 +29,31 @@ spec:
       sourceRef:
         kind: HelmRepository
         name: jetstack
-  # Values copied verbatim from k0sctl.yaml so adoption is a no-op upgrade.
+  # Values copied verbatim from k0sctl.yaml so adoption is a no-op upgrade; the
+  # webhook block is the one deliberate divergence.
   values:
     crds:
       enabled: true
+    # 2026-08-30: the single webhook replica was killed by its liveness probe, and
+    # every Certificate/Issuer dry-run failed while it restarted -- infra-cert-manager
+    # went NotReady and took 33 dependent Kustomizations with it.
+    webhook:
+      # A second replica keeps admission serving across a restart, whatever caused it.
+      replicaCount: 2
+      # The chart spreads nothing by default, so both could land on one node.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: webhook
+              app.kubernetes.io/instance: cert-manager
+      # Chart default is 1s x3, which a loaded node trips easily.
+      livenessProbe:
+        timeoutSeconds: 5
+      # Chart default {} means BestEffort, throttled first under contention.
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi

@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: outline
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: outline
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # ===========================================================================
 # Redis — Outline's cache + websocket/pub-sub. No durable data, so emptyDir.
 # (standardnotes-cache pattern.)
@@ -39,6 +52,11 @@ spec:
       containers:
         - name: redis
           image: redis:8-alpine
+          resources:
+            requests:
+              memory: 32Mi
+            limits:
+              memory: 128Mi
           ports:
             - {name: redis, containerPort: 6379}
           readinessProbe:
@@ -94,8 +112,6 @@ metadata:
   name: outline
   namespace: outline
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   replicas: 1
@@ -117,7 +133,7 @@ spec:
         fsGroup: 1001               # Outline runs as nodejs (uid/gid 1001)
       containers:
         - name: outline
-          image: outlinewiki/outline:1.9.2
+          image: outlinewiki/outline:1.10.0
           ports:
             - {name: http, containerPort: 3000}
           readinessProbe:

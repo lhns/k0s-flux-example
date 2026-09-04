@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: semaphore
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: semaphore
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # Semaphore's config (/etc/semaphore/config.json — holds access_key_encryption,
 # the key that decrypts the BoltDB keystore) + data (/var/lib/semaphore, the
 # embedded BoltDB). Both copied once from the Swarm volume
@@ -26,8 +39,6 @@ metadata:
   name: semaphore
   namespace: semaphore
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   # Live. (Shipped as 0 for the cutover; the Swarm semaphore was stopped and

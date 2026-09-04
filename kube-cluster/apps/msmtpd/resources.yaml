@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: msmtpd
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: msmtpd
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # Outbound SMTP relay (msmtpd) — accepts plaintext SMTP on :2500 from in-cluster
 # senders and relays to Gmail over STARTTLS. Keeps the Gmail app-password in one
 # place (the msmtpd-secrets Secret) so app configs (Authelia) carry no SMTP secret.
@@ -12,8 +25,6 @@ metadata:
   name: msmtpd
   namespace: msmtpd
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   replicas: 1

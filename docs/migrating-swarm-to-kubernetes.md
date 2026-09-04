@@ -37,7 +37,7 @@ deep chapters and the per-service appendix as needed.
 | Object store | Ceph **RGW** S3 | `https://s3.example.com` (path-style, region placeholder `us-east-1`); admin via `radosgw-admin` on the mgr nodes |
 | Shared Postgres | **CloudNativePG** | `infra/postgres` Cluster, service `postgres-rw.postgres.svc.cluster.local:5432`, PG **18.4** |
 | Secrets | **SOPS + age** | single recipient; encrypt on the jumphost |
-| Jumphost | `lhns@10.20.5.15` (a.k.a. `debian-01`) | has `sops 3.13.2` + `age`, `kubectl`, `flux`; SSH to hosts |
+| Jumphost | `admin@10.20.5.15` (a.k.a. `debian-01`) | has `sops 3.13.2` + `age`, `kubectl`, `flux`; SSH to hosts |
 | Swarm host (source) | `10.20.2.10` | **read-only**; dumped over the network into the cluster |
 | Ceph mgr / RGW nodes | `10.20.2.101/102/103` | `ceph`, `radosgw-admin` here; **read-only, never destructive** |
 
@@ -252,8 +252,8 @@ Not a homogeneous dump. Two done here:
   mangled; nested `ssh → kubectl exec → sh -c → mysql -e "…"` triple-quoting is worse. **Write the SQL to a
   file and pipe it via stdin**, or use a single-quoted heredoc:
   ```bash
-  ssh lhns@10.20.5.15 'kubectl -n <ns> exec -i <pod> -- sh -c "mysql -uroot -p\"$MYSQL_ROOT_PASSWORD\""' < grant.sql
-  # or:  ssh lhns@10.20.5.15 'bash -s' <<'EOF'  … script with quotes/$()…  EOF
+  ssh admin@10.20.5.15 'kubectl -n <ns> exec -i <pod> -- sh -c "mysql -uroot -p\"$MYSQL_ROOT_PASSWORD\""' < grant.sql
+  # or:  ssh admin@10.20.5.15 'bash -s' <<'EOF'  … script with quotes/$()…  EOF
   ```
 
 ---
@@ -417,13 +417,13 @@ spec:
 creation_rules:
   - path_regex: kube-cluster/.*\.yaml$
     encrypted_regex: ^(data|stringData)$
-    age: age1f6skv3ec96vjelz9nvg9jyply7rp88xef6mf6wmc8f3ljgty2vdqhkms26
+    age: age1exampleexampleexampleexampleexampleexampleexampleexamplexxxxx
 ```
 Encrypt on the jumphost (has `sops 3.13.2` + `age`; the private key is in `flux-system/sops-age` in-cluster,
 and `~/.config/sops/age/keys.txt` on the jumphost — **back it up or the repo secrets are unrecoverable**):
 ```bash
 # write the plaintext Secret, then encrypt in place / to the repo path, deleting plaintext immediately:
-ssh lhns@10.20.5.15 "sops --encrypt --age age1f6skv3ec96vjelz9nvg9jyply7rp88xef6mf6wmc8f3ljgty2vdqhkms26 \
+ssh admin@10.20.5.15 "sops --encrypt --age age1exampleexampleexampleexampleexampleexampleexampleexamplexxxxx \
   --encrypted-regex '^(data|stringData)$' --input-type yaml --output-type yaml /dev/stdin" \
   < plain-secret.yaml > kube-cluster/apps/<app>/secret.yaml
 ```
@@ -597,8 +597,8 @@ the `sed` targets can't drift, with `grep` guards that fail the pod if a target 
 | Workers | `10.20.2.72` / `.73` / `.74` |
 | Ceph mgr / RGW nodes | `10.20.2.101` / `.102` / `.103` (`ceph`, `radosgw-admin`) |
 | Swarm host (source, read-only) | `10.20.2.10` |
-| Jumphost | `lhns@10.20.5.15` (`sops` 3.13.2, `age`, `kubectl`, `flux`) |
-| age recipient | `age1f6skv3ec96vjelz9nvg9jyply7rp88xef6mf6wmc8f3ljgty2vdqhkms26` |
+| Jumphost | `admin@10.20.5.15` (`sops` 3.13.2, `age`, `kubectl`, `flux`) |
+| age recipient | `age1exampleexampleexampleexampleexampleexampleexampleexamplexxxxx` |
 | StorageClasses | `ceph-rbd` (RWO), `cephfs` (RWX), `local-path` |
 | kube-vnet | chart `oci://ghcr.io/lhns/charts/kube-vnet` tag `0.7.1`, `ingressIsolationLevel: pod` |
 

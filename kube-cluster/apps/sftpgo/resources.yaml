@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: sftpgo
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: sftpgo
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # ===========================================================================
 # sftpgo's config + SQLite data-provider db (sftpgo.db) + the SFTP host keys.
 # Only ~360K, but SQLite wants block storage for proper locking -> its own
@@ -32,6 +45,8 @@ spec:
 apiVersion: v1
 kind: PersistentVolume
 metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
   name: sftpgo-appdata
 spec:
   accessModes: [ReadWriteMany]
@@ -67,6 +82,8 @@ spec:
 apiVersion: v1
 kind: PersistentVolume
 metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
   name: sftpgo-fastappdata
 spec:
   accessModes: [ReadWriteMany]
@@ -102,6 +119,8 @@ spec:
 apiVersion: v1
 kind: PersistentVolume
 metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
   name: sftpgo-userdata
 spec:
   accessModes: [ReadWriteMany]
@@ -137,6 +156,8 @@ spec:
 apiVersion: v1
 kind: PersistentVolume
 metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
   name: sftpgo-archive
 spec:
   accessModes: [ReadWriteMany]
@@ -175,8 +196,6 @@ metadata:
   name: sftpgo
   namespace: sftpgo
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   # Live. (Shipped as 0 for the cutover, then scaled to 1 once the Swarm sftpgo was

@@ -112,7 +112,7 @@ gate.** Deliberate for an admin jump box; keep the vnet closed and open targets 
    ```
    or from the encrypted file:
    ```
-   ssh lhns@10.20.5.15 "sops --decrypt --input-type yaml --output-type yaml /dev/stdin"      < kube-cluster/apps/kasmvnc/secret.yaml
+   ssh admin@10.20.5.15 "sops --decrypt --input-type yaml --output-type yaml /dev/stdin"      < kube-cluster/apps/kasmvnc/secret.yaml
    ```
 
 `VNC_PW` is a 32-character random value, generated and SOPS-encrypted on the jumphost per the

@@ -3,3 +3,16 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: oci-composer
+---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: oci-composer
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m

@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: uptime-kuma
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: uptime-kuma
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # Uptime Kuma keeps ALL state in /app/data — its embedded SQLite DB (kuma.db),
 # config, and uploads. Copied once from the old Swarm volume
 # fastappdata:/docker/uptime-kuma into a dedicated Ceph RBD volume. Single-writer
@@ -58,7 +71,7 @@ spec:
         # (databasePatchedFiles / database_version), so stay on v1 rather than
         # trigger v2's one-way schema upgrade. Uptime Kuma migrates v1->v1 forward.
         - name: uptime-kuma
-          image: louislam/uptime-kuma:2.5.0
+          image: louislam/uptime-kuma:2.5.3
           env:
             - name: TZ
               value: Europe/Berlin

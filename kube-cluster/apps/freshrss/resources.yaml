@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: freshrss
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: freshrss
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # Data dir: config.php, per-user config, favicons, caches, logs. Required even with
 # Postgres (only feeds/articles live in the DB). Mounted with subPath: `extensions/` is a
 # SIBLING of `data/` in the image, so mounting this PVC at the FreshRSS root would bury it.
@@ -29,8 +42,6 @@ metadata:
   name: freshrss
   namespace: freshrss
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   replicas: 1

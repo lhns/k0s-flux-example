@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: matter-server
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: matter-server
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # The LAN attachment. Matter is built on IPv6 link-local multicast, which cannot reach a
 # normal pod — the pod network is IPv4 single-stack and a MetalLB VIP is unicast. macvlan
 # gives this pod its own MAC and IP directly on the LAN instead, which is what makes Matter

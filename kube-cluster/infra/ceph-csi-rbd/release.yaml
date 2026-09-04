@@ -18,7 +18,7 @@ spec:
   chart:
     spec:
       chart: ceph-csi-rbd
-      version: "3.17.0"
+      version: "3.17.1"
       interval: 1h0m0s
       sourceRef:
         kind: HelmRepository

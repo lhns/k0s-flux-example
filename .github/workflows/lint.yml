@@ -15,9 +15,9 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Restore schema cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: .cache/kubeconform
           key: kubeconform-schemas-${{ github.run_id }}
@@ -33,7 +33,7 @@ jobs:
         run: bash scripts/validate.sh
       - name: Save schema cache
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: .cache/kubeconform
           key: kubeconform-schemas-${{ github.run_id }}

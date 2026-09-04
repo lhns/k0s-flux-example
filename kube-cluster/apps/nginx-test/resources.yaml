@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: nginx-test
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: nginx-test
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # A scratch single-replica workload for exercising kube-ha-surge's
 # make-before-break behaviour on node drains. The container sleeps 30s before
 # nginx starts, so a break-before-make gap (eviction with no cover) is a glaring

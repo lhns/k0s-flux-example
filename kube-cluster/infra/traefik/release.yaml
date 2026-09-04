@@ -20,7 +20,7 @@ spec:
   chart:
     spec:
       chart: traefik
-      version: "41.2.0"
+      version: "41.4.0"
       interval: 1h0m0s
       sourceRef:
         kind: HelmRepository
@@ -85,6 +85,11 @@ spec:
             - 10.20.2.31/32
             - 10.20.2.32/32
             - 10.20.2.33/32
+        # v3 defaults readTimeout to 60s and it covers the request body, so uploads
+        # over a minute are cut off. Matches the Swarm traefik in front of this one.
+        transport:
+          respondingTimeouts:
+            readTimeout: 0s
       websecure:
         port: 8443
         exposedPort: 443
@@ -110,6 +115,9 @@ spec:
             - 10.20.2.31/32
             - 10.20.2.32/32
             - 10.20.2.33/32
+        transport:
+          respondingTimeouts:
+            readTimeout: 0s
       # Raw MQTT/TCP entrypoint for the mosquitto broker, on the same VIP
       # (10.20.2.15:1883). A HostSNI(`*`) IngressRouteTCP in the mosquitto namespace
       # forwards it to mosquitto:1883 (plain TCP, no TLS termination here). NOT an

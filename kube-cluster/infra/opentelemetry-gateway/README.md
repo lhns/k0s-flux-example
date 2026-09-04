@@ -17,7 +17,7 @@ senders ──► gateway (x2)  ──►  Kafka (3 dual-role KRaft nodes)  ─�
 | `opentelemetry-gateway-kafkametrics.yaml` | broker/topic/consumer scraper config |
 | `kafka.yaml` | `KafkaNodePool` + `Kafka` (Strimzi; the operator itself is `infra/strimzi`) |
 | `topics.yaml` | the four `otlp_*` topics |
-| `storage.yaml` | static CephFS PV holding the Aiven tiered-storage jars |
+| `tiered-storage-plugin.yaml` | the Aiven tiered-storage jars, as an OCI artifact |
 | `vnet.yaml` | the `kafka` and `otel-gateway` VirtualNetworks |
 | `secret.yaml` | SOPS: S3 credentials for tiered storage |
 

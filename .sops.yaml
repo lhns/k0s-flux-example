@@ -5,4 +5,4 @@ creation_rules:
   # the CWD, so run sops from the repo root.
   - path_regex: kube-cluster/.*\.yaml$
     encrypted_regex: ^(data|stringData)$
-    age: age1f6skv3ec96vjelz9nvg9jyply7rp88xef6mf6wmc8f3ljgty2vdqhkms26
+    age: age1exampleexampleexampleexampleexampleexampleexampleexamplexxxxx

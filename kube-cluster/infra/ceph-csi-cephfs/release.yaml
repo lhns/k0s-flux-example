@@ -18,7 +18,7 @@ spec:
   chart:
     spec:
       chart: ceph-csi-cephfs
-      version: "3.17.0"
+      version: "3.17.1"
       interval: 1h0m0s
       sourceRef:
         kind: HelmRepository
@@ -56,6 +56,9 @@ spec:
           # subvolumes are created under /volumes/kube/ (must match the
           # subvolumegroup created on the Ceph cluster)
           subvolumeGroup: kube
+          # 60s default is too short for a slow MDS; a timed-out umount hits
+          # kernel BUG at fs/super.c:650 and panics the node.
+          kernelMountOptions: "mount_timeout=300"
     # We provide our own SOPS-encrypted secret + StorageClass.
     secret:
       create: false

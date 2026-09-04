@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: teamspeak
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: teamspeak
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # ===========================================================================
 # MariaDB — TeamSpeak's DB backend (ts3db_mariadb; TeamSpeak supports only SQLite
 # or MariaDB, no Postgres/CNPG). Self-managed StatefulSet on ceph-rbd. The old
@@ -26,8 +39,6 @@ metadata:
   name: teamspeak-db
   namespace: teamspeak
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   serviceName: teamspeak-db
@@ -45,7 +56,12 @@ spec:
       enableServiceLinks: false
       containers:
         - name: mariadb
-          image: mariadb:12.3.2
+          image: mariadb:12.3.3
+          resources:
+            requests:
+              memory: 128Mi
+            limits:
+              memory: 512Mi
           ports:
             - {name: mysql, containerPort: 3306}
           env:
@@ -78,6 +94,8 @@ spec:
 apiVersion: v1
 kind: PersistentVolume
 metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
   name: teamspeak-data
 spec:
   accessModes: [ReadWriteMany]
@@ -120,8 +138,6 @@ metadata:
   name: teamspeak
   namespace: teamspeak
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   replicas: 1

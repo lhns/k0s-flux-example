@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: mosquitto
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: mosquitto
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # Persistence file /var/lib/mosquitto/mosquitto.db (retained messages +
 # subscriptions), copied once from the old Swarm volume. Single broker -> RWO.
 apiVersion: v1
@@ -23,8 +36,6 @@ metadata:
   name: mosquitto
   namespace: mosquitto
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   # mosquitto.db copied from the old Swarm volume (see README), now live. RWO data

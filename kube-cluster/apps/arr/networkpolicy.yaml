@@ -1,0 +1,51 @@
+# Egress containment, as the third layer of the design.
+#
+# The real enforcement is meant to be an nftables lock inside the pod netns, and
+# that is NOT deployed (see infra/pod-gateway/README.md): isolation currently
+# rests on the default route being deleted, which SO_BINDTODEVICE bypasses. This
+# policy is the cheapest available substitute -- negatable by anyone who can add
+# another NetworkPolicy, but it does stop a plain bind-to-eth0 leak.
+#
+# kube-vnet writes no egress rules (its baseline is ingress-only), so this is the
+# ONLY egress policy for these pods: anything not listed here is denied, and that
+# includes the internet. Reaching the internet is the gateway's job, over vxlan0.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: arr-egress
+  namespace: arr
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: arr
+  policyTypes: [Egress]
+  egress:
+    # DNS by pod selector AND ClusterIP -- kube-proxy DNATs before the policy is
+    # evaluated, so the destination seen is a CoreDNS pod address.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+        - ipBlock:
+            cidr: 172.19.0.10/32
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # The gateway: VXLAN, plus the in-tunnel DHCP and DNS the injected init
+    # container needs before the tunnel is usable.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: pod-gateway
+    # Cluster-internal only. NO 0.0.0.0/0 rule: everything external must go
+    # through vxlan0, and vxlan0 traffic is encapsulated to the gateway above.
+    - to:
+        - ipBlock:
+            cidr: 172.18.0.0/16
+        - ipBlock:
+            cidr: 172.19.0.0/16

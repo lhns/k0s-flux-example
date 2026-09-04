@@ -3,6 +3,19 @@ kind: Namespace
 metadata:
   name: matrix
 ---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: matrix
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 128Mi
+        cpu: 25m
+---
 # ===========================================================================
 # Storage
 #  - synapse /data (media_store, signing key, logging config, registration/*):
@@ -18,6 +31,8 @@ metadata:
 apiVersion: v1
 kind: PersistentVolume
 metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
   name: matrix-synapse-data
 spec:
   accessModes: [ReadWriteMany]
@@ -165,8 +180,6 @@ metadata:
   name: synapse
   namespace: matrix
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   replicas: 1
@@ -203,7 +216,7 @@ spec:
       # site-packages is /usr/local/lib/python3.13, not Debian dist-packages).
       initContainers:
         - name: install-s3-provider
-          image: matrixdotorg/synapse:v1.158.0
+          image: matrixdotorg/synapse:v1.160.0
           # Root only for this container, and only to write the freshly-provisioned
           # PVC (which comes up root-owned) before chowning it to synapse's 991.
           # Pod-level fsGroup would do it too, but fsGroup applies to EVERY volume
@@ -247,7 +260,7 @@ spec:
             limits: {memory: 512Mi}
       containers:
         - name: synapse
-          image: matrixdotorg/synapse:v1.158.0
+          image: matrixdotorg/synapse:v1.160.0
           command: ["python", "-m", "synapse.app.homeserver"]
           args:
             - "--config-path"
@@ -452,7 +465,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: mas
-          image: ghcr.io/element-hq/matrix-authentication-service:1.22.0
+          image: ghcr.io/element-hq/matrix-authentication-service:1.24.0
           args: ["-c", "/config/config.yaml"]
           env:
             - name: TZ
@@ -497,8 +510,6 @@ metadata:
   name: lk-jwt
   namespace: matrix
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   replicas: 1
@@ -515,7 +526,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: lk-jwt
-          image: ghcr.io/element-hq/lk-jwt-service:0.5.0
+          image: ghcr.io/element-hq/lk-jwt-service:0.6.0
           env:
             - name: LIVEKIT_URL
               value: https://matrix-rtc.example.com/livekit/sfu
@@ -563,8 +574,6 @@ metadata:
   name: livekit
   namespace: matrix
   annotations:
-    # roll the pod when a referenced Secret changes (rotation): env-var values are
-    # never updated in a running pod, and mounted files still need a re-read.
     reloader.stakater.com/auto: "true"
 spec:
   replicas: 1
@@ -583,7 +592,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: livekit
-          image: livekit/livekit-server:v1.13.5
+          image: livekit/livekit-server:v1.13.6
           args: ["--config", "/etc/livekit.yaml"]
           ports:
             - name: signal
@@ -743,7 +752,7 @@ metadata:
   namespace: matrix
 spec:
   schedule: "23 4 * * *"
-  suspend: true
+  suspend: false
   # Forbid, not Allow: two runs would race on cache.db and on the same S3 keys.
   # A run that overshoots its window is skipped rather than doubled up.
   concurrencyPolicy: Forbid
@@ -778,7 +787,7 @@ spec:
             runAsGroup: 0
           containers:
             - name: sweep
-              image: matrixdotorg/synapse:v1.158.0
+              image: matrixdotorg/synapse:v1.160.0
               workingDir: /work
               env:
                 - name: PYTHONPATH
@@ -816,12 +825,16 @@ spec:
                   rm -f /tmp/s3.env
 
                   echo "== update: indexing media not accessed in $SWEEP_AGE =="
-                  python /pymods/bin/s3_media_upload update /data/media_store "$SWEEP_AGE" \
+                  python /pymods/bin/s3_media_upload --no-progress update \
+                    /data/media_store "$SWEEP_AGE" \
                     --homeserver-config-path /secrets/database.yaml
 
                   echo "== upload to $BUCKET (delete='${SWEEP_DELETE}') =="
-                  python /pymods/bin/s3_media_upload upload /data/media_store "$BUCKET" \
-                    --endpoint-url "$ENDPOINT" --no-progress $SWEEP_DELETE
+                  # --no-progress is a GLOBAL flag: it must precede the subcommand, or argparse
+                  # rejects it and the upload never runs.
+                  python /pymods/bin/s3_media_upload --no-progress upload \
+                    /data/media_store "$BUCKET" \
+                    --endpoint-url "$ENDPOINT" $SWEEP_DELETE
               volumeMounts:
                 - name: data
                   mountPath: /data
@@ -924,38 +937,8 @@ spec:
       targetPort: appservice
 ---
 # ===========================================================================
-# mautrix-telegram. Revived Aug 2026 after being down since 19 Nov 2025.
-#
-# It broke on a config/registration mismatch, not a lost token: config.yaml asked
-# for msc4190 device management that the registration Synapse loaded (a 2022-era
-# backup restored by mistake) never granted. The matching pair -- config,
-# registration and data.db together -- was recovered from bridges/telegram-old on
-# the Swarm host.
-#
-# The database is SQLite and stays SQLite. It carries the 38 portals and 407
-# puppets that make this a revival rather than a fresh setup, and mautrix keeps
-# separate per-dialect migration sets with no supported SQLite->Postgres path, so
-# converting it is exactly how the portals would get duplicated. ceph-rbd, not
-# cephfs: SQLite over a network filesystem is where locking corruption comes from.
-# Same reasoning as the baibot PVC above.
-#
-# The image is pinned by digest, and choosing it was not obvious. v0.15.3 (the
-# release current when the bridge last ran) matches the BRIDGE schema, v18, and
-# applies no migration -- but it refuses to start:
-#
-#   UnsupportedDatabaseVersion: Unsupported matrix state cache schema version v4
-#   (latest known is v3)
-#
-# There are two schemas in the one SQLite file. The bridge's own is v18; the
-# mautrix state cache is v4, which only a newer build knows. The swarm compose
-# pinned no tag, so it ran `latest`, which by Nov 2025 was ahead of the July
-# release -- no published version matches both numbers, so a forward migration is
-# unavoidable rather than optional.
-#
-# That is acceptable: a migration rewrites the schema and KEEPS the rows. The
-# portal-duplication risk was only ever about starting against an empty database,
-# which the replicas: 0 above prevents. The pre-migration copy of data.db lives
-# off-cluster on the jumphost if this ever has to be redone.
+# mautrix-telegram's ORIGINAL SQLite volume, retained. The bridge now runs on
+# Postgres from telegram-bridge-data below, which explains why this is kept.
 # ===========================================================================
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -1247,62 +1230,24 @@ spec:
       targetPort: appservice
 ---
 # ===========================================================================
-# mautrix-discord bridge. Appservice reached by Synapse at :29334.
+# mautrix-discord. Appservice reached by Synapse at :29334.
 #
-# FORKED IMAGE, built from the `fork` integration branch of
-# github.com/lhns/mautrix-discord. Two patches on top of upstream v0.7.7:
+# FORKED IMAGE from the `fork` branch of github.com/lhns/mautrix-discord: backfill
+# throttle+retry, and DM relay. See that README for the diffs.
 #
-#   backfill throttle + retry (see the README for the four diffs). Reasons:
+# Initial backfill is ONE-SHOT per portal (upstream #89): a fetch that fails
+# mid-crawl leaves the channel permanently truncated, recoverable only by deleting
+# and recreating the room. Hence 6Gi, not the 1Gi the other bridges get --
+# collectBackfillMessages holds a whole channel in RAM, times the portals crawling
+# at once, and an OOM mid-crawl truncates them for good. A ceiling, not a reservation.
 #
-#   1. discordgo's 429 handler does `json.Unmarshal(response, &rl)` and returns
-#      the unmarshal error on failure -- so when Discord's EDGE rate limiter
-#      answers with a Cloudflare HTML page instead of JSON, the retry is skipped
-#      entirely and the error propagates up as a failed fetch.
-#   2. Initial backfill is a ONE-SHOT per portal (upstream #89: "you can only
-#      backfill right after room creation"). A fetch that fails mid-crawl leaves
-#      that channel permanently truncated -- the room has to be deleted and
-#      recreated to try again. Upstream #157 reports exactly this.
+# The fork's `lhns_dm_relay` table is created outside the schema version, so the DB
+# stays at upstream 24 and reverting to the unforked image is a pure image swap.
 #
-# The patch adds bridge.backfill.{fetch_delay_ms,retry_interval_ms,max_retries}
-# and wraps the ChannelMessages call in a retry loop. Values on the PVC:
-# 1000 / 60000 / 60 -- i.e. pace one request per second per portal, and tolerate
-# up to an hour of edge throttling before giving up on a chunk. Slow is fine;
-# truncated is not, because it is not retryable.
+# NOT bridgev2 (mautrix-go v0.16.3): the database goes under `appservice.database`,
+# not a top-level `database` block, and there is no `unknown_error_auto_reconnect`.
 #
-#   DM relay. `set-relay` is webhook-based and Discord has no webhook API for
-#   direct messages or group DMs, so upstream refuses both outright. The patch
-#   makes `set-relay` work there by sending other users' messages through the
-#   relay user's own Discord session, name-prefixed -- the mautrix-whatsapp model.
-#
-#   Group DM naming. Discord leaves most group DMs untitled and renders them
-#   from their members; passing that empty name through left the Matrix room
-#   unnamed, so clients built a title from the members -- including the bridge
-#   bot, which cannot leave (it is MainIntent() in group DMs). The patch adds a
-#   `.Participants` template variable, derived from the state store.
-#   Opt-in per room, gated behind `bridge.relay.enabled` on the PVC. Relayed
-#   messages appear on Discord as sent BY the relay user, which a DM makes
-#   unavoidable.
-#
-#   The relay user is stored in `lhns_dm_relay`, a table the fork creates
-#   itself rather than a schema migration, so the database stays at upstream's
-#   version 24 and reverting to the unforked image is a pure image swap.
-#   Verified: upstream v0.7.7 reports "Database is up to date" against it.
-#
-# NOT bridgev2 (mautrix-go v0.16.3), so unlike telegram/signal/whatsapp/instagram
-# the database is configured under `appservice.database`, not a top-level
-# `database` block, and there is no `unknown_error_auto_reconnect`.
-#
-# memory limit 6Gi, not the 1Gi the other bridges get: collectBackfillMessages
-# appends every fetched message into one slice and bridges nothing until the
-# whole channel is collected, so an effectively unlimited limit holds a whole
-# channel in RAM -- times however many portals crawl at once. Raised from 2Gi
-# when bridging a guild, where ~21 channels are created together. It is a
-# ceiling, not a reservation: nothing is consumed unless a crawl needs it, and
-# an OOM-kill mid-crawl would permanently truncate those portals, since initial
-# backfill is one-shot.
-#
-# Bridging a personal Discord account is against Discord's ToS (self-bots) and
-# accounts do get disabled for it -- see the README. Deliberate.
+# Bridging a personal Discord account is against Discord's ToS. Deliberate.
 # ===========================================================================
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -1398,7 +1343,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: element-web
-          image: vectorim/element-web:v1.12.26
+          image: vectorim/element-web:v1.12.27
           ports:
             - name: http
               containerPort: 80
