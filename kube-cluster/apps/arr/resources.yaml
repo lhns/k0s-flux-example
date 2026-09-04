@@ -593,6 +593,11 @@ spec:
           env:
             - name: TZ
               value: Europe/Berlin
+          # Secret keys are named as the env vars autopulse expects, so the whole
+          # Secret goes in as-is and config.yaml stays free of credentials.
+          envFrom:
+            - secretRef:
+                name: autopulse-secrets
           ports:
             - name: http
               containerPort: 2875
@@ -602,8 +607,8 @@ spec:
               subPath: config.yaml
       volumes:
         - name: config
-          secret:
-            secretName: autopulse-config
+          configMap:
+            name: autopulse-config
 ---
 apiVersion: v1
 kind: Service

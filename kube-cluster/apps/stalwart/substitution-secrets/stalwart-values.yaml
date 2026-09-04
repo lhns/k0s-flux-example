@@ -2,9 +2,11 @@
 # (age, `encrypted_regex: ^(data|stringData)$`). Replace each CHANGEME-* and
 # encrypt with `sops -e -i` before applying.
 apiVersion: v1
-data:
-    CONFIG: CHANGEME-CONFIG
 kind: Secret
 metadata:
-    name: mqtt-monitoring-config
-    namespace: mqtt-monitoring
+    name: stalwart-values
+    namespace: flux-system
+stringData:
+    UMLEITER_DEST_PASSWORD: CHANGEME-UMLEITER_DEST_PASSWORD
+    UMLEITER_SOURCE_PASSWORD: CHANGEME-UMLEITER_SOURCE_PASSWORD
+type: Opaque

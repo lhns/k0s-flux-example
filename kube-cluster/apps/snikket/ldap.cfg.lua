@@ -13,13 +13,13 @@ VirtualHost "xmpp.example.com"
 	authentication = "lldap"
 
 	ldap_server = "lldap.lldap.svc.cluster.local:3890"
-	ldap_base   = "ou=people,dc=lhns,dc=de"
+	ldap_base   = "ou=people,dc=example,dc=com"
 
 	-- Must be in lldap's `lldap_password_manager` group: that grants directory
 	-- search and the password writes in-band changes need. In no group, lldap
 	-- shows the account only itself, and the symptom is "wrong password" rather
 	-- than a permissions error.
-	ldap_rootdn = "uid=snikket,ou=people,dc=lhns,dc=de"
+	ldap_rootdn = "uid=snikket,ou=people,dc=example,dc=com"
 
 	-- ENV_<NAME> is read from the environment (configmanager.lua:216), so the
 	-- secret comes from a Kubernetes Secret and never lands in a config file.

@@ -2,3 +2,15 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
 - resources.yaml
+# Canary for two things at once: postBuild substitution (probe.conf holds
+# ${NGINX_TEST_VALUE}) and the ConfigMap-to-Secret patch the generator emits, which
+# is what lets a substituted config be a real file rather than an inline block.
+configMapGenerator:
+- name: nginx-test-probe
+  namespace: nginx-test
+  files:
+  - probe=probe/probe.conf
+  options:
+    disableNameSuffixHash: true
+    annotations:
+      generators.example.com/as-secret: "true"

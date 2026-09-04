@@ -1,0 +1,11 @@
+# EXAMPLE — placeholder values. In the source repo this file is SOPS-encrypted
+# (age, `encrypted_regex: ^(data|stringData)$`). Replace each CHANGEME-* and
+# encrypt with `sops -e -i` before applying.
+apiVersion: v1
+kind: Secret
+metadata:
+    name: mosquitto-values
+    namespace: flux-system
+type: Opaque
+stringData:
+    MOSQUITTO_LDAP_BIND_PASSWORD: CHANGEME-MOSQUITTO_LDAP_BIND_PASSWORD

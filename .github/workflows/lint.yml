@@ -26,8 +26,14 @@ jobs:
         run: |
           set -euo pipefail
           pipx install yamllint
+          # scripts/check-secret-leak.py parses kustomize output; pipx keeps yamllint's
+          # PyYAML in its own venv, so the system interpreter needs its own copy.
+          sudo apt-get install -y -qq python3-yaml
           curl -fsSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.8.1/kustomize_v5.8.1_linux_amd64.tar.gz" | sudo tar -xz -C /usr/local/bin kustomize
           curl -fsSL "https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz" | sudo tar -xz -C /usr/local/bin kubeconform
+          # Pinned: the golden file is rendered helm output, so a version whose sprig
+          # formats differently reads as a behaviour change.
+          curl -fsSL "https://get.helm.sh/helm-v3.16.4-linux-amd64.tar.gz" | sudo tar -xz -C /usr/local/bin --strip-components=1 linux-amd64/helm
       - name: Validate
         id: validate
         run: bash scripts/validate.sh

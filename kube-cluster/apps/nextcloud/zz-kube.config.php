@@ -8,7 +8,7 @@
 $CONFIG = array(
   'dbhost' => 'postgres-rw.postgres.svc.cluster.local',
   'dbport' => '5432',
-  // The old install connected as `oc_pierre`; the dump was restored --no-owner so
+  // The old install connected as `oc_admin`; the dump was restored --no-owner so
   // the CNPG `nextcloud` role owns the tables. Point the app at that role.
   'dbuser' => 'nextcloud',
   'dbpassword' => getenv('POSTGRES_PASSWORD'),

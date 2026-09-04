@@ -440,7 +440,7 @@ authentication_backend:
 
     ## The distinguished name of the container searched for objects in the directory information tree.
     ## See also: additional_users_dn, additional_groups_dn.
-    base_dn: 'dc=lhns,dc=de'
+    base_dn: 'dc=example,dc=com'
 
     ## The additional_users_dn is prefixed to base_dn and delimited by a comma when searching for users.
     ## i.e. with this set to OU=Users and base_dn set to DC=a,DC=com; OU=Users,DC=a,DC=com is searched for users.
@@ -482,7 +482,7 @@ authentication_backend:
     # permit_referrals: false
 
     ## The username and password of the admin user.
-    user: 'uid=authelia,ou=people,dc=lhns,dc=de'
+    user: 'uid=authelia,ou=people,dc=example,dc=com'
     ## Password can also be set using a secret: https://www.authelia.com/c/secrets
     #password: 'password'
 

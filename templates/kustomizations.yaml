@@ -1,205 +1,136 @@
 {{- /*
-  For each group in .Values.groups, discover every <base>/<component>/ dir
-  (marked by its kustomization.yaml) and emit a Flux Kustomization named
-  <prefix>-<component>. Add a workload = create <base>/<name>/ with a
-  kustomization.yaml; nothing here changes. `wait` defaults true, per-group
-  overridable (hasKey guard — a naive `default true` would coerce false→true).
+One Flux Kustomization per component directory, so each component is its own failure
+domain. Helpers: _artifacts.tpl, _substitution.tpl, _crd-upgrade.tpl.
 
-  Optional cross-component ordering: a component may declare Flux dependencies
-  via an annotation on its OWN kustomization.yaml, e.g.
-    metadata:
-      annotations:
-        dependsOn: infra-metallb        # comma-separated Flux Kustomization names
-  `metadata` is an inert kustomize field (never reaches the built resources), so
-  we read it here and emit spec.dependsOn. No annotation -> no dependsOn.
+Discovery
+- A component is any <group.base>/<name>/kustomization.yaml. Adding one needs no change here.
+- The emitted name is <group.prefix>-<name>.
+- group.wait defaults to true. The hasKey guard matters, because `default true` would
+  coerce an explicit false back to true.
 
-  App grouping: every component's resources get app.kubernetes.io/instance via
-  spec.commonMetadata so they show up as one app in the Headlamp app-view. The
-  value defaults to the component's own dir name; override it when a Helm chart
-  labels its workloads differently (so the vnets/CRs land in the same group):
-    metadata:
-      annotations:
-        appInstance: traefik-traefik   # match the chart's instance label
-  commonMetadata is applied AFTER the kustomize build and only touches top-level
-  metadata (never selectors/pod-templates), so it's authoritative and causes no
-  rollouts.
+Annotations on the component's own kustomization.yaml. Kustomize ignores `metadata`
+entirely and it never reaches the built resources, which is what makes it usable as
+generator input.
+- dependsOn    Comma-separated Flux Kustomization names.
+- appInstance  The app.kubernetes.io/instance value, defaulting to the directory name.
+               Override it when a chart labels its workloads differently, so that the
+               component's vnets and CRs land in the same Headlamp app group. It is
+               applied through commonMetadata, which runs after the build and only
+               touches top-level metadata, so it is authoritative and causes no rollouts.
+- crdPolicy    Skip, Create or CreateReplace (the default). See _crd-upgrade.tpl.
 
-  Composed artifacts: a component may declare ImageComposition or ImageBuild
-  objects among its own resources. They are found BY KIND rather than by
-  filename, so any file may hold them and a component may have several of
-  either. For each one we compute a SPEC-HASH tag and emit a kustomize `images:`
-  entry mapping a placeholder -- named after the object itself -- to the full
-  reference. Both kinds behave identically here; only where they name their
-  input differs (layers[].sourceRef vs context.sourceRef).
+substitution-secrets/ subdirectory, for injecting secret values into plaintext config
+- Creating the directory is the entire opt-in. It gets its own Kustomization, the
+  component gets a dependsOn on it, and the substituteFrom entries are derived from the
+  manifests inside it. See _substitution.tpl.
+- It is a separate path because a Kustomization that both creates and consumes a value
+  substitutes from the copy that existed before it applied. Listing the file in the
+  component's own resources gives you a literal ${VAR} on the first apply and leaves
+  every rotation one reconcile behind.
+- Put no kustomization.yaml in there. kustomize-controller synthesizes one, so adding a
+  value is a matter of dropping in a file.
 
-  Both ends are then driven from that one hash: the `images:` entry rewrites the
-  consumer (kustomize's built-in fieldSpecs already cover `containers[]/image`
-  AND `spec/volumes[]/image/reference`), and a generated `patches:` entry sets
-  the composition's own `spec.push.tags`. Artifact and consumer therefore move
-  together, in one commit, with no substitution and nothing observing anything at
-  runtime. See apps/freshrss and ADR 0017 in lhns/kube-oci-composer.
+  BEFORE creating one, check what else in the component looks like a variable:
 
-  Such an object must NOT set push.tags itself -- the patch replaces them.
+      kustomize build kube-cluster/apps/<app> | grep '\${'
 
-  Not covered: an ImageBuild whose Dockerfile is a `configMapRef`. The hash sees
-  the reference, not the ConfigMap's content, and a generated ConfigMap is not a
-  file in the dir for pass 1 to find -- so editing it would rebuild without
-  moving the tag. `inline` keeps the recipe inside the hashed spec and has no
-  such gap; prefer it, or expect push.onConflict to fail the build loudly.
+  Substitution is not scoped to the file you meant. Flux runs envsubst over the whole
+  component build and replaces anything it cannot resolve with an empty string, so every
+  hit has to either become a substitution source or be escaped as $${VAR}. Shell scripts
+  in a component are the usual casualty. Bare $var is left alone; only ${VAR} is
+  substituted.
 
-  The repository is <publicHost>/<namespace>/<name>, which is where the composer
-  publishes an object that names no `push.repository`. We deliberately do not set
-  one: the controller pushes from INSIDE the cluster and cannot resolve
-  oci-composer.internal, and an explicitly set repository is reported back in
-  status exactly as written. Leaving it empty lets the controller push to the
-  in-cluster Service while status.artifact.ref carries the public host.
+  A substituted config cannot come from a secretGenerator, which base64-encodes into
+  data: and buries the ${VAR} where envsubst cannot see it. Use a configMapGenerator
+  marked generators.example.com/as-secret and it is patched into a Secret with the content
+  still plaintext: see _secret-from-files.tpl.
 
-  The composition side is a patch rather than a fieldSpec extending the images
-  transformer to `spec/push/ref`. The fieldSpec works -- it was the original
-  design and it rewrote both ends correctly. What it cannot be is GLOBAL:
-  kustomize learns non-builtin paths only from a `configurations:` file listed in
-  the kustomization that is being built, and ImageComposition is a CRD, so it is
-  not in the builtin fieldSpecs. Flux's Kustomization has no `configurations:`
-  field for the generator to fill in, and kustomize never reads config from the
-  cluster, so oci-composer cannot ship it as a resource either. That leaves a
-  copy of the same four-line file in every app owning a composition, forever. A
-  patch the generator emits keeps the whole mechanism here instead.
-
-  The hash covers only what determines the OUTPUT. `push` is excluded because the
-  tag lives there (including it would be circular) and because where an artifact
-  is published does not change what it is; `interval` and `suspend` are not
-  inputs either. `publish` stays in the omit list purely so the 0.4.0 -> 0.5.0
-  rename did not move a single hash -- both names are excluded, so every existing
-  tag survived the migration and nothing was rebuilt.
+  Where an app can read the credential itself, from a file or an env var, prefer that.
+  The config then holds no secret at all and needs none of this; apps/arr/autopulse
+  reads its own AUTOPULSE__* env vars.
 */ -}}
-{{- range $g := .Values.groups }}
-{{- range $path, $_ := $.Files.Glob (printf "%s/*/kustomization.yaml" $g.base) }}
-{{- $name := base (dir $path) }}
-{{- $km := $.Files.Get $path | fromYaml }}
-{{- $deps := dig "metadata" "annotations" "dependsOn" "" $km }}
-{{- $app := dig "metadata" "annotations" "appInstance" $name $km }}
-{{- $crds := dig "metadata" "annotations" "crdPolicy" "CreateReplace" $km }}
-{{- /* Pass 1: index every object in the component dir by kind/name, so a composition can
-       resolve what its layers point AT. Map iteration in text/template is key-sorted, so
-       this stays deterministic. */ -}}
-{{- $objs := dict }}
-{{- range $f, $_ := $.Files.Glob (printf "%s/*.yaml" (dir $path)) }}
-{{- range $doc := regexSplit "(?m)^---[[:space:]]*$" ($.Files.Get $f) -1 }}
-{{- $o := fromYaml $doc }}
-{{- if and (dig "kind" "" $o) (dig "metadata" "name" "" $o) }}
-{{- $_ := set $objs (printf "%s/%s" $o.kind $o.metadata.name) $o }}
+{{- range $group := .Values.groups }}
+{{- range $kustPath, $_ := $.Files.Glob (printf "%s/*/kustomization.yaml" $group.base) }}
+{{- $dir := dir $kustPath }}
+{{- $component := base $dir }}
+{{- $fluxName := $component }}
+{{- if $group.prefix }}{{- $fluxName = printf "%s-%s" $group.prefix $component }}{{- end }}
+{{- $kust := $.Files.Get $kustPath | fromYaml }}
+{{- $instance := dig "metadata" "annotations" "appInstance" $component $kust }}
+{{- $crdPolicy := dig "metadata" "annotations" "crdPolicy" "CreateReplace" $kust }}
+{{- $interval := $group.interval | default "10m0s" }}
+{{- $artifacts := include "generators.artifacts" (dict "root" $ "dir" $dir "publicHost" $.Values.ociComposer.publicHost) | fromYamlArray }}
+{{- $substFrom := include "generators.substituteFrom" (dict "root" $ "dir" $dir) | fromYamlArray }}
+{{- $dependsOn := list }}
+{{- with dig "metadata" "annotations" "dependsOn" "" $kust }}
+{{- range splitList "," . }}{{- $dependsOn = append $dependsOn (trim .) }}{{- end }}
 {{- end }}
+{{- $secretsName := printf "%s-substitution-secrets" $fluxName }}
+{{- $hasSecrets := $.Files.Glob (printf "%s/substitution-secrets/*.yaml" $dir) }}
+{{- if and $hasSecrets (not (has $secretsName $dependsOn)) }}
+{{- $dependsOn = append $dependsOn $secretsName }}
 {{- end }}
-{{- end }}
-{{- $comps := list }}
-{{- range $k, $o := $objs }}
-{{- if or (eq $o.kind "ImageComposition") (eq $o.kind "ImageBuild") }}
-{{- /* A sourceRef names its input rather than containing it, so the pin that decides
-       the CONTENT lives in the referenced GitRepository, not here. Hashing the composition
-       spec alone therefore does NOT see it: bumping freshrss-ext-autottl from v0.6.2 to
-       v0.6.4 left the tag identical while the artifact changed. That is the one property
-       ADR 0017 exists to provide, so the referenced object's spec is folded in.
-
-       Only push.onConflict caught it (loudly, and correctly - the composition went Failed
-       rather than moving a spec-hash tag to new content). It should never have got that far.
-
-       `interval`/`timeout`/`suspend` are dropped from the source for the same reason they are
-       dropped from the composition: they change when we poll, not what is built. */ -}}
-{{- $srcRefs := list }}
-{{- if eq $o.kind "ImageComposition" }}
-{{- range $l := (dig "spec" "layers" (list) $o) }}
-{{- with (dig "sourceRef" (dict) $l) }}{{- $srcRefs = append $srcRefs . }}{{- end }}
-{{- end }}
-{{- else }}
-{{- with (dig "spec" "context" "sourceRef" (dict) $o) }}{{- $srcRefs = append $srcRefs . }}{{- end }}
-{{- end }}
-{{- $srcs := dict }}
-{{- range $sr := $srcRefs }}
-{{- $sk := printf "%s/%s" (dig "kind" "" $sr) (dig "name" "" $sr) }}
-{{- $src := get $objs $sk }}
-{{- if $src }}
-{{- $_ := set $srcs $sk (omit (dig "spec" (dict) $src) "interval" "timeout" "suspend") }}
-{{- end }}
-{{- end }}
-{{- $hashIn := omit $o.spec "publish" "push" "interval" "suspend" }}
-{{- /* Wrapped ONLY when there is something to add, so a composition with no sourceRef layer
-       (e.g. infra/opentelemetry-gateway, which fetches pinned URLs inline) keeps the hash it
-       already has and does not churn. */ -}}
-{{- if $srcs }}
-{{- $hashIn = dict "spec" $hashIn "sources" $srcs }}
-{{- end }}
-{{- $comps = append $comps (dict
-      "name" $o.metadata.name
-      "kind" $o.kind
-      "tag"  (printf "s%s" ($hashIn | toYaml | sha256sum | trunc 16))
-      "repo" (printf "%s/%s/%s" $.Values.ociComposer.publicHost $o.metadata.namespace $o.metadata.name)) }}
-{{- end }}
+{{- with $hasSecrets }}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: {{ $secretsName }}
+  namespace: flux-system
+spec:
+  interval: {{ $interval }}
+  path: ./{{ $dir }}/substitution-secrets
+  prune: true
+  {{- /* The component waits on this, so Ready has to mean the Secrets are applied. */}}
+  wait: true
+  commonMetadata:
+    labels:
+      app.kubernetes.io/instance: {{ $instance | quote }}
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
 {{- end }}
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
-  name: {{ if $g.prefix }}{{ $g.prefix }}-{{ end }}{{ $name }}
+  name: {{ $fluxName }}
   namespace: flux-system
 spec:
-  interval: {{ $g.interval | default "10m0s" }}
-  path: ./{{ dir $path }}
+  interval: {{ $interval }}
+  path: ./{{ $dir }}
   prune: true
-  wait: {{ if hasKey $g "wait" }}{{ $g.wait }}{{ else }}true{{ end }}
+  wait: {{ if hasKey $group "wait" }}{{ $group.wait }}{{ else }}true{{ end }}
   commonMetadata:
     labels:
-      app.kubernetes.io/instance: {{ $app | quote }}
-  {{- with $comps }}
+      app.kubernetes.io/instance: {{ $instance | quote }}
+  {{- /* The placeholder is the artifact's own name, so an app connects the two by
+         writing that name where the image reference goes and declares nothing else. */}}
+  {{- with $artifacts }}
   images:
     {{- range . }}
-    # The placeholder IS the composition's or build's own name, so an app connects the two by
-    # writing that name where the image reference goes -- nothing else to declare.
     - name: {{ .name }}
       newName: {{ .repo }}
       newTag: {{ .tag }}
     {{- end }}
   {{- end }}
   patches:
-    # Chart-shipped CRDs are upgraded. helm-controller's default for upgrades is Skip, and
-    # helm itself never touches a chart's crds/ dir, so WITHOUT this a chart's CRDs freeze at
-    # whatever version was first installed -- forever, and silently. It is silent that makes it
-    # bad: new optional fields simply do not exist, so the API server prunes them from any
-    # resource that sets one, with no error anywhere. Traefik is how we found out. Its CRDs sat
-    # a full minor behind (v3.6 schemas under a v3.7.9 proxy, missing e.g. encodedCharacters)
-    # from the 41.1.0 -> 41.1.1 bump onward.
-    #
-    # There is no controller-level flag for this -- `crds` exists only per HelmRelease -- so
-    # here is the one place a repo-wide default can live.
-    #
-    # Only charts shipping crds/ are affected at all (traefik, velero); charts that template
-    # their CRDs (cert-manager, cloudnative-pg, metallb) already upgrade them and this is a
-    # no-op. A merge patch, so an existing spec.upgrade block keeps its other fields.
-    #
-    # CreateReplace is a REPLACE. For additive schema changes -- what a CRD bump almost always
-    # is -- that is safe. If a chart ever drops a CRD version that still has stored objects the
-    # API server rejects it, so that failure is loud rather than destructive. Override per
-    # component on its own kustomization.yaml when a chart needs care:
-    #   metadata:
-    #     annotations:
-    #       crdPolicy: Skip        # Skip | Create | CreateReplace
-    - target:
-        kind: HelmRelease
-      patch: |
-        apiVersion: helm.toolkit.fluxcd.io/v2
-        kind: HelmRelease
-        metadata:
-          name: unused   # the target selector above chooses; this name is not matched against
-        spec:
-          upgrade:
-            crds: {{ $crds }}
-  {{- with $comps }}
-    {{- range . }}
-    # The other end: tell the composition which tag to publish under. A patch rather than
-    # extending the images transformer to spec.push.ref, because that would need a
-    # `configurations:` fieldSpec file in EVERY app that uses a composition. Both ends are
-    # generated from the same $tag here, so they cannot drift, and apps carry nothing.
-    #
-    # A merge patch, so a composition with no push block gets one rather than erroring.
+    {{- include "generators.crdPatch" $crdPolicy | nindent 4 }}
+    {{- include "generators.secretFromFiles" . | nindent 4 }}
+  {{- /* The other end of the same hash, telling the artifact which tag to publish
+         under. This is a patch rather than an extension of the images transformer to
+         spec/push/ref, because kustomize learns non-builtin paths only from a
+         `configurations:` file listed in the kustomization being built, and a Flux
+         Kustomization has no field to supply one. That would mean a copy of the same
+         file in every app owning an artifact, forever.
+         It is a merge patch, so an object with no push block gets one rather than
+         erroring. Such an object must not set push.tags itself; this replaces them. */}}
+  {{- range $artifacts }}
     - target:
         kind: {{ .kind }}
         name: {{ .name }}
@@ -211,13 +142,21 @@ spec:
         spec:
           push:
             tags: [{{ .tag }}]
+  {{- end }}
+  {{- with $dependsOn }}
+  dependsOn:
+    {{- range . }}
+    - name: {{ . }}
     {{- end }}
   {{- end }}
-  {{- with $deps }}
-  dependsOn:
-    {{- range splitList "," . }}
-    - name: {{ trim . }}
-    {{- end }}
+  {{- with $substFrom }}
+  postBuild:
+    substituteFrom:
+      {{- range . }}
+      - kind: {{ .kind }}
+        name: {{ .name }}
+        optional: false
+      {{- end }}
   {{- end }}
   sourceRef:
     kind: GitRepository

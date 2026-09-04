@@ -245,7 +245,7 @@ stored from 2023. All four were moved to `as_token:` on 2026-08-24.
 
 Each bridge reuses **its own** `as_token` from its `registration.yaml`; no dedicated
 double-puppet registration exists. This works because every registration in
-`secret-registrations.yaml` carries the non-exclusive `^@.*:lhns\.de$` user namespace, which is
+`secret-registrations.yaml` carries the non-exclusive `^@.*:example\.com$` user namespace, which is
 what lets it masquerade via `?user_id=`. That namespace is required — without it the bridge can
 only ever speak as a ghost. It is also why a stale registration is dangerous: it grants
 impersonation over every local account.
@@ -341,7 +341,7 @@ like a broken bridge.
 | `provisioning.shared_secret` | `disable` (unused API) |
 
 **Double puppeting needed a registration edit**, not just config: the generated registration grants
-only `^@signalbot:…$` and `^@signal_.*:…$`, so the non-exclusive `^@.*:lhns\.de$` was added by hand
+only `^@signalbot:…$` and `^@signal_.*:…$`, so the non-exclusive `^@.*:example\.com$` was added by hand
 to match telegram. Without it your own Signal-sent messages appear as a ghost.
 
 **Watch unanchored edits**: `sed 's/enabled: false/enabled: true/'` also flips `public_media` and
@@ -377,7 +377,7 @@ Config on the PVC, same shape as signal: `appservice.hostname: 0.0.0.0` (the def
 example.com: as_token:<own as_token>` (the inert `appservice` until 2026-08-24), encryption
 allow/default/msc4190 `true`/`false`/`true`. The generated
 registration grants only `^@instagrambot:…$` and `^@instagram_.*:…$`; the non-exclusive
-`^@.*:lhns\.de$` namespace was added by hand for double puppeting, as on telegram and signal.
+`^@.*:example\.com$` namespace was added by hand for double puppeting, as on telegram and signal.
 
 **Backfill is OFF by default** — `thread_backfill.batch_count: 0` disables it entirely; `-1` is
 unlimited, which is what is set here. `batch_delay: 2s` is the only throttle. Unlike signal's
@@ -436,7 +436,7 @@ bridge, whose `thread_backfill` is re-runnable.
 | `startup_private_channel_create_limit` | `1000` | see below — the default of 5 would have bridged five DMs and silently skipped the rest |
 | `permissions` | `example.com: user`, `@admin:example.com: admin` | the shipped `"*": relay` is removed |
 | `encryption.allow` / `.msc4190` | `true` / `true` | as signal |
-| `login_shared_secret_map` | `example.com: as_token` | double puppeting. Needs the non-exclusive `^@.*:lhns\.de$` namespace in the registration |
+| `login_shared_secret_map` | `example.com: as_token` | double puppeting. Needs the non-exclusive `^@.*:example\.com$` namespace in the registration |
 | `logging.min_level` | `info` | at `debug` it logs every one-time-key upload payload in full — tens of KB per restart |
 
 ### `startup_private_channel_create_limit` is positional, not incremental
@@ -479,7 +479,7 @@ SQLite). Its ghosts, rooms and aliases are now orphaned — that was accepted.
 
 Synapse had accumulated ~160k undelivered transactions for it, pushed at `discord-bridge:8434` — a
 Service that never existed here. It grew with local Matrix activity rather than on a timer, because
-the registration granted a non-exclusive `^@.*:lhns\.de$`, which also meant a three-year-unused
+the registration granted a non-exclusive `^@.*:example\.com$`, which also meant a three-year-unused
 `as_token` held impersonation rights over every local account.
 
 The `discord.yaml` key in `secret-registrations.yaml` was **replaced in place** rather than removed

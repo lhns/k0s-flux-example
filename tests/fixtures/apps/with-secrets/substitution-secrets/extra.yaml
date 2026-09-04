@@ -1,0 +1,7 @@
+# A second file, and a ConfigMap rather than a Secret: kind is carried through.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fixture-extra
+  namespace: flux-system
+data: {}

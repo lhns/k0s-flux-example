@@ -5,7 +5,7 @@ from Docker Swarm into its own namespace. Web UI at `lldap.example.com` (behind 
 
 ## Shape
 - **Env-only config** — the old `lldap_config.toml` was placeholder defaults overridden by env, so
-  there's no config file. `LLDAP_LDAP_BASE_DN=dc=lhns,dc=de`; `LLDAP_JWT_SECRET` + **`LLDAP_KEY_SEED`**
+  there's no config file. `LLDAP_LDAP_BASE_DN=dc=example,dc=com`; `LLDAP_JWT_SECRET` + **`LLDAP_KEY_SEED`**
   (SOPS `lldap-secrets`, from the old deployment — KEY_SEED derives the key that decrypts stored data,
   so it must be exact); `LLDAP_DATABASE_URL` → the shared CNPG cluster (`sslmode=disable`, password
   `$(VAR)`-interpolated from the reflected `lldap-db` secret).

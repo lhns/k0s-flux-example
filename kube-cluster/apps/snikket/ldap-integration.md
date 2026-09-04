@@ -69,8 +69,8 @@ VirtualHost "xmpp.example.com"
     authentication = "lldap"        -- the fork, see "The portal's user list" below
 
     ldap_server   = "lldap.lldap.svc.cluster.local:3890"
-    ldap_base     = "ou=people,dc=lhns,dc=de"
-    ldap_rootdn   = "uid=snikket,ou=people,dc=lhns,dc=de"
+    ldap_base     = "ou=people,dc=example,dc=com"
+    ldap_rootdn   = "uid=snikket,ou=people,dc=example,dc=com"
     ldap_password = ENV_LDAP_BIND_PASSWORD
     ldap_mode     = "bind"
 
@@ -298,7 +298,7 @@ data serves the same JID.
 None of this is declarative — this repo does not declare lldap objects
 (see `apps/forgejo/README.md` for the same constraint).
 
-1. Bind account `uid=snikket,ou=people,dc=lhns,dc=de`, in `lldap_password_manager` (or
+1. Bind account `uid=snikket,ou=people,dc=example,dc=com`, in `lldap_password_manager` (or
    `lldap_strict_readonly`; see *Password changes*).
 2. Groups `xmpp` and `admin` under `ou=groups`, with the relevant members.
 3. Use the same username as the existing JID localpart so roster and archives carry over.

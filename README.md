@@ -9,6 +9,34 @@ GitOps for a k0s Kubernetes cluster, managed by Flux.
 - `kube-cluster/infra/`, `kube-cluster/apps/` — one directory per component. The
   root generator chart (`Chart.yaml` + `templates/`) emits one Flux `Kustomization`
   per directory (`infra-<name>` / `app-<name>`).
+- `<component>/substitution-secrets/` — optional, reserved name. SOPS Secrets in
+  `flux-system` that feed `postBuild.substituteFrom`, so config stays plaintext with
+  `${VAR}` placeholders. Having the directory is the whole opt-in: the generator emits
+  its `Kustomization`, the component's `dependsOn`, and one `substituteFrom` entry per
+  manifest in it. No `kustomization.yaml`, no annotation, no list.
+  See `templates/kustomizations.yaml`.
+
+  Check `kustomize build kube-cluster/apps/<app> | grep '\${'` before adding one.
+  Substitution is not scoped to the file you meant: Flux runs envsubst over the whole
+  component build and replaces anything it cannot resolve with an empty string. Every
+  hit has to become a substitution source or be escaped as `$${VAR}`, and shell scripts
+  are the usual casualty. Bare `$var` is left alone.
+
+  Such a config cannot come from a `secretGenerator`, which base64s it into `data:` and
+  hides the `${VAR}` from envsubst. Use a `configMapGenerator` marked
+  `generators.example.com/as-secret: "true"` and the generator patches it into a Secret with
+  the content still plaintext, so the config stays a real file
+  (`apps/mosquitto/mosquitto.conf`). The entry also needs
+  `options.disableNameSuffixHash: true`: the patch matches on the annotation rather than
+  the name, so a hashed ConfigMap still converts, but the workload's Secret reference is
+  not one kustomize rewrites and would point at a name that no longer exists. It cannot
+  be patched in either, being consumed during the component build while `spec.patches`
+  run after it. `scripts/check-substitution.py` fails the build on both mistakes: a
+  missing annotation, which would apply the credential as a ConfigMap, and a missing
+  `disableNameSuffixHash`.
+
+  Better still, prefer an app-native mechanism where one exists. The config then holds no
+  credential at all: `apps/arr/autopulse` reads its secrets from `AUTOPULSE__*` env vars.
 
 ## Namespacing (no top-level `namespace:` transformer)
 
@@ -196,3 +224,14 @@ kubectl get pods -A -o wide | grep -E "<node>.*(nodeplugin|Crash|Error)"
 > Since draining unmounts every volume it evicts, a drain on an older kernel can
 > kill the node mid-drain. Confirm `uname -r` is >= 6.12.105 before relying on a
 > graceful drain.
+
+## Testing the generator chart
+
+`scripts/validate.sh` renders the root chart against `tests/fixtures/` and diffs the
+result against `tests/golden/fixtures.yaml`, then renders the real tree into
+kubeconform. The fixtures cover the cases the live repo does not: a component with no
+annotations, every annotation set, a `substitution-secrets/` dir holding a
+wrong-namespace Secret, and artifacts with and without a resolvable `sourceRef`.
+
+Intentional behaviour change → `bash scripts/update-golden.sh`, then review that diff:
+it *is* the change.

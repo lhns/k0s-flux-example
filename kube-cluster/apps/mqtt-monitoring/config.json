@@ -1,0 +1,99 @@
+{
+  "server": "mosquitto.mosquitto.svc.cluster.local:1883",
+  "username": "mqtt_monitoring",
+  "password": "${MQTT_MONITORING_PASSWORD}",
+  "maxCardinality": 10000,
+  "exportInterval": "10 seconds",
+  "filters": [
+    {
+      "metricName": "smartmeter_value",
+      "topics": [
+        "iot/smartmeter/sensor/+/obis/+/+/value"
+      ],
+      "labels": {
+        "location": "home"
+      },
+      "labelMatchers": [
+        "[^/]*/[^/]*/[^/]*/(?<id>[^/]+)/[^/]*/(?<obis>[^/]+)/(?<obis2>[^/]+)/.*"
+      ],
+      "ignoreWarnings": true
+    },
+    {
+      "metricName": "inverter_value",
+      "topics": [
+        "inverter/#",
+      ],
+      "labelMatchers": [
+        "[^/]*/((?<id>[^/]+)/((?<channel>[^/]+)/)?)?(?<measurement>[^/]+)"
+      ]
+    },
+    {
+      "metricName": "tasmota_sensor",
+      "topics": [
+        "tele/+/SENSOR",
+      ],
+      "labels": {
+        "location": "home"
+      },
+      "labelMatchers": [
+        "[^/]*/(?<device>[^/]+)/[^/]*(/#>(/ENERGY/(?<attribute>[^/]+))?(/.*)?)?"
+      ]
+    },
+    {
+      "metricName": "gasmeter",
+      "topics": [
+        "gasmeter/main/value"
+      ],
+      "labels": {
+        "location": "home"
+      }
+    },
+    {
+      "topics": [
+        "zigbee2mqtt/bridge/#",
+        "zigbee2mqtt_michelle/bridge/#",
+      ],
+      "discard": true
+    },
+    {
+      "metricName": "zigbee2mqtt",
+      "topics": [
+        "zigbee2mqtt/#",
+      ]
+      "labels": {
+        "location": "home"
+      },
+      "labelMatchers": [
+        "[^/]*/(?<device>(?<device.type>[^/#]+)(/(?<device.location>[^/#]+)(/(?<device.sub>[^/#]+))?)?(/[^#]*)?)/#>/(?<attribute>.*)"
+      ],
+      "valueMappings": {
+        "online": 1,
+        "offline": 0,
+        "ON": 1,
+        "OFF": 0,
+        "idle": 0,
+        "heat": 1
+      }
+    },
+    {
+      "metricName": "zigbee2mqtt",
+      "topics": [
+        "zigbee2mqtt_michelle/#",
+      ],
+      "labels": {
+        "location": "michelle"
+      },
+      "labelMatchers": [
+        "[^/]*/(?<device>(?<device.type>[^/#]+)(/(?<device.location>[^/#]+)(/(?<device.sub>[^/#]+))?)?(/[^#]*)?)/#>/(?<attribute>.*)"
+      ],
+      "valueMappings": {
+        "online": 1,
+        "offline": 0,
+        "ON": 1,
+        "OFF": 0,
+        "idle": 0,
+        "heat": 1
+      }
+    }
+  ]
+}

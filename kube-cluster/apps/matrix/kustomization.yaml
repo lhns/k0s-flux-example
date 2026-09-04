@@ -22,7 +22,6 @@ resources:
 - vnet.yaml
 - secret-synapse.yaml
 - secret-livekit.yaml
-- secret-registrations.yaml
 - secret-media-s3.yaml
 configMapGenerator:
 - name: element-web-config
@@ -68,3 +67,22 @@ configMapGenerator:
   files:
   - default.conf=well-known-default.conf
   - index.json=well-known-index.json
+# The appservice registrations as real files. What matters on review is the namespaces
+# regex, which decides the users and aliases a bridge claims. The generator patches this
+# ConfigMap into a Secret (templates/_secret-from-files.tpl), which keeps the
+# ${MATRIX_*_TOKEN} placeholders visible to Flux's substitution.
+#
+# The list Synapse actually loads is app_service_config_files in synapse-appservices.yaml,
+# which is whole-key: a partial list there unregisters every bridge it omits.
+- name: synapse-appservice-registrations
+  namespace: matrix
+  files:
+  - telegram.yaml=registrations/telegram.yaml
+  - whatsapp.yaml=registrations/whatsapp.yaml
+  - discord.yaml=registrations/discord.yaml
+  - signal.yaml=registrations/signal.yaml
+  - instagram.yaml=registrations/instagram.yaml
+  options:
+    disableNameSuffixHash: true
+    annotations:
+      generators.example.com/as-secret: "true"

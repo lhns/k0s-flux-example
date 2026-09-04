@@ -1,0 +1,19 @@
+id: discord
+url: http://discord-bridge:29334
+as_token: ${MATRIX_DISCORD_AS_TOKEN}
+hs_token: ${MATRIX_DISCORD_HS_TOKEN}
+sender_localpart: hNfeYmbgm8XBw0ffFcCA2IeUxhVBVi8g
+rate_limited: false
+namespaces:
+    users:
+        - regex: ^@discordbot:example\.com$
+          exclusive: true
+        - regex: ^@discord_.*:example\.com$
+          exclusive: true
+        # Non-exclusive: lets the bridge masquerade as any local user, which is
+        # what double puppeting needs (login_shared_secret_map: example.com: as_token).
+        - regex: ^@.*:example\.com$
+          exclusive: false
+de.sorunome.msc2409.push_ephemeral: true
+push_ephemeral: true
+io.element.msc4190: true

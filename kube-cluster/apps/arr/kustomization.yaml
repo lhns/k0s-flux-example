@@ -36,3 +36,7 @@ configMapGenerator:
   namespace: arr
   files:
   - config.yaml=decluttarr/config.yaml
+- name: autopulse-config
+  namespace: arr
+  files:
+  - config.yaml=autopulse/config.yaml

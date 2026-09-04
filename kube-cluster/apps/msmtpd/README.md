@@ -14,7 +14,7 @@ Secret (`msmtpd-secrets`) so app configs — Authelia today, others later — ca
 
 ## The sender address rule
 
-**Every app that sends through this relay must use `admin+<app>@example.com`.** Not
+**Every app that sends through this relay must use `admin+<app>@gmail.com`.** Not
 `<app>@example.com`, however much nicer that would read.
 
 The relay's upstream is a Gmail account, and Gmail only lets you send as an address it *owns* —

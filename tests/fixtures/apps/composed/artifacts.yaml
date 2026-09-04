@@ -1,0 +1,55 @@
+# Exercises both artifact kinds and both hash shapes: an object whose sourceRef
+# resolves to an object in the same dir (the source spec is folded into the
+# hash) and one with no sourceRef at all (hash is the spec alone).
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: composed-src
+  namespace: composed
+spec:
+  interval: 1h0m0s
+  url: https://example.invalid/fixture.git
+  ref:
+    tag: v1.0.0
+---
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageComposition
+metadata:
+  name: composed-layered
+  namespace: composed
+spec:
+  interval: 1h
+  layers:
+    - name: fixture
+      sourceRef:
+        kind: GitRepository
+        name: composed-src
+      to: /
+---
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageComposition
+metadata:
+  name: composed-inline
+  namespace: composed
+spec:
+  interval: 1h
+  layers:
+    - name: fetched
+      url: https://example.invalid/fixture.tar.gz
+      to: /
+---
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageBuild
+metadata:
+  name: composed-built
+  namespace: composed
+spec:
+  interval: 1h
+  context:
+    sourceRef:
+      kind: GitRepository
+      name: composed-src
+  dockerfile:
+    inline: |
+      FROM scratch

@@ -65,7 +65,7 @@ spec:
             - name: GID
               value: "1000"
             - name: LLDAP_LDAP_BASE_DN
-              value: dc=lhns,dc=de
+              value: dc=example,dc=com
             - name: LLDAP_JWT_SECRET
               valueFrom:
                 secretKeyRef:

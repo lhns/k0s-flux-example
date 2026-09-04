@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: composed
+  namespace: composed
+spec:
+  containers:
+    - name: layered
+      image: composed-layered
+    - name: inline
+      image: composed-inline
+    - name: built
+      image: composed-built

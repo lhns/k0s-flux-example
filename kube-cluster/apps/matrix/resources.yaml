@@ -829,7 +829,10 @@ spec:
                     /data/media_store "$SWEEP_AGE" \
                     --homeserver-config-path /secrets/database.yaml
 
-                  echo "== upload to $BUCKET (delete='${SWEEP_DELETE}') =="
+                  # $$ escapes Flux's envsubst, which runs over this whole component
+                  # because substitution-secrets/ exists. Unescaped it would resolve to
+                  # the empty string at apply time.
+                  echo "== upload to $BUCKET (delete='$${SWEEP_DELETE}') =="
                   # --no-progress is a GLOBAL flag: it must precede the subcommand, or argparse
                   # rejects it and the upload never runs.
                   python /pymods/bin/s3_media_upload --no-progress upload \

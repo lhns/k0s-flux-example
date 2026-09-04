@@ -1,0 +1,17 @@
+id: instagram
+url: http://instagram-bridge:29330
+as_token: ${MATRIX_INSTAGRAM_AS_TOKEN}
+hs_token: ${MATRIX_INSTAGRAM_HS_TOKEN}
+sender_localpart: NMhfo4r0MvhJuW0Wdl3s8u7NgAYjHr96
+rate_limited: false
+namespaces:
+    users:
+        - regex: ^@instagrambot:example\.com$
+          exclusive: true
+        - regex: ^@instagram_.*:example\.com$
+          exclusive: true
+        - regex: ^@.*:example\.com$
+          exclusive: false
+de.sorunome.msc2409.push_ephemeral: true
+receive_ephemeral: true
+io.element.msc4190: true

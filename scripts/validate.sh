@@ -9,6 +9,25 @@ echo "== yamllint =="
 yamllint .
 
 echo
+echo "== helm template (generator chart) =="
+# The generator decides every component's dependsOn, substitution sources and image
+# tags, so a template regression is a cluster-wide one. tests/fixtures/ exercises it
+# on inputs the real tree does not have; the golden pins the OUTPUT.
+# Intentional change -> bash scripts/update-golden.sh, and review that diff.
+if ! diff -u tests/golden/fixtures.yaml <(bash scripts/render.sh fixtures); then
+  echo "== generator output moved (see diff above) ==" >&2
+  echo "   intentional? bash scripts/update-golden.sh" >&2
+  exit 1
+fi
+echo "golden OK"
+
+echo
+echo "== substitution: no credential in a ConfigMap, no unreachable name =="
+# python3 on CI, python in git-bash on Windows.
+py=python3; command -v python3 >/dev/null 2>&1 || py=python
+"$py" scripts/check-substitution.py
+
+echo
 echo "== kustomize build + kubeconform =="
 # Schemas are cached on disk (the CI runner persists .cache/ between runs), so once
 # warm this needs no network.
@@ -44,6 +63,7 @@ trap 'rm -f "$buildfail"' EXIT
 
 run() {
   : > "$buildfail"   # truncate: run() is retried, and stale entries would fail a healthy repo
+  {
   for k in kube-cluster/infra/*/kustomization.yaml \
            kube-cluster/apps/*/kustomization.yaml \
            kube-cluster/flux-system/kustomization.yaml; do
@@ -51,7 +71,22 @@ run() {
     echo "  $(dirname "$k")" >&2
     echo "---"
     kustomize build "$(dirname "$k")" || echo "$(dirname "$k")" >> "$buildfail"
-  done | kubeconform \
+  done
+  # No kustomization.yaml in these by design (kustomize-controller synthesizes one), and
+  # the component build above deliberately excludes them. Plain Secret manifests -- feed
+  # them to kubeconform as-is.
+  for f in kube-cluster/apps/*/substitution-secrets/*.yaml \
+           kube-cluster/infra/*/substitution-secrets/*.yaml; do
+    [ -f "$f" ] || continue
+    echo "---"
+    cat "$f"
+  done
+  # The Kustomizations the generator emits for the real tree. Nothing else schema-checks
+  # them -- they are created by helm-controller, which validates nothing up front.
+  echo "  generator output" >&2
+  echo "---"
+  bash scripts/render.sh real || echo "generator-chart" >> "$buildfail"
+  } | kubeconform \
     -ignore-missing-schemas \
     -cache "$cache" \
     -schema-location default \

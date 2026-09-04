@@ -1,0 +1,52 @@
+# autopulse's non-secret config. The database URL, the admin password and the three
+# Jellyfin tokens are NOT here: they come from secret/autopulse-secrets through
+# envFrom, using autopulse's own AUTOPULSE__SECTION__KEY override. Its keys are named
+# exactly as the env vars, so adding one is adding a key there.
+#
+# Generated into a ConfigMap, so editing this rolls the pod.
+auth:
+  username: admin
+
+triggers:
+  my_radarr:
+    type: "radarr"
+    rewrite:
+      - from: '/movies'
+        to: '/media/movies'
+      - from: '/movies2'
+        to: '/media/movies2'
+    excludes:
+      - "my_jellyfin_music"
+
+  my_sonarr:
+    type: "sonarr"
+    rewrite:
+      - from: '/series'
+        to: '/media/series'
+      - from: '/series2'
+        to: '/media/series2'
+    excludes:
+      - "my_jellyfin_music"
+
+  my_lidarr:
+    type: "lidarr"
+    excludes:
+      - "my_jellyfin"
+
+  # Optional: keep a manual endpoint for testing
+  #my_manual:
+  #  type: "manual"
+  #  rewrite:
+  #    from: "/downloads"
+  #    to: "/media"
+
+targets:
+  my_jellyfin:
+    type: "jellyfin"
+    url: "http://jellyfin.jellyfin.svc.cluster.local:8096"
+  my_jellyfin_pg:
+    type: "jellyfin"
+    url: "http://jellyfin-pg:8096"
+  my_jellyfin_music:
+    type: "jellyfin"
+    url: "http://jellyfin-music:8096"

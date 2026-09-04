@@ -91,5 +91,5 @@ spec:
       lhns: |
         ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDdN+C2UWdSDNvF/C9NHbLzYC6g7E2O9gIBlErZXZvSF remote-docker-vm
         ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFZAsn0dZeSVvmtG1KvYbSOu+0eAFTERPtzCo92W+UYX remote-docker-localhost
-        ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBEpuqBI3nLfAGwzI7jV99KFOjYqNkxFMBeRQ1GFF4O0 remote-docker-PIERRE-LAPTOP-pierr
+        ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBEpuqBI3nLfAGwzI7jV99KFOjYqNkxFMBeRQ1GFF4O0 remote-docker-admin-laptop
       example-repo: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJKYQ+Qmvmgi1JO1HH3bQQWkBrsdbhNxLHp+Gfw8k2oR example-repo runner"

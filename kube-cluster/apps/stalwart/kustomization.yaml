@@ -17,4 +17,15 @@ resources:
 - db-role-secret.yaml
 - secret-stalwart.yaml
 - secret-bulwark.yaml
-- secret-umleiter.yaml
+# The mirror config as a real file. The generator patches this ConfigMap into a Secret
+# (templates/_secret-from-files.tpl), which keeps the ${UMLEITER_*_PASSWORD} placeholders
+# visible to Flux's substitution. In a subdirectory so it is not mistaken for a manifest.
+configMapGenerator:
+- name: umleiter
+  namespace: stalwart
+  files:
+  - umleiter.yaml=umleiter/umleiter.yaml
+  options:
+    disableNameSuffixHash: true
+    annotations:
+      generators.example.com/as-secret: "true"

@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: with-secrets
+  namespace: with-secrets
+data:
+  value: ${FIXTURE_VALUE}

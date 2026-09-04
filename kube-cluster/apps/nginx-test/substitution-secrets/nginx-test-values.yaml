@@ -1,11 +1,12 @@
 # EXAMPLE — placeholder values. In the source repo this file is SOPS-encrypted
 # (age, `encrypted_regex: ^(data|stringData)$`). Replace each CHANGEME-* and
 # encrypt with `sops -e -i` before applying.
+# Test fixture for the substitution pattern. Not a real credential.
 apiVersion: v1
 kind: Secret
 metadata:
-    name: mosquitto-config
-    namespace: mosquitto
+    name: nginx-test-values
+    namespace: flux-system
 type: Opaque
 stringData:
-    mosquitto.conf: CHANGEME-mosquitto.conf
+    NGINX_TEST_VALUE: CHANGEME-NGINX_TEST_VALUE

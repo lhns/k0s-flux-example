@@ -1,0 +1,18 @@
+id: telegram
+as_token: ${MATRIX_TELEGRAM_AS_TOKEN}
+hs_token: ${MATRIX_TELEGRAM_HS_TOKEN}
+namespaces:
+    users:
+    - exclusive: true
+      regex: '@telegram_.*:example\.com'
+    - exclusive: true
+      regex: '@telegrambot:example\.com'
+    - exclusive: false
+      regex: ^@.*:example\.com$
+    aliases:
+    - exclusive: true
+      regex: \#telegram_.*:example\.com
+url: http://telegram-bridge:29317
+sender_localpart: KvpzPvFQsYNdy7TdhYZ4U7ZLO4FyHZbDGyj81vJiGyiFOQVewhk0PynzhdXIcP7z
+rate_limited: false
+io.element.msc4190: true

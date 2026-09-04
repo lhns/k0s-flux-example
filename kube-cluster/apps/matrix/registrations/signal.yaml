@@ -1,0 +1,17 @@
+id: signal
+url: http://signal-bridge:29328
+as_token: ${MATRIX_SIGNAL_AS_TOKEN}
+hs_token: ${MATRIX_SIGNAL_HS_TOKEN}
+sender_localpart: 4LMonKZ2ieQzZXFFNWWLTrFSuuWvuxMl
+rate_limited: false
+namespaces:
+    users:
+        - regex: ^@signalbot:example\.com$
+          exclusive: true
+        - regex: ^@signal_.*:example\.com$
+          exclusive: true
+        - regex: ^@.*:example\.com$
+          exclusive: false
+de.sorunome.msc2409.push_ephemeral: true
+receive_ephemeral: true
+io.element.msc4190: true

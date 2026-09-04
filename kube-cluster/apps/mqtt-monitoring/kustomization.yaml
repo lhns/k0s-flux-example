@@ -7,4 +7,16 @@ metadata:
     dependsOn: app-mosquitto
 resources:
 - resources.yaml
-- config-secret.yaml
+# The exporter config as a real .json file. The generator patches this ConfigMap into
+# a Secret (templates/_secret-from-files.tpl), which keeps ${MQTT_MONITORING_PASSWORD}
+# visible to Flux's substitution. The key stays CONFIG, which is the env var the
+# deployment reads.
+configMapGenerator:
+- name: mqtt-monitoring-config
+  namespace: mqtt-monitoring
+  files:
+  - CONFIG=config.json
+  options:
+    disableNameSuffixHash: true
+    annotations:
+      generators.example.com/as-secret: "true"

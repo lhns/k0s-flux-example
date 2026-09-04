@@ -1,0 +1,250 @@
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: app-annotated
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  path: ./tests/fixtures/apps/annotated
+  prune: true
+  wait: true
+  commonMetadata:
+    labels:
+      app.kubernetes.io/instance: "renamed-instance"
+  patches:
+    - target:
+        kind: HelmRelease
+      patch: |
+        apiVersion: helm.toolkit.fluxcd.io/v2
+        kind: HelmRelease
+        metadata:
+          name: unused   # the target selector above chooses; this name is not matched against
+        spec:
+          upgrade:
+            crds: Skip
+    - target:
+        kind: ConfigMap
+        annotationSelector: generators.example.com/as-secret=true
+      patch: |
+        - op: replace
+          path: /kind
+          value: Secret
+        - op: move
+          from: /data
+          path: /stringData
+  dependsOn:
+    - name: infra-first
+    - name: infra-second
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: app-composed
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  path: ./tests/fixtures/apps/composed
+  prune: true
+  wait: true
+  commonMetadata:
+    labels:
+      app.kubernetes.io/instance: "composed"
+  images:
+    - name: composed-built
+      newName: registry.test:5000/composed/composed-built
+      newTag: s6ba9c1a21e2dd0d6
+    - name: composed-inline
+      newName: registry.test:5000/composed/composed-inline
+      newTag: s81e8239d0e14c569
+    - name: composed-layered
+      newName: registry.test:5000/composed/composed-layered
+      newTag: se8b213863f648f26
+  patches:
+    - target:
+        kind: HelmRelease
+      patch: |
+        apiVersion: helm.toolkit.fluxcd.io/v2
+        kind: HelmRelease
+        metadata:
+          name: unused   # the target selector above chooses; this name is not matched against
+        spec:
+          upgrade:
+            crds: CreateReplace
+    - target:
+        kind: ConfigMap
+        annotationSelector: generators.example.com/as-secret=true
+      patch: |
+        - op: replace
+          path: /kind
+          value: Secret
+        - op: move
+          from: /data
+          path: /stringData
+    - target:
+        kind: ImageBuild
+        name: composed-built
+      patch: |
+        apiVersion: oci.lhns.de/v1alpha1
+        kind: ImageBuild
+        metadata:
+          name: composed-built
+        spec:
+          push:
+            tags: [s6ba9c1a21e2dd0d6]
+    - target:
+        kind: ImageComposition
+        name: composed-inline
+      patch: |
+        apiVersion: oci.lhns.de/v1alpha1
+        kind: ImageComposition
+        metadata:
+          name: composed-inline
+        spec:
+          push:
+            tags: [s81e8239d0e14c569]
+    - target:
+        kind: ImageComposition
+        name: composed-layered
+      patch: |
+        apiVersion: oci.lhns.de/v1alpha1
+        kind: ImageComposition
+        metadata:
+          name: composed-layered
+        spec:
+          push:
+            tags: [se8b213863f648f26]
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: app-plain
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  path: ./tests/fixtures/apps/plain
+  prune: true
+  wait: true
+  commonMetadata:
+    labels:
+      app.kubernetes.io/instance: "plain"
+  patches:
+    - target:
+        kind: HelmRelease
+      patch: |
+        apiVersion: helm.toolkit.fluxcd.io/v2
+        kind: HelmRelease
+        metadata:
+          name: unused   # the target selector above chooses; this name is not matched against
+        spec:
+          upgrade:
+            crds: CreateReplace
+    - target:
+        kind: ConfigMap
+        annotationSelector: generators.example.com/as-secret=true
+      patch: |
+        - op: replace
+          path: /kind
+          value: Secret
+        - op: move
+          from: /data
+          path: /stringData
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: app-with-secrets-substitution-secrets
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  path: ./tests/fixtures/apps/with-secrets/substitution-secrets
+  prune: true
+  wait: true
+  commonMetadata:
+    labels:
+      app.kubernetes.io/instance: "with-secrets"
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: app-with-secrets
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  path: ./tests/fixtures/apps/with-secrets
+  prune: true
+  wait: true
+  commonMetadata:
+    labels:
+      app.kubernetes.io/instance: "with-secrets"
+  patches:
+    - target:
+        kind: HelmRelease
+      patch: |
+        apiVersion: helm.toolkit.fluxcd.io/v2
+        kind: HelmRelease
+        metadata:
+          name: unused   # the target selector above chooses; this name is not matched against
+        spec:
+          upgrade:
+            crds: CreateReplace
+    - target:
+        kind: ConfigMap
+        annotationSelector: generators.example.com/as-secret=true
+      patch: |
+        - op: replace
+          path: /kind
+          value: Secret
+        - op: move
+          from: /data
+          path: /stringData
+  dependsOn:
+    - name: app-with-secrets-substitution-secrets
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: fixture-extra
+        optional: false
+      - kind: Secret
+        name: fixture-values
+        optional: false
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age

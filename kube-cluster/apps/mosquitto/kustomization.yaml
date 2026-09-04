@@ -9,5 +9,16 @@ metadata:
 resources:
 - resources.yaml
 - routing.yaml
-- config-secret.yaml
 - vnet.yaml
+# mosquitto.conf as a real file. The generator patches this ConfigMap into a Secret
+# (see templates/_secret-from-files.tpl), which is what keeps ${MOSQUITTO_LDAP_BIND_PASSWORD}
+# visible to Flux's substitution: a secretGenerator would have base64'd it out of reach.
+configMapGenerator:
+- name: mosquitto-config
+  namespace: mosquitto
+  files:
+  - mosquitto.conf
+  options:
+    disableNameSuffixHash: true
+    annotations:
+      generators.example.com/as-secret: "true"

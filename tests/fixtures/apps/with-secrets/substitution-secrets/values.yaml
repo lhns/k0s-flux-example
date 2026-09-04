@@ -1,0 +1,17 @@
+# Two documents in one file: only the flux-system one may become a
+# substituteFrom source. The other is applied but not substituted from --
+# Flux resolves refs in the Kustomization's namespace and would never find it.
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: fixture-values
+  namespace: flux-system
+data: {}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: wrong-namespace
+  namespace: with-secrets
+data: {}

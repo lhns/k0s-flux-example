@@ -1,0 +1,23 @@
+mirrors:
+  - name: admin
+    state_path: /state/umleiter.db
+    source:
+      host: imap.gmail.com
+      user: admin@example.com
+      password: ${UMLEITER_SOURCE_PASSWORD}
+      folder: '\All'
+    dest:
+      host: mail.example.com
+      user: admin@example.com
+      password: ${UMLEITER_DEST_PASSWORD}
+      folder: INBOX
+    archive:
+      enabled: true
+    sent:
+      enabled: true
+      folder: "Sent Items"
+    labels:
+      enabled: true
+      propagate: true
+      keyword_prefix: "$label:"
+      keyword_replacement: "-"

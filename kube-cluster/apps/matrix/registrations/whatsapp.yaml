@@ -1,0 +1,15 @@
+id: whatsapp
+url: http://whatsapp-bridge:29318
+as_token: ${MATRIX_WHATSAPP_AS_TOKEN}
+hs_token: ${MATRIX_WHATSAPP_HS_TOKEN}
+sender_localpart: l78SFSdM8vXaimsq46bUUGNB5DQKxB8M
+rate_limited: false
+namespaces:
+    users:
+        - regex: ^@whatsappbot:example\.com$
+          exclusive: true
+        - regex: ^@whatsapp_.+:example\.com$
+          exclusive: true
+        - regex: ^@.*:example\.com$
+          exclusive: false
+io.element.msc4190: true
