@@ -1,0 +1,240 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/cheogram-sip-routing.json",
+  "title": "SIP routing table",
+  "description": "Registrations, the lines they belong to, and the outbound routes that select one. These are the chart's values, so Helm checks them before templates/configmap.yaml renders routing.lua. Draft-07 with `definitions`, not 2020-12 with `$defs`: Helm's validator resolves no other dialect, and a 2020-12 schema is accepted and then enforces nothing.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "registrations",
+    "lines",
+    "outbound"
+  ],
+  "definitions": {
+    "sipfield": {
+      "description": "One field of a register line. No whitespace: the rendered table is TAB separated and read by `while read` in /bin/sh, so a tab or a newline here would split one entry into two.",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\s]+$"
+    },
+    "linename": {
+      "description": "A line name. Lowercase, digits and hyphens, NO UNDERSCORE: it lands in a Matrix MXID localpart, where mautrix escapes a literal underscore to '=5f'. It must also differ from every SIP_TRUNKS host, or a '#<label>' destination would be ambiguous; tests/check-routing.py checks that against cheogram-sip.env.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "address": {
+      "description": "A literal address. Never a pattern.",
+      "type": "string",
+      "pattern": "^(xmpp:[^*@]+@[^*@]+|matrix:@[^*:]+:[^*:]+)$"
+    },
+    "glob": {
+      "description": "An address pattern. '*' replaces the localpart only: xmpp:*@domain, matrix:@*:server. Bare 'xmpp:*' or 'matrix:*' is any user on that transport; '*' is anyone.",
+      "type": "string",
+      "pattern": "^(\\*|xmpp:\\*|matrix:\\*|xmpp:(\\*|[^@]+)@[^@]+|matrix:@(\\*|[^:]+):[^:]+)$"
+    },
+    "stage": {
+      "type": "object",
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": [
+            "ring"
+          ]
+        },
+        {
+          "required": [
+            "record"
+          ]
+        }
+      ],
+      "properties": {
+        "ring": {
+          "description": "Literal addresses rung simultaneously. A '*' here is rejected: you cannot ring a pattern.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/address"
+          }
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 300,
+          "default": 30
+        },
+        "record": {
+          "description": "Terminal stage: record a message instead of ringing.",
+          "const": true
+        }
+      }
+    }
+  },
+  "properties": {
+    "registrations": {
+      "description": "One outbound REGISTER per entry. The KEY IS THE WIRING: it is also the name of the Secret key holding that entry's password, mounted as a file under /sip-secrets. No password and no key name belongs in these values - they render into a plaintext ConfigMap, which scripts/check-substitution.py exists to keep credential-free. The pattern below is what makes the convention safe to state rather than transform: it is already a legal Kubernetes Secret key, so nothing is normalised at render time and a name that could not be one is rejected here at reconcile.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[a-z0-9-]+$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "user",
+          "host",
+          "contact_user",
+          "did",
+          "line"
+        ],
+        "properties": {
+          "user": {
+            "description": "The carrier account, usually the DID in national form.",
+            "$ref": "#/definitions/sipfield"
+          },
+          "host": {
+            "description": "The registrar/proxy to REGISTER at. MUST equal a peer name in sip.conf: a name matching no peer falls through to a dial with no credentials, which a carrier may answer with a recorded refusal - a connected call, not an error. Cross-file, so tests/check-routing.py checks it against the RENDERED table. It is NOT necessarily the peer an outbound call leaves by: fromuser is pinned per peer, so an entry with no peer_secret_file gets a peer of its own named after the entry, and routing.lua carries that name as `peer`.",
+            "$ref": "#/definitions/sipfield"
+          },
+          "contact_user": {
+            "description": "PJSIP's registration/contact_user: what the carrier dials back, and therefore the extension an inbound call arrives on. It is the only per-DID inbound discriminator chan_sip offers, and it works only while the carrier echoes our registered Contact in the inbound Request-URI - observed behaviour, not a standard. Two entries sharing one on the same host make the dialled number invisible; tests/check-routing.py rejects that.",
+            "$ref": "#/definitions/sipfield"
+          },
+          "did": {
+            "description": "The dialled number: E.164 where it is globally routable, the provider's own form where it is not. Handed to the Matrix bridge as the recipient of an inbound SMS.",
+            "type": "string",
+            "pattern": "^\\+?[0-9]+$"
+          },
+          "line": {
+            "description": "The line this registration belongs to. The ONLY statement of line membership - a line has no member list that could fall out of step with this.",
+            "$ref": "#/definitions/linename"
+          },
+          "entrypoint": {
+            "description": "This registration is the one the image's ENTRYPOINT builds from SIP_USER/SIP_HOST/SIP_JID. No register line is rendered for it and it needs no Secret key of its own; it is declared here only so that number has a line. A second REGISTER for the same account would fight the entrypoint's. At most one per host, because it is also the fallback when an inbound call's contact matches nothing.",
+            "const": true
+          },
+          "peer_secret_file": {
+            "description": "Optional. A host that ALSO has a hand-written peer section in sip.conf needs the same password there as a `secret=` line; this names the #include that gets it, and sip.conf must #include it under exactly this name. It doubles as the statement that this entry HAS such a peer, so no per-entry one is rendered for it.",
+            "type": "string",
+            "pattern": "^[a-z0-9-]+\\.conf$"
+          }
+        }
+      }
+    },
+    "lines": {
+      "description": "A line is an identity namespace: a caller reaching one is '<line>-<digits>' to Matrix and '+49...#<line>' to XMPP, and that XMPP form is also how a client dials back. A line name is therefore part of every portal key and every saved contact, and renaming one re-keys them. There is no default line - every line prefixes, so '#<host>' is not a line name and fails closed.",
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9-]*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "callers",
+          "primary",
+          "inbound_route"
+        ],
+        "properties": {
+          "callers": {
+            "description": "WHO MAY PRESENT THIS IDENTITY: the outbound gate, and the only one. Checked on the line a destination resolved to, so it covers a labelled destination ('+49...#home') as well as one routed by the table. It REFUSES -- unlike from_glob it never falls through to another rule. An emergency route pins a registration rather than a line and so is not gated here, which is what keeps 110/112 reachable from an account that may dial nothing else.",
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/definitions/glob"
+            }
+          },
+          "primary": {
+            "description": "The registration this line speaks as outbound - Ofcom's Presentation Number, as against the Network Number the carrier transmits regardless. Must be a registration whose `line` is this one: a carrier may reject or silently rewrite a From the account does not own. Every other member rings in and is never presented. A line can only really present it once that registration has a peer of its own pinning fromuser to it, which is why tests/check-routing.py demands that of any line an outbound rule selects.",
+            "type": "string",
+            "pattern": "^[a-z0-9-]+$"
+          },
+          "inbound_route": {
+            "description": "The line's call plan: ring stages tried in order until one answers. A 'record' stage must be last and, with no voicemail in the image, ends the call. Ring time is the SUM of the stages -- Asterisk times a whole Dial, never one target.",
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/definitions/stage"
+            }
+          }
+        }
+      }
+    },
+    "outbound": {
+      "description": "Ordered route table. FIRST MATCH WINS; the matched rule selects a line, whose primary registration yields both the peer the call leaves by and the number it presents.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "to_pattern"
+        ],
+        "oneOf": [
+          {
+            "required": [
+              "line"
+            ],
+            "allOf": [
+              {
+                "not": {
+                  "required": [
+                    "registration"
+                  ]
+                }
+              },
+              {
+                "not": {
+                  "required": [
+                    "emergency"
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "required": [
+              "registration",
+              "emergency"
+            ],
+            "not": {
+              "required": [
+                "line"
+              ]
+            }
+          }
+        ],
+        "properties": {
+          "to_pattern": {
+            "description": "A LUA PATTERN matched against the destination, auto-anchored by the renderer as ^(...)$ so '11[02]' cannot also match '0112345'. Asterisk's Lua 5.1 has no regex engine, so the regex-only characters { } | and backslash are rejected here: a regex written by mistake would not error, it would match nothing and the call would silently fall through to the next rule. Repetition counts are spelled out, '%d%d?%d?' for one to three digits. It matches only and cannot rewrite the dialled string; a carrier that ever needs a dial-out prefix gets a field on the registration rather than a pattern that edits.",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^{}|\\\\\\r\\n]+$"
+          },
+          "from_glob": {
+            "description": "Optional. NARROWS a rule to certain callers, which is how a per-person default line is expressed: put their rule above the general one. Any entry matching is a match. It FALLS THROUGH -- a caller it excludes is not refused, the next rule decides. Permission is `lines.<name>.callers`, never this.",
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/definitions/glob"
+            }
+          },
+          "line": {
+            "description": "Must be a key of `lines`.",
+            "$ref": "#/definitions/linename"
+          },
+          "registration": {
+            "description": "Pins one registration, bypassing the line's presented number. Only an emergency rule may do this, and the two are required together.",
+            "type": "string",
+            "pattern": "^[a-z0-9-]+$"
+          },
+          "emergency": {
+            "description": "Emergency route. Skips the outbound permission check, and pins the registration whose registered address the dispatcher is handed - the presented number is what fixes that address, and Sec. 120(2) TKG permits presenting only a number a Nutzungsrecht exists for.",
+            "const": true
+          }
+        }
+      }
+    }
+  }
+}

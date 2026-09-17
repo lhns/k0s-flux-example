@@ -58,9 +58,11 @@ spec:
       memory: "1Gi"
     limits:
       memory: "2Gi"
-  # Backups (see objectstore.yaml + scheduledbackup.yaml): base backups are cheap Ceph
-  # volume snapshots; WAL is continuously archived to S3 (Ceph RGW) by the Barman Cloud
-  # Plugin, giving point-in-time recovery.
+  # Backups (see objectstore.yaml + scheduledbackup.yaml): the Barman Cloud Plugin archives
+  # WAL continuously AND takes the daily base backup, both to S3 (Ceph RGW).
+  #
+  # Nothing schedules a volume-snapshot backup any more, so this block is inert; it stays so
+  # that an ad-hoc `method: volumeSnapshot` Backup still has a class to use.
   backup:
     volumeSnapshot:
       className: ceph-rbd-snapshotclass

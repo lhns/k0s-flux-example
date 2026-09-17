@@ -66,7 +66,7 @@ spec:
               app.kubernetes.io/name: opentelemetry-gateway
       containers:
         - name: otelcol
-          image: otel/opentelemetry-collector-contrib:0.160.0
+          image: otel/opentelemetry-collector-contrib:0.161.0
           # Every signal in the cluster enters here. Unbounded it grows with a burst and
           # takes the node down; bounded it is OOMKilled alone. There is no memory_limiter
           # processor, so this is the only backstop.
@@ -140,7 +140,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: otelcol
-          image: otel/opentelemetry-collector-contrib:0.160.0
+          image: otel/opentelemetry-collector-contrib:0.161.0
           resources:
             requests:
               memory: 64Mi

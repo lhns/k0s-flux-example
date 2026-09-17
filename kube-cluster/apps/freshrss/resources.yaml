@@ -77,7 +77,7 @@ spec:
       # is impossible here — the entrypoint rewrites php.ini, apache conf and /etc/crontab.
       containers:
         - name: freshrss
-          image: freshrss/freshrss:1.29.1
+          image: freshrss/freshrss:1.30.0
           env:
             - name: TZ
               value: Europe/Berlin

@@ -168,7 +168,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: otelcol
-          image: otel/opentelemetry-collector-contrib:0.160.0
+          image: otel/opentelemetry-collector-contrib:0.161.0
           resources:
             requests:
               memory: 128Mi

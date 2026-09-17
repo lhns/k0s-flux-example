@@ -1,0 +1,13 @@
+# Under pod-level kube-vnet isolation, intra-namespace ingress is denied by default and
+# cross-namespace needs the client's namespace named here. See apps/matrix/vnet.yaml for
+# the naming rule: bare net.<name> is same-namespace, net.<namespace>.<name> is not.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: asterisk-sip
+  namespace: cheogram-sip
+spec:
+  # kube-vnet does not scope by port, so one edge covers signalling and media.
+  description: "matrix/livekit-sip + matrix/matrix-sip-bridge -> Asterisk SIP :5060 (UDP and TCP) and RTP."
+  allowedNamespaces:
+    names: [matrix]

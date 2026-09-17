@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Validate the repo: YAML style (yamllint) + Kubernetes schema of every built
-# component (kustomize build | kubeconform). Runs in CI (.github/workflows/lint.yml)
-# and locally — needs yamllint, kustomize and kubeconform on PATH.
+# Validate the repo. Two halves: the repo-wide checks below, which cover every component
+# unconditionally, and the opt-in per-component tests that scripts/run-tests.sh discovers
+# (convention: kube-cluster/README.md). Runs in CI (.github/workflows/lint.yml) and
+# locally — needs yamllint, kustomize and kubeconform on PATH.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -21,11 +22,25 @@ if ! diff -u tests/golden/fixtures.yaml <(bash scripts/render.sh fixtures); then
 fi
 echo "golden OK"
 
-echo
-echo "== substitution: no credential in a ConfigMap, no unreachable name =="
 # python3 on CI, python in git-bash on Windows.
 py=python3; command -v python3 >/dev/null 2>&1 || py=python
+
+echo
+echo "== generator release size =="
+# Helm embeds the whole chart in the release Secret and the apiserver caps it at 1 MiB.
+# It fails SILENTLY at the cap: the release stops applying and every generated
+# Kustomization freezes. See docs/generator-chart-size.md.
+"$py" scripts/check-release-size.py
+
+echo
+echo "== substitution: no credential in a ConfigMap, no unreachable name =="
 "$py" scripts/check-substitution.py
+
+echo
+echo "== sops: every encrypted file is whole and encrypted to the cluster's key =="
+# Structure only -- CI has no age key, so a broken MAC is NOT caught here.
+# scripts/check-sops-mac.sh, on a host that holds the key, is what catches that.
+"$py" scripts/check-sops.py
 
 echo
 echo "== kustomize build + kubeconform =="
@@ -66,6 +81,7 @@ run() {
   {
   for k in kube-cluster/infra/*/kustomization.yaml \
            kube-cluster/apps/*/kustomization.yaml \
+           kube-cluster/rbac/*/kustomization.yaml \
            kube-cluster/flux-system/kustomization.yaml; do
     [ -f "$k" ] || continue
     echo "  $(dirname "$k")" >&2
@@ -81,11 +97,15 @@ run() {
     echo "---"
     cat "$f"
   done
-  # The Kustomizations the generator emits for the real tree. Nothing else schema-checks
-  # them -- they are created by helm-controller, which validates nothing up front.
-  echo "  generator output" >&2
-  echo "---"
-  bash scripts/render.sh real || echo "generator-chart" >> "$buildfail"
+  # Everything the generator emits for the real tree, in BOTH shapes: the per-component
+  # GitRepository+HelmRelease the root release emits (real-generate), and the Kustomizations
+  # each of those releases then emits (real). Nothing else schema-checks either -- they are
+  # created by helm-controller, which validates nothing up front.
+  for mode in real real-generate; do
+    echo "  generator output ($mode)" >&2
+    echo "---"
+    bash scripts/render.sh "$mode" || echo "generator-chart ($mode)" >> "$buildfail"
+  done
   } | kubeconform \
     -ignore-missing-schemas \
     -cache "$cache" \
@@ -123,3 +143,9 @@ fi
 [ "${errors:-0}" -gt 0 ] && \
   echo "note: ${errors} resource(s) unchecked (schema download throttled); cache fills next run." >&2
 echo "kubeconform OK"
+
+echo
+echo "== per-component tests =="
+# Last, so its summary -- the only place a skip is guaranteed to be seen -- is the final
+# thing on screen. A failure or an un-opted-out missing tool there fails this script.
+bash scripts/run-tests.sh

@@ -176,7 +176,7 @@ spec:
               mountPath: /config
       containers:
         - name: homeassistant
-          image: ghcr.io/home-assistant/home-assistant:2026.9.0
+          image: ghcr.io/home-assistant/home-assistant:2026.9.2
           env:
             - name: TZ
               value: Europe/Berlin

@@ -53,7 +53,7 @@ spec:
   chart:
     spec:
       chart: opentelemetry-kube-stack
-      version: "0.20.6"
+      version: "0.21.0"
       interval: 1h0m0s
       sourceRef:
         kind: HelmRepository
@@ -100,7 +100,7 @@ spec:
         image:
           repository: otel/opentelemetry-collector-contrib
           # renovate: datasource=docker depName=otel/opentelemetry-collector-contrib
-          tag: "0.160.0"
+          tag: "0.161.0"
         # Unset the chart-default node/kubelet scrape file so it doesn't clash with
         # our config (we don't use the packaged prometheus scrape presets here).
         scrape_configs_file: ""
@@ -203,9 +203,8 @@ spec:
           receivers:
             # Annotation-based Prometheus scraping (classic kubernetes-pods job):
             # keep only pods with prometheus.io/scrape=true, honour
-            # prometheus.io/path + prometheus.io/port. Today only the flux
-            # controllers carry these; kube-vnet requires each target namespace to
-            # admit this collector (see vnet.yaml -> otel-scrape).
+            # prometheus.io/path + prometheus.io/port. kube-vnet requires each
+            # target namespace to admit this collector (see vnet.yaml -> otel-scrape).
             prometheus:
               config:
                 scrape_configs:
@@ -219,7 +218,7 @@ spec:
                         # scrape-fail noise. To scrape another namespace: add it here
                         # AND add an ingress binding for its pods in vnet.yaml.
                         namespaces:
-                          names: [flux-system]
+                          names: [flux-system, matrix]
                     relabel_configs:
                       - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
                         action: keep

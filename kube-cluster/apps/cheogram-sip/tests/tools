@@ -1,0 +1,8 @@
+# One required executable per line, optionally the apt package providing it.
+# Missing here is a FAILURE, not a skip: see kube-cluster/README.md.
+lua5.1
+luac5.1 lua5.1
+# `-`: not from apt. Ubuntu ships no helm package at all, and the Lint workflow installs a
+# PINNED helm anyway, because the generator golden is rendered helm output.
+helm -
+python3

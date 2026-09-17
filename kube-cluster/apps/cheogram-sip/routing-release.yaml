@@ -1,0 +1,25 @@
+---
+# The routing table is a Helm chart (routing/) so that Helm checks it against
+# values.schema.json before rendering: the table IS the chart's values, which is the only
+# arrangement that gets that check for free. A .Files.Get of the same YAML would render
+# unvalidated.
+#
+# chart: a path in this repo against the flux-system GitRepository, the same arrangement as
+# flux-system/generators.yaml. reconcileStrategy: Revision for the same reason as well --
+# editing routing/values.yaml bumps no chart version, so a Version strategy would never
+# re-render it.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cheogram-sip-routing
+  namespace: cheogram-sip
+spec:
+  interval: 10m0s
+  chart:
+    spec:
+      chart: kube-cluster/apps/cheogram-sip/routing
+      reconcileStrategy: Revision
+      sourceRef:
+        kind: GitRepository
+        name: flux-system
+        namespace: flux-system

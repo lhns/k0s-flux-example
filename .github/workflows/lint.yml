@@ -26,16 +26,29 @@ jobs:
         run: |
           set -euo pipefail
           pipx install yamllint
-          # scripts/check-secret-leak.py parses kustomize output; pipx keeps yamllint's
-          # PyYAML in its own venv, so the system interpreter needs its own copy.
+          # python3-yaml: scripts/check-secret-leak.py parses kustomize output; pipx keeps
+          # yamllint's PyYAML in its own venv, so the system interpreter needs its own copy.
           sudo apt-get install -y -qq python3-yaml
           curl -fsSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.8.1/kustomize_v5.8.1_linux_amd64.tar.gz" | sudo tar -xz -C /usr/local/bin kustomize
           curl -fsSL "https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz" | sudo tar -xz -C /usr/local/bin kubeconform
           # Pinned: the golden file is rendered helm output, so a version whose sprig
           # formats differently reads as a behaviour change.
           curl -fsSL "https://get.helm.sh/helm-v3.16.4-linux-amd64.tar.gz" | sudo tar -xz -C /usr/local/bin --strip-components=1 linux-amd64/helm
+      - name: Install per-component test tools
+        # Read from the components' tests/tools manifests rather than a list kept here, so
+        # adding a component test cannot leave CI silently missing its tool. Format is
+        # `executable [apt-package]`; the package defaults to the executable name, and `-`
+        # means the step above already installed it -- apt has no package for it.
+        run: |
+          set -euo pipefail
+          pkgs=$( (cat kube-cluster/{apps,infra,rbac}/*/tests/tools 2>/dev/null || true) | sed 's/#.*//' | awk 'NF && $2 != "-" { print ($2 == "" ? $1 : $2) }' | sort -u)
+          echo "packages: $pkgs"
+          if [ -n "$pkgs" ]; then sudo apt-get install -y -qq $pkgs; fi
       - name: Validate
         id: validate
+        # ALLOW_SKIP=0: a missing tool must fail CI, never print a skip and go green.
+        env:
+          ALLOW_SKIP: "0"
         run: bash scripts/validate.sh
       - name: Save schema cache
         if: always()

@@ -49,6 +49,11 @@ substitution-secrets/ subdirectory, for injecting secret values into plaintext c
   The config then holds no secret at all and needs none of this; apps/arr/autopulse
   reads its own AUTOPULSE__* env vars.
 */ -}}
+{{- /* The root release sets .Values.generate and emits per-component generators instead
+    (generate.yaml); the generated releases do not, so they land here. Both rendering would
+    mean two releases owning the same objects, and uninstalling either prunes the
+    component. */}}
+{{- if not .Values.generate }}
 {{- range $group := .Values.groups }}
 {{- range $kustPath, $_ := $.Files.Glob (printf "%s/*/kustomization.yaml" $group.base) }}
 {{- $dir := dir $kustPath }}
@@ -166,5 +171,6 @@ spec:
     provider: sops
     secretRef:
       name: sops-age
+{{- end }}
 {{- end }}
 {{- end }}

@@ -11,7 +11,14 @@ metadata:
     # generator; inert to kustomize.
     # app-coturn: synapse's TURN credentials are derived from the shared secret
     # that apps/coturn owns and Reflector mirrors into this namespace.
-    dependsOn: infra-postgres,infra-reflector,infra-metallb,infra-traefik,infra-ceph-csi-cephfs,infra-ceph-csi-rbd,app-coturn
+    #
+    # app-cheogram-sip is deliberately NOT listed, though matrix-sip-bridge is a SIP peer
+    # of it: gating the whole homeserver on Asterisk is the wrong trade. Without it the
+    # bridge simply has nothing to talk to until Asterisk comes up.
+    #
+    # infra-reloader: the as-secret generators carry disableNameSuffixHash, so a config
+    # change does not roll its pod by itself -- reloader is what notices.
+    dependsOn: infra-postgres,infra-reflector,infra-metallb,infra-traefik,infra-ceph-csi-cephfs,infra-ceph-csi-rbd,infra-reloader,app-coturn
 # NOTE: no `namespace:` transformer — database.yaml + db-role-secret.yaml pin
 # `namespace: postgres`; everything else is in `matrix`.
 resources:
@@ -20,9 +27,6 @@ resources:
 - database.yaml
 - db-role-secret.yaml
 - vnet.yaml
-- secret-synapse.yaml
-- secret-livekit.yaml
-- secret-media-s3.yaml
 configMapGenerator:
 - name: element-web-config
   namespace: matrix
@@ -59,6 +63,56 @@ configMapGenerator:
   namespace: matrix
   files:
   - config=synapse-aws-config.ini
+# Two --config-path overlays synapse deep-merges onto the homeserver.yaml that stays on
+# the CephFS PV. Each carries one credential among plain settings, which is what the
+# as-secret annotation is for; see the files for what they override and why.
+- name: synapse-db-override
+  namespace: matrix
+  files:
+  - database.yaml=synapse-database.yaml
+  options:
+    disableNameSuffixHash: true
+    annotations:
+      generators.example.com/as-secret: "true"
+- name: synapse-media-s3
+  namespace: matrix
+  files:
+  - media-s3.yaml
+  options:
+    disableNameSuffixHash: true
+    annotations:
+      generators.example.com/as-secret: "true"
+# The livekit Secret: the SFU's config file plus the same credentials as env, for lk-jwt
+# and livekit-sip. One generator so all three come from one pair of variables.
+- name: livekit
+  namespace: matrix
+  files:
+  - livekit.yaml=livekit-config.yaml
+  literals:
+  - LIVEKIT_KEY=${LIVEKIT_KEY}
+  - LIVEKIT_SECRET=${LIVEKIT_SECRET}
+  options:
+    disableNameSuffixHash: true
+    annotations:
+      generators.example.com/as-secret: "true"
+# matrix-sip-bridge's config. A mautrix config is one file with no include mechanism, so
+# the credentials sit among the settings; the as-secret annotation is what lets it be a
+# real file with ${...} in it rather than an encrypted blob nothing can read or diff.
+# Named for the Secret resources.yaml mounts.
+- name: matrix-sip-bridge
+  namespace: matrix
+  files:
+  - config.yaml=sip-bridge-config.yaml
+  options:
+    disableNameSuffixHash: true
+    annotations:
+      generators.example.com/as-secret: "true"
+# livekit-sip's config. Not a Secret: the credentials it needs are supplied as env from
+# the existing livekit Secret, which override the file's api_key/api_secret/ws_url.
+- name: livekit-sip-config
+  namespace: matrix
+  files:
+  - livekit-sip.yaml=livekit-sip-config.yaml
 # nginx serving the server-side well-known delegation (m.server -> matrix.example.com:443)
 # for federation. Traefik replacePath's /.well-known/matrix/server to / so this
 # single index.json answers. Client well-known comes from Synapse itself.
@@ -82,6 +136,7 @@ configMapGenerator:
   - discord.yaml=registrations/discord.yaml
   - signal.yaml=registrations/signal.yaml
   - instagram.yaml=registrations/instagram.yaml
+  - sip.yaml=registrations/sip.yaml
   options:
     disableNameSuffixHash: true
     annotations:

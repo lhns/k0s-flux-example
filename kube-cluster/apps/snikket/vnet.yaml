@@ -1,0 +1,16 @@
+---
+# prosody's external-component port (5347) for apps/cheogram-sip. Under pod-level
+# kube-vnet isolation ingress is denied by default, so the gateway needs BOTH this
+# vnet listing its namespace and the matching labels: `net.snikket-component: ingress`
+# on the snikket pod, `net.snikket.snikket-component: egress` on the gateway pod
+# (namespace first in the cross-namespace form). Either half alone does nothing.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: snikket-component
+  namespace: snikket
+spec:
+  description: "cheogram-sip -> prosody external components (:5347), cross-namespace."
+  allowedNamespaces:
+    names:
+      - cheogram-sip

@@ -1,0 +1,96 @@
+{{/*
+Lua string literal. Backslash FIRST, or the backslashes this pass introduces are quoted
+again by the next one. CR/LF are escaped too: Lua 5.1 accepts no raw newline inside a
+quoted string, so one in a value would be a syntax error in the dialplan's routing file
+rather than a bad route.
+*/}}
+{{- define "cheogram-sip-routing.q" -}}
+"{{ . | toString | replace "\\" "\\\\" | replace "\"" "\\\"" | replace "\r" "\\r" | replace "\n" "\\n" }}"
+{{- end -}}
+
+{{- define "cheogram-sip-routing.lua" -}}
+-- GENERATED from the cheogram-sip-routing chart's values. Do not edit; edit values.yaml.
+-- to_pattern is anchored here, once, so the dialplan cannot forget to.
+return {
+  registrations = {
+{{- range $name, $r := .Values.registrations }}
+  {{- /* The chan_sip peer an outbound call on this entry LEAVES BY, which is not always its
+  host: three registrations share one host and only one peer per host can pin fromuser. An
+  entry that has no peer of its own in sip.conf gets one rendered by the render-config
+  initContainer, named after the entry; the `entrypoint` row and any row naming a
+  peer_secret_file already have one, named after the host. The two renderers must agree, which
+  is what tests/check-routing.py holds them to. */}}
+  {{- $peer := $name }}{{ if or $r.entrypoint $r.peer_secret_file }}{{ $peer = $r.host }}{{ end }}
+    [{{ include "cheogram-sip-routing.q" $name }}] = { user = {{ include "cheogram-sip-routing.q" $r.user }}, host = {{ include "cheogram-sip-routing.q" $r.host }}, peer = {{ include "cheogram-sip-routing.q" $peer }}, contact_user = {{ include "cheogram-sip-routing.q" $r.contact_user }}, did = {{ include "cheogram-sip-routing.q" $r.did }}, line = {{ include "cheogram-sip-routing.q" $r.line }}{{ if $r.entrypoint }}, entrypoint = true{{ end }} },
+{{- end }}
+  },
+  lines = {
+{{- range $name, $l := .Values.lines }}
+    [{{ include "cheogram-sip-routing.q" $name }}] = {
+      callers = { {{ range $i, $c := $l.callers }}{{ if $i }}, {{ end }}{{ include "cheogram-sip-routing.q" $c }}{{ end }} },
+      primary = {{ include "cheogram-sip-routing.q" $l.primary }},
+      inbound_route = {
+  {{- range $s := $l.inbound_route }}
+    {{- if $s.record }}
+        { record = true },
+    {{- else }}
+        { timeout = {{ $s.timeout | default 30 }}, ring = { {{ range $i, $a := $s.ring }}{{ if $i }}, {{ end }}{{ include "cheogram-sip-routing.q" $a }}{{ end }} } },
+    {{- end }}
+  {{- end }}
+      },
+    },
+{{- end }}
+  },
+  outbound = {
+{{- range $r := .Values.outbound }}
+    { to_pattern = {{ include "cheogram-sip-routing.q" (printf "^(%s)$" $r.to_pattern) }}{{ if $r.line }}, line = {{ include "cheogram-sip-routing.q" $r.line }}{{ end }}{{ if $r.registration }}, registration = {{ include "cheogram-sip-routing.q" $r.registration }}{{ end }}{{ if $r.from_glob }}, from_glob = { {{ range $i, $g := $r.from_glob }}{{ if $i }}, {{ end }}{{ include "cheogram-sip-routing.q" $g }}{{ end }} }{{ end }}{{ if $r.emergency }}, emergency = true{{ end }} },
+{{- end }}
+  },
+}
+{{- end -}}
+
+{{/*
+The registration table, for /bin/sh rather than for Lua: one TAB-separated line per entry,
+name, user, host, contact_user, peer_secret_file. The name doubles as the Secret key holding
+that entry's password, which is why no key is named here -- see values.yaml. printf rather
+than a literal tab so the separator is visible in this file.
+
+An `entrypoint` entry is SKIPPED: the image builds that register line itself, and a second
+REGISTER for the same account would fight it.
+*/}}
+{{- define "cheogram-sip-routing.registrations" -}}
+{{- $lines := list -}}
+{{- range $name, $r := .Values.registrations -}}
+{{- if not $r.entrypoint -}}
+{{- $lines = append $lines (printf "%s\t%s\t%s\t%s\t%s" $name $r.user $r.host $r.contact_user ($r.peer_secret_file | default "")) -}}
+{{- end -}}
+{{- end -}}
+{{ join "\n" $lines }}
+{{- end -}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # Referenced by name from the Deployment's `routing` volume, so it is fixed rather than
+  # release-derived: renaming it here silently leaves the pod mounting a ConfigMap that no
+  # longer exists, and the pod then never starts.
+  name: cheogram-sip-routing
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    # pbx_lua re-reads routing.lua per call, so a table edit needs no restart -- and a
+    # restart would drop live calls. Registrations live in their own ConfigMap, unignored,
+    # so the Deployment's `reloader.stakater.com/auto` still rolls the pod for those.
+    reloader.stakater.com/ignore: "true"
+data:
+  routing.lua: |
+    {{- include "cheogram-sip-routing.lua" . | nindent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # NOT cheogram-sip-registrations: that is the Secret holding these entries' passwords.
+  name: cheogram-sip-registration-table
+  namespace: {{ .Release.Namespace }}
+data:
+  registrations.tsv: |
+    {{- include "cheogram-sip-routing.registrations" . | nindent 4 }}

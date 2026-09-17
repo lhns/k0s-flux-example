@@ -9,7 +9,7 @@ spec:
   url: oci://ghcr.io/lhns/charts/remote-docker-workspace
   ref:
     # Bump to roll a new version.
-    tag: "0.6.0"
+    tag: "0.7.0"
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease

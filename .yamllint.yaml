@@ -1,6 +1,9 @@
 # Relaxed yamllint for Kubernetes manifests.
 extends: default
 ignore: |
+  # Not part of the repo (gitignored): agent worktrees here are whole repo copies,
+  # so a local `yamllint .` would lint transient state that CI never sees.
+  .claude/
   templates/
   kube-cluster/flux-system/gotk-components.yaml
 rules:

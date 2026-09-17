@@ -1,0 +1,14 @@
+id: sip
+url: http://matrix-sip-bridge:29337
+as_token: ${MATRIX_SIP_AS_TOKEN}
+hs_token: ${MATRIX_SIP_HS_TOKEN}
+sender_localpart: cALXZ6R82mgjRrK657CAumEIG2TDVfQn
+rate_limited: false
+namespaces:
+    users:
+        - regex: ^@sipbot:example\.com$
+          exclusive: true
+        - regex: ^@sip_.*:example\.com$
+          exclusive: true
+        - regex: ^@.*:example\.com$
+          exclusive: false

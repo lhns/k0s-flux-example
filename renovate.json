@@ -3,6 +3,10 @@
   "extends": ["config:recommended"],
   "ignorePaths": ["templates/**", "scripts/**"],
   "platformAutomerge": false,
+  "description": [
+    "rebaseWhen=conflicted, not the default auto: platformAutomerge is off, so Renovate merges only during its own run (every 3h), and under auto each merge leaves the others behind base and costs them another cycle."
+  ],
+  "rebaseWhen": "conflicted",
   "prConcurrentLimit": 20,
   "prHourlyLimit": 6,
   "flux": {
@@ -123,6 +127,17 @@
       "matchFileNames": ["kube-cluster/apps/jetkvm/images.yaml"],
       "matchDepNames": ["node"],
       "allowedVersions": "<23"
+    },
+    {
+      "description": "barman-cloud-plugin is a WHOLE-FILE vendored release, not an image tag. infra/barman-cloud-plugin/manifest.yaml is upstream's release manifest, and the version appears TWICE in it: the Deployment's image, and a base64 SIDECAR_IMAGE inside a generated Secret whose name carries a content hash. Only the first is visible to Renovate, so a plain tag bump moves the controller and leaves the injected sidecar on the old release -- that is how the tree ended up running controller v0.14.0 against a v0.13.0 sidecar. The postUpgradeTask re-downloads the entire upstream manifest so all three move together; fileFilters is what lets Renovate commit it. newValue, not newVersion: the release tag carries the v prefix that Renovate strips when it normalises a version, and the difference only shows up as a 404. automerge stays off deliberately: if the download ever fails, the branch falls back to exactly the one-line bump this rule exists to prevent, so the diff needs eyes. Verify a bump by checking the Secret name changed and that a rolled instance pod runs the matching plugin-barman-cloud-sidecar tag.",
+      "matchPackageNames": ["ghcr.io/cloudnative-pg/plugin-barman-cloud"],
+      "automerge": false,
+      "addLabels": ["barman-plugin"],
+      "postUpgradeTasks": {
+        "commands": ["curl -sfL -o kube-cluster/infra/barman-cloud-plugin/manifest.yaml https://github.com/cloudnative-pg/plugin-barman-cloud/releases/download/{{{newValue}}}/manifest.yaml"],
+        "fileFilters": ["kube-cluster/infra/barman-cloud-plugin/manifest.yaml"],
+        "executionMode": "branch"
+      }
     },
     {
       "description": "One PR for all VictoriaMetrics images. Mixed versions across the cluster are unsupported.",

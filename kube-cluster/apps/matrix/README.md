@@ -13,8 +13,8 @@ The Matrix homeserver (`example.com` / `matrix.example.com`) — migrated from D
 - **well-known** — nginx serving `m.server = matrix.example.com:443`.
 - **element-web**, **synapse-admin** — static SPAs (ConfigMap config).
 - **baibot** — AI bot; SQLite session/crypto store on ceph-rbd.
-- **Bridges** — whatsapp, telegram, signal, instagram, discord (all on CNPG). discord runs a forked
-  image carrying a backfill throttle + retry patch; the rest are upstream.
+- **Bridges** — whatsapp, telegram, signal, instagram, discord, matrix-sip-bridge (all on CNPG).
+  discord runs a forked image carrying a backfill throttle + retry patch; the rest are upstream.
 
 ### Synapse config is layered
 
@@ -631,10 +631,55 @@ Error collecting messages to forward backfill ... invalid character '<' looking 
 If that never shows up at the configured limit, upstream images are fine and this patch should
 stay unbuilt.
 
+## matrix-sip-bridge
+
+Bridges phone numbers to Matrix: text as SIP MESSAGE in a portal room per number, calls as media
+through `livekit-sip`. Our own Go appservice (`ghcr.io/lhns/matrix-sip-bridge`), so unlike the
+mautrix bridges it keeps **no PVC** — state is in the `sip-bridge` database.
+
+It is a **SIP endpoint**, not a controller of one PBX: Asterisk dials it as the `[matrixbridge]`
+peer, so call policy stays in `apps/cheogram-sip`'s dialplan and the bridge holds no routing
+table.
+
+### Shape
+
+- **Image**: pinned to a `sha-<commit>` tag, which is what CI publishes for every push to `main`.
+  There is no `v0.1.0` tag and `:0.1.0` does not resolve.
+- **Database**: `sip-bridge`, owned by the shared `matrix` role, so no extra `DatabaseRole`.
+- **Config**: a FILE, not env. `mxmain` reads environment variables only when
+  `env_config_prefix` is set, under `__`-separated paths, and a variable that matches the prefix
+  but no field is a startup error — so the whole config is `secret-sip-bridge.yaml`, mounted at
+  `/config/config.yaml` and passed as `-c /config/config.yaml -n`. `-n` is required: without it
+  the config upgrader writes the migrated file back and dies on the read-only mount.
+- **Portal rooms are NOT encrypted, deliberately.** Element Call SFrame-encrypts media in any
+  room carrying an `m.room.encryption` event while the bridge publishes plain audio into LiveKit,
+  so an encrypted portal gives a call that connects, looks healthy on every server-side check and
+  is silent. `encryption.allow/default/require` are all explicitly `false`.
+- **Relay mode is mandatory.** There is one SIP endpoint and no per-user account, so every Matrix
+  user reaches it through the single `sip` login. Without `bridge.relay.enabled` plus
+  `default_relays: [sip]` the bridge starts, logs a warning and silently drops everyone else's
+  messages.
+- **Appservice**: `registrations/sip.yaml`, `url: http://matrix-sip-bridge:29337`. The Service
+  name and that port are load-bearing together, and the Service name is also the peer's `host=`
+  on the Asterisk side.
+- **kube-vnet**: `matrix-bridges` (Synapse in), `matrix-synapse` (client-server API out),
+  `matrix-livekit` (twirp), `cheogram-sip/asterisk-sip` (SIP out) and the new
+  `matrix-sip-bridge-sip` (Asterisk in — `asterisk-sip` only covers the other direction).
+
+### Asterisk side
+
+The bridge listens on **tcp** 5060: a SIP MESSAGE that overflows a UDP datagram is dropped with
+no error at either end. `apps/cheogram-sip/sip.conf` therefore needs `tcpenable=yes`, and both
+ends need `accept_outofcall_message` with an `outofcall_message_context`.
+
+The peer is **static** — the bridge never REGISTERs — so `host=` names the Service. Its own
+requests arrive unauthenticated from a pod address that is not that host, which is why the peer
+name must equal `sip.username` in the bridge config and why `insecure=invite,port` is set.
+
 ## Databases — shared CNPG (`postgres` ns)
 
 One `matrix` role owns **synapse**, **mas**, **whatsapp**, **telegram**, **signal**,
-**instagram** and **discord** (`database.yaml`). The first three came from Swarm `pg_dump`s;
+**instagram**, **discord** and **sip-bridge** (`database.yaml`). The first three came from Swarm `pg_dump`s;
 telegram was hand-ported out of SQLite; signal, instagram and discord were created empty.
 
 The cluster was initdb'd `C`/`C`, which is Synapse's collation requirement, so a plain `Database`
@@ -644,14 +689,14 @@ into `matrix`).
 
 ## Verify
 
-- `synapse`/`mas`/`whatsapp`/`telegram`/`signal`/`instagram`/`discord` databases present;
+- `synapse`/`mas`/`whatsapp`/`telegram`/`signal`/`instagram`/`discord`/`sip-bridge` databases present;
   synapse `datcollate = C`.
 - `https://matrix.example.com/_matrix/client/versions` → 200; login via MAS works.
 - `https://federationtester.matrix.org/?server_name=example.com` green.
 - `element.example.com` loads and sends; Element Call connects over `10.20.2.19`.
-- Synapse logs **five** `Loaded application service` lines on startup.
-- `application_services_state` is currently **empty** — Synapse has no state row for any of the
-  five. Rows appear only once Synapse has recorded a transaction outcome, so absence is not
+- Synapse logs **six** `Loaded application service` lines on startup.
+- `application_services_state` is currently **empty** — Synapse has no state row for any of
+  them. Rows appear only once Synapse has recorded a transaction outcome, so absence is not
   itself a failure, but it means this check cannot confirm anything as written.
 - Double puppeting: `access_token = 'appservice-config'` in each bridge DB (see
   [Double puppeting](#double-puppeting)).

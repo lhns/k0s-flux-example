@@ -20,7 +20,7 @@ spec:
   chart:
     spec:
       chart: traefik
-      version: "41.4.0"
+      version: "41.5.0"
       interval: 1h0m0s
       sourceRef:
         kind: HelmRepository
@@ -125,6 +125,19 @@ spec:
       mqtt:
         port: 1883
         exposedPort: 1883
+        expose:
+          default: true
+        asDefault: false
+      # The same broker on the standard MQTT-over-TLS port (10.20.2.15:8883), with TLS
+      # terminated here off the wildcard cert and forwarded to the SAME plaintext
+      # mosquitto:1883. mosquitto has no TLS listener of its own.
+      #
+      # Terminating here rules out MQTT client certificates: the client cert cannot reach
+      # mosquitto's auth plugin, so device auth stays LDAP user/password. Requiring certs
+      # would mean a TLS listener in mosquitto and passthrough here instead.
+      mqtts:
+        port: 8883
+        exposedPort: 8883
         expose:
           default: true
         asDefault: false

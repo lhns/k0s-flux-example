@@ -111,7 +111,7 @@ spec:
           # `docker:28-dind`; 29.x is current. Docker 29 changed firewall
           # handling, so the post-deploy check verifies the listener binding and
           # that overlay2 (not vfs) was selected — see README.
-          image: docker:29.7.2-dind
+          image: docker:29.8.1-dind
           securityContext:
             # The one privileged container in the cluster outside kube-system and
             # the CSI plugins. dockerd needs it to manage cgroups, netfilter and

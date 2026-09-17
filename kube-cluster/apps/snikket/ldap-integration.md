@@ -45,11 +45,16 @@ found.
 
 ### The VirtualHost must be re-opened
 
-Snikket sets `authentication` twice — globally at line 256, and again **inside** the VirtualHost
-at line 331. Its `Include` is the last line of the file, after two `Component` blocks. Prosody's
-config is sectional, so settings in the included file belong to whatever section preceded them:
-a bare `authentication = "ldap"` lands in the `share.` component and is ignored, with no error
-and no log line.
+Snikket sets `authentication` twice: globally at line 256, and again **inside** the VirtualHost
+at line 331. A per-host setting beats a global one, so a bare `authentication = "ldap"` in the
+included file is overridden by line 331 and ignored, with no error and no log line.
+
+Note what this is *not*. `Include` does not inherit the enclosing section: `parser.load`
+(`configmanager.lua`) builds a fresh env per file and resets `__currenthost` to `"*"`, so an
+included file starts in **global** scope, not in the `share.` component that happens to precede
+the `Include`. A global setting therefore does land as a global, which is why
+`component_interfaces` in `sip.cfg.lua` works without re-opening anything. Sectional scoping
+does still apply *within* a file, so anything after a `Component` line belongs to it.
 
 Re-opening the VirtualHost fixes it, and is legal because `env.VirtualHost`
 (`configmanager.lua:276`) has no duplicate check — it errors only when the name clashes with a

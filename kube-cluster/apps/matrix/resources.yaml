@@ -19,52 +19,16 @@ spec:
 # ===========================================================================
 # Storage
 #  - synapse /data (media_store, signing key, logging config, registration/*):
-#    BIG media -> mounted in place from CephFS (jellyfin/immich static-PV
-#    pattern), never copied. The original homeserver.yaml lives here untouched;
-#    only the DB block is overridden via a second --config-path (secret).
+#    a dynamic CephFS PVC. It was a static rootPath mount of the Swarm-era
+#    /docker/matrix/synapse until the media sweep shrank media_store enough to
+#    copy; that directory still holds the pre-migration copy and is not
+#    referenced by anything here.
 #  - mas /config, whatsapp /data: small -> COPIED into fresh CephFS PVCs by the
 #    migration pod (their DB URIs are sed-edited in the copy; Swarm originals
 #    untouched).
 #  - baibot: its matrix-sdk SQLite session/crypto store -> COPIED into a fresh
 #    ceph-rbd PVC (block storage for SQLite; preserves the bot's device session).
 # ===========================================================================
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  annotations:
-    kustomize.toolkit.fluxcd.io/prune: disabled
-  name: matrix-synapse-data
-spec:
-  accessModes: [ReadWriteMany]
-  capacity:
-    storage: 1Gi
-  storageClassName: ""
-  persistentVolumeReclaimPolicy: Retain
-  csi:
-    driver: cephfs.csi.ceph.com
-    nodeStageSecretRef:
-      name: csi-cephfs-secret
-      namespace: ceph-csi-cephfs
-    volumeHandle: matrix-synapse-data
-    volumeAttributes:
-      clusterID: ceph-cluster
-      fsName: fastappdata
-      staticVolume: "true"
-      rootPath: /docker/matrix/synapse
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: matrix-synapse-data
-  namespace: matrix
-spec:
-  accessModes: [ReadWriteMany]
-  storageClassName: ""
-  volumeName: matrix-synapse-data
-  resources:
-    requests:
-      storage: 1Gi
----
 # Working directory for the media sweep: cache.db, the sqlite index the tool
 # builds from synapse's media tables. Persisted between runs purely so a rerun
 # does not rebuild it from scratch over 199k files.
@@ -86,15 +50,16 @@ spec:
     requests:
       storage: 1Gi
 ---
-# Replacement for the static matrix-synapse-data PV above, so synapse stops
-# depending on the inherited Swarm path /docker/matrix/synapse and becomes
-# snapshottable like everything else. A new PVC is unavoidable: storageClassName
-# and volumeName are both immutable, so the existing claim cannot be converted.
+# synapse /data. Dynamic, so it carries a quota and can be snapshotted, neither of
+# which the static rootPath mount it replaced could do.
 #
-# 64Gi against 32.1 GiB of real data (99.6% of it media_store). The size is
-# deliberate: the static PV declares capacity 1Gi and holds 32 GiB because static
-# CephFS volumes carry no quota, whereas a provisioned one DOES enforce it -- ask
-# for too little and synapse hits a limit it has never had.
+# 32Gi against 4.7 GiB of real data (99.9% of it media_store), which is what is
+# left once the media sweep has moved cold media to S3 and reclaimed the local
+# copies. The size is deliberate: the static PV declares capacity 1Gi and holds
+# far more because static CephFS volumes carry no quota, whereas a provisioned one
+# DOES enforce it -- ask for too little and synapse hits a limit it has never had.
+# The sweep is what keeps this bounded, so a sweep that silently stops eventually
+# fills this.
 #
 # Same `cephfs` class, i.e. the same fsName (fastappdata) it already lives on, so
 # performance is unchanged and the copy is intra-filesystem. RWX as before.
@@ -124,7 +89,7 @@ spec:
   storageClassName: cephfs
   resources:
     requests:
-      storage: 64Gi
+      storage: 32Gi
 ---
 # Fresh CephFS PVC — the migration pod copies the Swarm mas/ config in and
 # sed-edits its database.uri. mas reads config only; no writes.
@@ -216,7 +181,7 @@ spec:
       # site-packages is /usr/local/lib/python3.13, not Debian dist-packages).
       initContainers:
         - name: install-s3-provider
-          image: matrixdotorg/synapse:v1.160.0
+          image: matrixdotorg/synapse:v1.161.0
           # Root only for this container, and only to write the freshly-provisioned
           # PVC (which comes up root-owned) before chowning it to synapse's 991.
           # Pod-level fsGroup would do it too, but fsGroup applies to EVERY volume
@@ -260,7 +225,7 @@ spec:
             limits: {memory: 512Mi}
       containers:
         - name: synapse
-          image: matrixdotorg/synapse:v1.160.0
+          image: matrixdotorg/synapse:v1.161.0
           command: ["python", "-m", "synapse.app.homeserver"]
           args:
             - "--config-path"
@@ -344,7 +309,7 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: matrix-synapse-data
+            claimName: synapse-data
         - name: db-override
           secret:
             secretName: synapse-db-override
@@ -526,7 +491,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: lk-jwt
-          image: ghcr.io/element-hq/lk-jwt-service:0.6.0
+          image: ghcr.io/element-hq/lk-jwt-service:0.7.0
           env:
             - name: LIVEKIT_URL
               value: https://matrix-rtc.example.com/livekit/sfu
@@ -565,6 +530,132 @@ spec:
       targetPort: http
 ---
 # ===========================================================================
+# livekit-redis - shared state between the LiveKit SFU and livekit-sip, which
+# coordinate through it. Ephemeral like synapse-redis: the only thing here that
+# is not rebuilt from the SFU itself is the SIP trunk object, and ec-phone-shim
+# reconciles that on every loop rather than it being hand-created state.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: livekit-redis
+  namespace: matrix
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: livekit-redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: livekit-redis
+        app.kubernetes.io/instance: matrix
+        kube-vnet/net.matrix-livekit-redis: ingress
+    spec:
+      containers:
+        - name: redis
+          image: valkey/valkey:9
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            tcpSocket:
+              port: redis
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: livekit-redis
+  namespace: matrix
+spec:
+  selector:
+    app.kubernetes.io/name: livekit-redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+---
+# ===========================================================================
+# livekit-sip - the SIP<->LiveKit bridge. Deliberately has NO LoadBalancer and no
+# enumerated UDP ports, unlike livekit/coturn/cheogram-sip: it only ever ORIGINATES
+# calls (CreateSIPParticipant), so no INVITE ever arrives from outside. An inbound
+# dispatch rule would be pointless here anyway -- the server stamps such callers
+# with identity "sip_<caller>", which can never match a Matrix RTC membership, so
+# Element Call would filter them out of the UI.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: livekit-sip
+  namespace: matrix
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: livekit-sip
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: livekit-sip
+        app.kubernetes.io/instance: matrix
+        kube-vnet/net.matrix-livekit: egress
+        kube-vnet/net.matrix-livekit-redis: egress
+        # Asterisk is the only SIP peer, in the cheogram-sip namespace: we INVITE it, and
+        # its RTP comes back to us, so this edge is needed in both directions.
+        kube-vnet/net.cheogram-sip.asterisk-sip: egress
+        kube-vnet/net.livekit-sip-media: ingress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: livekit-sip
+          image: livekit/sip:v1.14.0
+          env:
+            # No SIP_CONFIG_FILE: the image's ENTRYPOINT is
+            # ["livekit-sip", "--config=/sip/config.yaml"], and the flag always wins, so
+            # the env var the README documents is dead here. Mount over that path instead.
+            #
+            # In-cluster signalling, not the public matrix-rtc.example.com hostname:
+            # this hop never leaves the pod network.
+            - name: LIVEKIT_WS_URL
+              value: ws://livekit.matrix.svc.cluster.local:7880
+            - name: LIVEKIT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: livekit
+                  key: LIVEKIT_KEY
+            - name: LIVEKIT_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: livekit
+                  key: LIVEKIT_SECRET
+          ports:
+            - name: health
+              containerPort: 8081
+          readinessProbe:
+            httpGet:
+              path: /
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: config
+              mountPath: /sip/config.yaml
+              subPath: livekit-sip.yaml
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: livekit-sip-config
+---
+# ===========================================================================
 # LiveKit SFU — Element Call media. Signaling (:7880) via Traefik; ICE/media on
 # a dedicated MetalLB VIP (10.20.2.19): TCP 7881 + UDP 50100-50120.
 # ===========================================================================
@@ -588,12 +679,26 @@ spec:
         app.kubernetes.io/name: livekit
         app.kubernetes.io/instance: matrix
         kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.matrix-livekit: ingress
+        kube-vnet/net.matrix-livekit-redis: egress
     spec:
       enableServiceLinks: false
       containers:
         - name: livekit
-          image: livekit/livekit-server:v1.13.6
-          args: ["--config", "/etc/livekit.yaml"]
+          image: livekit/livekit-server:v1.13.7
+          # livekit-sip coordinates with the server through a shared Redis. The flag
+          # overrides redis.address in livekit.yaml -- updateFromCLI runs after the config
+          # file is parsed -- so the SOPS-encrypted config is never decrypted to add it.
+          # The server does NOT start while this address is unreachable.
+          args:
+            - "--config"
+            - "/etc/livekit.yaml"
+            - "--redis-host"
+            - "livekit-redis.matrix.svc.cluster.local:6379"
+            # use_external_ip in the SOPS config rewrites every ICE host candidate to the
+            # public address, and the edge does not hairpin, so in-cluster peers (livekit-sip)
+            # can never reach it. Appends the pod IP as a second candidate; browsers ignore it.
+            - "--rtc.advertise_internal_ip=true"
           ports:
             - name: signal
               containerPort: 7880
@@ -742,8 +847,8 @@ spec:
 # SUSPENDED on creation. The first run reads ~200k files and pushes tens of GB
 # out over the internet, so it is enabled deliberately, not by merging a commit.
 #
-# NOTE the volume: still matrix-synapse-data. Repoint to synapse-data together
-# with the synapse Deployment when that migration happens.
+# Shares /data with the synapse Deployment, which is why synapse-data is RWX: this
+# reads media_store while synapse serves from it.
 # ===========================================================================
 apiVersion: batch/v1
 kind: CronJob
@@ -767,6 +872,12 @@ spec:
       # Without this a hung run would block every future one, because Forbid has
       # no timeout of its own.
       activeDeadlineSeconds: 21600
+      # A backstop for failures, not the retention policy: successfulJobsHistoryLimit
+      # keeps the last three runs and evicts by count long before this fires. It exists
+      # because failedJobsHistoryLimit only evicts when ANOTHER failure arrives, so once
+      # the sweep stops failing its last failures would be kept forever. Well clear of
+      # three nightly runs, so a skipped run cannot drop the history below three.
+      ttlSecondsAfterFinished: 604800
       template:
         metadata:
           labels:
@@ -787,7 +898,7 @@ spec:
             runAsGroup: 0
           containers:
             - name: sweep
-              image: matrixdotorg/synapse:v1.160.0
+              image: matrixdotorg/synapse:v1.161.0
               workingDir: /work
               env:
                 - name: PYTHONPATH
@@ -802,10 +913,13 @@ spec:
                 # the tiering we want.
                 - name: SWEEP_AGE
                   value: "30d"
-                # Set to "--delete" to reclaim local disk after a verified upload.
-                # Empty until the first backfill has been eyeballed.
+                # A file is removed only once it is confirmed in S3, so synapse keeps
+                # serving it through the s3 storage provider in media-s3.yaml. Deleting
+                # also marks the media known_deleted, which is what stops every later run
+                # re-checking all of them against S3 -- the reason the job kept hitting
+                # activeDeadlineSeconds.
                 - name: SWEEP_DELETE
-                  value: ""
+                  value: "--delete"
               command: ["sh", "-c"]
               args:
                 - |
@@ -861,7 +975,7 @@ spec:
           volumes:
             - name: data
               persistentVolumeClaim:
-                claimName: matrix-synapse-data
+                claimName: synapse-data
             - name: pymods
               persistentVolumeClaim:
                 claimName: synapse-pymods
@@ -909,15 +1023,35 @@ spec:
       enableServiceLinks: false
       containers:
         - name: whatsapp
-          image: dock.mau.dev/mautrix/whatsapp:v0.2608.0
+          # Fork build: lhns/mautrix-whatsapp branch lhns-build, upstream v0.2608.0 plus
+          # dm_room_name_template and group_room_name_template.
+          #
+          # bridgev2 names a DM room after the ghost, and the ghost is shared by every
+          # login, so a contact name in displayname_template leaks between accounts. The
+          # option names the ROOM from the contact instead, which is safe because a DM
+          # portal belongs to a single login.
+          #
+          # group_room_name_template renames group rooms from the WhatsApp subject. While
+          # it is set, renaming a group from Matrix is refused: the Matrix name is
+          # generated, so writing it back would store it as the group subject.
+          #
+          # Pinned to a commit, so Renovate does not track it: an upstream release needs
+          # that branch rebased and a new tag written here.
+          image: ghcr.io/lhns/mautrix-whatsapp:d11503d588416813c5a9005138ea6a5f5d54529f@sha256:fcb521b7c3e945a0180de164e8a591e8765865574f9e2cdfa8ad7927fb59cd4f
           ports:
             - name: appservice
               containerPort: 29318
+          # No initial delay, so the Service endpoint appears as soon as the listener binds.
+          # This does NOT fix the crash-on-restart: measured afterwards, the first
+          # homeserver->appservice ping still fails with a 15s connect timeout and the next
+          # succeeds in 8ms, so the cause is a connection that cannot be made yet rather than
+          # the endpoint being late. mautrix-go exits after 6 consecutive failed pings, a
+          # const in appservice/ping.go, which is why a bridge restart still costs a crash
+          # cycle or two before it settles.
           readinessProbe:
             tcpSocket:
               port: appservice
-            initialDelaySeconds: 10
-            periodSeconds: 10
+            periodSeconds: 2
           volumeMounts:
             - name: data
               mountPath: /data
@@ -1014,15 +1148,14 @@ spec:
       enableServiceLinks: false
       containers:
         - name: telegram
-          image: dock.mau.dev/mautrix/telegram:v0.2608.0@sha256:a4f94f8e47fb946f64f6145c08f797d28700a6bea6fa64b8111c8a454d966229
+          image: dock.mau.dev/mautrix/telegram:v0.2609.0@sha256:e6e7f109928cc9f447c8f081c816ff5f034cc1f157084a74d1bf08007c91807b
           ports:
             - name: appservice
               containerPort: 29317
           readinessProbe:
             tcpSocket:
               port: appservice
-            initialDelaySeconds: 10
-            periodSeconds: 10
+            periodSeconds: 2
           resources:
             requests: {cpu: 50m, memory: 192Mi}
             limits: {memory: 1Gi}
@@ -1102,15 +1235,14 @@ spec:
       enableServiceLinks: false
       containers:
         - name: signal
-          image: dock.mau.dev/mautrix/signal:v0.2608.0@sha256:4b08c9e556196d5cdd9d99704f64bd9c343ed16729f26bb4e7cf29fbe931835c
+          image: dock.mau.dev/mautrix/signal:v0.2609.0@sha256:ff70897075fbccc7085322c6b341cb2a6fc29e26aea6231f6b498dd3fc925933
           ports:
             - name: appservice
               containerPort: 29328
           readinessProbe:
             tcpSocket:
               port: appservice
-            initialDelaySeconds: 10
-            periodSeconds: 10
+            periodSeconds: 2
           resources:
             requests: {cpu: 50m, memory: 192Mi}
             limits: {memory: 1Gi}
@@ -1197,15 +1329,14 @@ spec:
       enableServiceLinks: false
       containers:
         - name: instagram
-          image: dock.mau.dev/mautrix/meta:ig-v0.2608.0@sha256:4b2704de94809351884da2640b1b1421920980a60269aa871fa870a8d50e7eb0
+          image: dock.mau.dev/mautrix/meta:ig-v0.2609.0@sha256:bdf4b2f7d50f59d1053639d1da31612be72e2fb6fba4c20b2285a0fdeebff2df
           ports:
             - name: appservice
               containerPort: 29330
           readinessProbe:
             tcpSocket:
               port: appservice
-            initialDelaySeconds: 10
-            periodSeconds: 10
+            periodSeconds: 2
           resources:
             requests: {cpu: 50m, memory: 192Mi}
             limits: {memory: 1Gi}
@@ -1295,8 +1426,7 @@ spec:
           readinessProbe:
             tcpSocket:
               port: appservice
-            initialDelaySeconds: 10
-            periodSeconds: 10
+            periodSeconds: 2
           resources:
             requests: {cpu: 50m, memory: 256Mi}
             limits: {memory: 6Gi}
@@ -1324,6 +1454,129 @@ spec:
       targetPort: appservice
 ---
 # ===========================================================================
+# matrix-sip-bridge. Appservice reached by Synapse at :29337. Bridges phone
+# numbers to Matrix: text as SIP MESSAGE in a portal room per number, and calls
+# as media through livekit-sip, which is already the SIP<->LiveKit leg.
+#
+# Not a mautrix bridge in deployment shape either: it holds no PVC, because
+# everything it keeps is in the sip-bridge database (database.yaml) and its
+# config is a read-only Secret rather than a file the bridge rewrites in place.
+#
+# It is a SIP ENDPOINT, not a controller of one PBX: Asterisk dials it as the
+# `[matrixbridge]` peer in apps/cheogram-sip/sip.conf, so call policy stays in
+# the dialplan. The SIP listener is tcp -- a SIP MESSAGE that overflows a UDP
+# datagram is dropped with no error at either end.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: matrix-sip-bridge
+  namespace: matrix
+  annotations:
+    # The whole config, credentials included, is read once at startup from the
+    # mounted Secret, so a rotation is otherwise never picked up.
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  # One appservice transaction stream and one SIP endpoint. Two pods would both
+  # answer the same INVITE and double-post every inbound message.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: matrix-sip-bridge
+  template:
+    metadata:
+      annotations:
+        # Scraped by the otel `cluster` collector, which discovers pods by these
+        # annotations only -- and only in namespaces wired up on both sides in
+        # infra/opentelemetry-monitoring: `namespaces.names` in release.yaml AND an
+        # otel-scrape ingress binding in vnet.yaml. Either one alone scrapes nothing.
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "29337"
+        prometheus.io/path: "/metrics"
+      labels:
+        app.kubernetes.io/name: matrix-sip-bridge
+        app.kubernetes.io/instance: matrix
+        kube-vnet/net.matrix-bridges: ingress
+        kube-vnet/net.matrix-synapse: egress
+        kube-vnet/net.postgres.postgres: egress
+        # LiveKit's twirp API, to place and tear down the SIP participant for a call.
+        kube-vnet/net.matrix-livekit: egress
+        # Asterisk dials and texts us, so this end needs its own vnet (vnet.yaml).
+        kube-vnet/net.matrix-sip-bridge-sip: ingress
+        # ...and we send outbound MESSAGE and INVITE the other way. That vnet already
+        # names `matrix`, so nothing changes there.
+        kube-vnet/net.cheogram-sip.asterisk-sip: egress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: matrix-sip-bridge
+          # A release publishes :<version> too, but pin the sha: :0.1 would move
+          # under us on the next patch release.
+          image: ghcr.io/lhns/matrix-sip-bridge:sha-19938f4
+          # mxmain takes a config FILE. There are no SIP_BRIDGE_* environment
+          # variables: mautrix reads env only when env_config_prefix is set, and
+          # then under __-separated paths, which this config deliberately leaves off.
+          #
+          # -n is not optional with a Secret mount: without it the config upgrader
+          # tries to write the migrated file back and dies on a read-only volume.
+          args: ["-c", "/config/config.yaml", "-n"]
+          ports:
+            - name: appservice
+              containerPort: 29337
+            - name: sip
+              containerPort: 5060
+              protocol: TCP
+          # The APPSERVICE socket, deliberately -- not /_health/ready, and not a SIP check.
+          # Readiness cannot depend on anything the appservice ping is upstream of: that
+          # ping returns through this Service, a Service routes only to Ready endpoints,
+          # and the SIP listener binds only after the ping succeeds. Gating on it deadlocks.
+          # A startupProbe is the same trap -- while it fails, readiness is disabled too.
+          # The cost is real: the pod is Ready ~30s before SIP binds. Asterisk's qualify on
+          # the [matrixbridge] peer is what covers that window.
+          readinessProbe:
+            tcpSocket:
+              port: appservice
+            periodSeconds: 2
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            # Memory only. A CPU limit would throttle rather than protect (apps/webtop/README.md).
+            limits: {memory: 512Mi}
+          env:
+            - name: TZ
+              value: Europe/Berlin
+          volumeMounts:
+            - {name: config, mountPath: /config, readOnly: true}
+      volumes:
+        - name: config
+          secret:
+            secretName: matrix-sip-bridge
+---
+# Load-bearing name, same rule as the other bridges: registrations/sip.yaml says
+# `url: http://matrix-sip-bridge:29337`, and that is what Synapse dials. It is also
+# sip.public_address and the [matrixbridge] peer's host= in apps/cheogram-sip, so
+# renaming this breaks the SIP side silently as well.
+apiVersion: v1
+kind: Service
+metadata:
+  name: matrix-sip-bridge
+  namespace: matrix
+spec:
+  selector:
+    app.kubernetes.io/name: matrix-sip-bridge
+  ports:
+    - name: appservice
+      port: 29337
+      targetPort: appservice
+    # Asterisk reaches the bridge here, not on the pod address: sip.public_address
+    # in the config names this Service, and chan_sip has it as a static host.
+    - name: sip
+      port: 5060
+      targetPort: sip
+      protocol: TCP
+---
+# ===========================================================================
 # Element Web client (static, public config from ConfigMap).
 # ===========================================================================
 apiVersion: apps/v1
@@ -1346,7 +1599,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: element-web
-          image: vectorim/element-web:v1.12.27
+          image: vectorim/element-web:v1.12.28
           ports:
             - name: http
               containerPort: 80
@@ -1405,7 +1658,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: baibot
-          image: ghcr.io/etkecc/baibot:v1.25.0
+          image: ghcr.io/etkecc/baibot:v1.26.0
           env:
             - name: TZ
               value: Europe/Berlin

@@ -174,7 +174,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: nextcloud
-          image: nextcloud:34.0.3-apache
+          image: nextcloud:34.0.4-apache
           ports:
             - {name: http, containerPort: 80}
           env:

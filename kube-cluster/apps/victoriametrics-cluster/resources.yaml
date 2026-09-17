@@ -101,9 +101,15 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: vmstorage
-          image: victoriametrics/vmstorage:v1.151.0-cluster
+          image: victoriametrics/vmstorage:v1.152.0-cluster
           args:
-            - -retentionPeriod=12
+            # 24 months. Raised from 12 for two reasons: the cluster is the long-term
+            # store now, and vmstorage DROPS any sample older than this on ingest
+            # (vm_rows_ignored_total{reason="small_timestamp"}), so a backfill window
+            # wider than the retention silently loses its oldest chunks. Keep both
+            # victoriametrics stores on the same value while the migration runs -- the
+            # source ages out history that has not been copied yet.
+            - -retentionPeriod=24
             - -storageDataPath=/storage
           ports:
             - {name: vminsert-rpc, containerPort: 8400}
@@ -180,7 +186,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: vminsert
-          image: victoriametrics/vminsert:v1.151.0-cluster
+          image: victoriametrics/vminsert:v1.152.0-cluster
           args:
             - -storageNode=vmstorage:8400
             - -maxLabelsPerTimeseries=50
@@ -251,7 +257,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: vmselect
-          image: victoriametrics/vmselect:v1.151.0-cluster
+          image: victoriametrics/vmselect:v1.152.0-cluster
           args:
             - -storageNode=vmstorage:8401
             - -search.cacheTimestampOffset=120m
@@ -320,7 +326,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: otelcol
-          image: otel/opentelemetry-collector-contrib:0.160.0
+          image: otel/opentelemetry-collector-contrib:0.161.0
           resources:
             requests:
               memory: 256Mi

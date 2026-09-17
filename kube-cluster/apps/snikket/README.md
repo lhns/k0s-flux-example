@@ -126,3 +126,21 @@ chain.
 - **The certs container is dropped, which is a deviation from upstream.** If a future Snikket
   release insists on certbot's `archive/` symlink layout rather than plain files, the fallback
   is a small initContainer that materialises that layout from the mounted Secret.
+
+## Router forwards this server needs
+
+Both were missing until 2026-09-12, with consequences that looked unrelated to each other.
+
+| port | to | without it |
+| --- | --- | --- |
+| TCP 5222 | `10.20.2.15` | clients cannot connect from outside the LAN ("server not found"); there is no split-horizon DNS, and a wildcard on `example.com` means even on WiFi the app dials the public address |
+| TCP 5269 | `10.20.2.15` | no inbound s2s at all, so `push.snikket.net` cannot authenticate by dialback and **push notifications never work**. A backgrounded phone is then never woken, which presents as calls not ringing and messages arriving late. Federation is also dead. |
+
+Verify from the LAN (hairpin works here, 443 is a good control):
+
+```bash
+for p in 5222 5269 443; do timeout 5 bash -c "(echo > /dev/tcp/203.0.113.10/$p)" && echo "$p OPEN"; done
+```
+
+Push is confirmed working when the log shows `Push notifications enabled for <jid>` and
+`s2s:show()` lists `push.snikket.net` in both directions.

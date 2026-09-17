@@ -1,7 +1,33 @@
 ---
-# Renders the repo-root generator chart once for both groups: one Flux
-# Kustomization per dir under kube-cluster/apps/ (prefix app-) and
-# kube-cluster/infra/ (prefix infra-). reconcileStrategy: Revision so a new dir
+# The generator's own source. Helm embeds the whole chart in its release Secret's
+# data.release, which the apiserver caps at 1 MiB -- and the repo root IS the chart, so the
+# unfiltered repo no longer fits. This keeps what the templates read and nothing else.
+# See docs/generator-chart-size.md.
+#
+# An INCLUDE list. sourceignore does not prune excluded directories, so the gitignore idiom
+# for re-including them re-admits everything.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: generators
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  url: https://github.com/example/k0s-flux.git
+  ref:
+    branch: main
+  secretRef:
+    name: flux-system
+  ignore: |
+    *
+    !/Chart.yaml
+    !/templates/**
+    !**/k0sctl.yaml
+    !**/kustomization.yaml
+---
+# Renders the repo-root generator chart once for every group: one Flux Kustomization
+# per dir under kube-cluster/apps/ (prefix app-), kube-cluster/infra/ (prefix infra-)
+# and kube-cluster/rbac/ (prefix rbac-). reconcileStrategy: Revision so a new dir
 # (no chart version bump) re-renders. The whole base path is a parameter, so a
 # second cluster is just another group (base: <cluster>/apps).
 apiVersion: helm.toolkit.fluxcd.io/v2
@@ -11,6 +37,9 @@ metadata:
   namespace: flux-system
 spec:
   interval: 10m0s
+  # Each stored revision is a full copy of the chart in its own Secret; the default 10
+  # keeps nine dead ones.
+  maxHistory: 3
   # This release only emits Kustomizations; whether each one then reconciles is its own
   # Ready condition. Waiting here would make a single unhealthy app block every generator
   # change, after burning the full timeout on each attempt.
@@ -24,12 +53,20 @@ spec:
       reconcileStrategy: Revision
       sourceRef:
         kind: GitRepository
-        name: flux-system
+        name: generators
         namespace: flux-system
   values:
     groups:
       - { base: kube-cluster/apps, prefix: app }
       - { base: kube-cluster/infra, prefix: infra }
+      - { base: kube-cluster/rbac, prefix: rbac }
+    # Emit a GitRepository + HelmRelease per component instead of the Kustomizations
+    # themselves, so no single release carries more than one component.
+    generate:
+      source:
+        url: https://github.com/example/k0s-flux.git
+        branch: main
+        secretRef: flux-system
     # Opt into the in-cluster k0s upgrade wrapper (templates/k0s-upgrade.yaml).
     # The generator reads the k0s version from this file and emits the k0s-upgrade
     # Flux Kustomization. Omit the block on clusters that don't use it.

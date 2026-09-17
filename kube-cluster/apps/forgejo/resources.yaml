@@ -121,7 +121,7 @@ spec:
           # months, so this needs a deliberate major bump to stay supported.
           # (v15 is the LTS, patched to 2027-07, if that trade ever looks wrong.)
           # Not on Docker Hub: codeberg.org is the project's own registry.
-          image: codeberg.org/forgejo/forgejo:16.0.3
+          image: codeberg.org/forgejo/forgejo:16.0.5
           env:
             - name: TZ
               value: Europe/Berlin

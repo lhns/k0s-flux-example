@@ -20,3 +20,4 @@ app_service_config_files:
   - /registrations/discord.yaml
   - /registrations/signal.yaml
   - /registrations/instagram.yaml
+  - /registrations/sip.yaml

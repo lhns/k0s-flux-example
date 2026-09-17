@@ -133,7 +133,7 @@ spec:
         fsGroup: 1001               # Outline runs as nodejs (uid/gid 1001)
       containers:
         - name: outline
-          image: outlinewiki/outline:1.10.0
+          image: outlinewiki/outline:1.10.1
           ports:
             - {name: http, containerPort: 3000}
           readinessProbe:

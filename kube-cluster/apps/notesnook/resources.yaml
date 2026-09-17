@@ -62,7 +62,7 @@ spec:
           # a Xeon E5-2680 v2 = Ivy Bridge: has AVX but not AVX2, so x86-64-v3 won't
           # work; IvyBridge is migration-safe across all hosts). If a worker ever
           # shows AVX-NO, mongo will crash-loop -> fix the VM CPU type, not the image.
-          image: mongo:8.3.8
+          image: mongo:8.3.11
           resources:
             requests:
               memory: 256Mi

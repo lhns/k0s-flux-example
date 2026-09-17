@@ -267,7 +267,7 @@ spec:
         - name: socat
           image:
             # renovate: datasource=docker
-            reference: alpine/socat:1.8.1.3@sha256:5f275aa1b6e9889c851f61097142ee050fc6ac4615b4ea64ac1f2b0e81ff8d7f
+            reference: alpine/socat:1.8.1.3@sha256:c5a091e1e735a90aa941a5828529dbe6c6157407a8047a9aa473faa133361b82
             pullPolicy: IfNotPresent
         - name: socat-launcher
           configMap:

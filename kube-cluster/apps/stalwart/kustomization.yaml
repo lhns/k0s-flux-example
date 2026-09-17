@@ -7,7 +7,9 @@ metadata:
     # stalwart-lb LoadBalancer's 10.20.2.8 needs the stalwart-vip MetalLB pool
     # (infra-metallb); bulwark/umleiter state PVCs need infra-ceph-csi-rbd. Read by
     # the root generator; inert to kustomize.
-    dependsOn: infra-postgres,infra-reflector,infra-metallb,infra-ceph-csi-rbd
+    # infra-reloader: the as-secret generators carry disableNameSuffixHash, so a config
+    # change does not roll its pod by itself -- reloader is what notices.
+    dependsOn: infra-postgres,infra-reflector,infra-metallb,infra-ceph-csi-rbd,infra-reloader
 # NOTE: no `namespace:` transformer — database.yaml + db-role-secret.yaml pin
 # `namespace: postgres`; everything else is in `stalwart`.
 resources:
@@ -15,12 +17,24 @@ resources:
 - routing.yaml
 - database.yaml
 - db-role-secret.yaml
-- secret-stalwart.yaml
 - secret-bulwark.yaml
 # The mirror config as a real file. The generator patches this ConfigMap into a Secret
 # (templates/_secret-from-files.tpl), which keeps the ${UMLEITER_*_PASSWORD} placeholders
 # visible to Flux's substitution. In a subdirectory so it is not mistaken for a manifest.
 configMapGenerator:
+# Stalwart's Postgres store, which its own settings API writes back into, plus the
+# recovery admin. config.json is one credential among a dozen plain connection
+# settings, so it is a real file with ${...} in it rather than an encrypted blob.
+- name: stalwart
+  namespace: stalwart
+  files:
+  - config.json=stalwart-config.json
+  literals:
+  - STALWART_RECOVERY_ADMIN=${STALWART_RECOVERY_ADMIN}
+  options:
+    disableNameSuffixHash: true
+    annotations:
+      generators.example.com/as-secret: "true"
 - name: umleiter
   namespace: stalwart
   files:

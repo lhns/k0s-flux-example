@@ -52,6 +52,7 @@ spec:
       - victoriatraces
       - mosquitto
       - mqtt-monitoring
+      - demo-app
       # Operator-managed collectors, so they join by selector rather than pod label —
       # see infra/opentelemetry-monitoring/vnet.yaml.
       - opentelemetry

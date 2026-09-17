@@ -1,0 +1,18 @@
+{
+  "@type": "PostgreSql",
+  "timeout": 15000,
+  "useTls": true,
+  "allowInvalidCerts": true,
+  "poolMaxConnections": 10,
+  "poolRecyclingMethod": "fast",
+  "readReplicas": {},
+  "host": "postgres-rw.postgres.svc.cluster.local",
+  "port": 5432,
+  "database": "stalwart",
+  "authUsername": "stalwart",
+  "authSecret": {
+    "@type": "Value",
+    "secret": "${STALWART_DB_PASSWORD}"
+  },
+  "options": null
+}

@@ -1,0 +1,9 @@
+peers:
+  - name: lhns
+    baseUrl: https://immich.example.com
+    apiKey: ${IMMICH_FED_APIKEY_LHNS}
+    cleanupOrphans: true
+  - name: max
+    baseUrl: https://immich.example.org
+    apiKey: ${IMMICH_FED_APIKEY_MAX}
+    cleanupOrphans: true

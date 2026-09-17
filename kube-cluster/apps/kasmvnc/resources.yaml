@@ -137,7 +137,7 @@ spec:
         # credential in plaintext in git is not something this repo does. A sidecar keeps
         # it in the Secret.
         - name: proxy
-          image: nginx:1.31.5-alpine
+          image: nginx:1.31.6-alpine
           command: [sh, -c]
           args:
             - |

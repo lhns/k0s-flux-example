@@ -27,7 +27,7 @@ That is correct, not a gap. Do not "fix" it by enabling the node agent.
 |---|---|
 | Dynamically provisioned PVCs | Velero CSI snapshots (in-cluster CoW) |
 | Static `rootPath` PVs (`arr-*`, `gitea-git`, `immich-*`, `jellyfin-*`, `matrix-synapse-data`, `backrest-*`, …) | **backrest** (restic → remote repo) |
-| `postgres` | CNPG — volume snapshots + WAL to S3 |
+| `postgres` | CNPG — base backups + WAL to S3, both via the Barman Cloud Plugin |
 
 `snapshotVolumes: true` in the schedules therefore means "every volume Velero *can* snapshot",
 not "every volume".

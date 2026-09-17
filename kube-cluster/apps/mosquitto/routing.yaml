@@ -46,3 +46,25 @@ spec:
       services:
         - name: mosquitto
           port: 1883
+
+---
+# Same broker, standard MQTT-over-TLS port. TLS is terminated by traefik off the default
+# wildcard cert (infra/traefik/tls.yaml TLSStore) and the backend is the SAME plaintext
+# :1883 the route above uses, so the encrypted hop ends at traefik.
+#
+# HostSNI(`*`) rather than the hostname: MQTT clients that connect by IP send no SNI, and
+# a hostname-only rule would drop them. The wildcard covers mqtt.example.com for the ones that
+# do verify it.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: mosquitto-tls
+  namespace: mosquitto
+spec:
+  entryPoints: [mqtts]
+  routes:
+    - match: HostSNI(`*`)
+      services:
+        - name: mosquitto
+          port: 1883
+  tls: {}

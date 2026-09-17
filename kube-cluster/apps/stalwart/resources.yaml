@@ -59,7 +59,7 @@ spec:
         runAsGroup: 0
       containers:
         - name: stalwart
-          image: stalwartlabs/stalwart:v0.16.20
+          image: stalwartlabs/stalwart:v0.16.22
           env:
             - name: STALWART_PUBLIC_URL
               value: https://mail.example.com

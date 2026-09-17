@@ -60,7 +60,7 @@ spec:
       containers:
         - name: zensical
           # Runs as root, so it can write the ephemeral emptyDir /docs (site/, .cache/).
-          image: zensical/zensical:0.0.58
+          image: zensical/zensical:0.0.62
           env:
             - name: TZ
               value: Europe/Berlin

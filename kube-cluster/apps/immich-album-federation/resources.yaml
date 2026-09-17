@@ -58,8 +58,14 @@ spec:
             requests:
               memory: 256Mi
             limits:
-              memory: 1Gi
+              memory: 2Gi
           env:
+            # No -Xmx means MaxRAMPercentage=25%, i.e. an OOM at a quarter of
+            # limits.memory -- raising the limit alone just moves the quarter.
+            # JAVA_TOOL_OPTIONS, not JAVA_OPTS: read whatever the entrypoint does.
+            # Keep the limit above the heap for metaspace, threads and buffers.
+            - name: JAVA_TOOL_OPTIONS
+              value: -Xmx1g
             - name: TZ
               value: Europe/Berlin
             # Dedicated role + db in the shared CNPG cluster. pgjdbc sslmode=require

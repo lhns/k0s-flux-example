@@ -53,9 +53,10 @@ host/node in Grafana.
 ## Prometheus scraping (annotation-based)
 
 The `cluster` collector runs a `prometheus` receiver with a `kubernetes_sd` job
-honouring `prometheus.io/scrape|port|path` — the classic annotation convention (today
-only the flux controllers carry it). **kube-vnet caveat:** scrape dials to in-cluster
+honouring `prometheus.io/scrape|port|path` — the classic annotation convention.
+**kube-vnet caveat:** scrape dials to in-cluster
 pods are ingress-isolated (not an auto-allow), so each scrape-target namespace must
 admit the collector. `vnet.yaml` sets up the `otel-scrape` egress vnet (collector side)
-and an ingress binding for **flux-system**; add an equivalent ingress binding in any
-other namespace whose annotated pods should be scraped.
+and one ingress binding per scraped namespace; add an equivalent one in any
+other namespace whose annotated pods should be scraped. The collector's
+`namespaces.names` must list that namespace too: either edit alone is silent.

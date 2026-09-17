@@ -1,0 +1,80 @@
+# NO PASSWORD HERE, EVER. These values render into a plaintext ConfigMap in git.
+
+# One REGISTER per entry. The entry name IS the Secret key name under /sip-secrets that
+# holds its password, so a rename that misses one is a pod that does not start.
+registrations:
+  # Built by the image's entrypoint out of SIP_USER/SIP_HOST/SIP_JID, so `entrypoint: true`
+  # keeps it out of registrations.tsv -- a second REGISTER for this account would fight it.
+  # Declared anyway: it is the only way this number has a line, and therefore an identity.
+  pstn-02012345678:
+    user: "02012345678"
+    host: sip.example.net
+    contact_user: admin@xmpp.example.com
+    did: "+492012345678"
+    line: home
+    entrypoint: true
+
+  pstn-02012345671:
+    user: "02012345671"
+    host: sip.example.net
+    contact_user: 02012345671@xmpp.example.com
+    did: "+492012345671"
+    line: office
+
+  pstn-02012345672:
+    user: "02012345672"
+    host: sip.example.net
+    contact_user: 02012345672@xmpp.example.com
+    did: "+492012345672"
+    line: office
+
+  # This host also has a PEER in sip.conf, which needs the same password again as a
+  # `secret=` line; peer_secret_file names the #include that gets it.
+  eventpbx-5552:
+    user: "5552"
+    host: voip.example.org
+    contact_user: admin@xmpp.example.com
+    did: "5552"
+    line: eventpbx
+    peer_secret_file: ev-secret.conf
+
+# callers is the outbound gate: it refuses rather than falling through, and absent or empty
+# means nobody. Field meanings are in values.schema.json; the model is in the README.
+lines:
+  home:
+    callers: ['xmpp:*@xmpp.example.com', 'matrix:@*:example.com']
+    primary: pstn-02012345678
+    inbound_route:
+      - ring: ["xmpp:admin@xmpp.example.com", "matrix:@admin:example.com"]
+        timeout: 45
+      - record: true
+
+  office:
+    callers: ['xmpp:*@xmpp.example.com', 'matrix:@*:example.com']
+    primary: pstn-02012345671
+    inbound_route:
+      - ring: ["xmpp:admin@xmpp.example.com", "matrix:@admin:example.com"]
+        timeout: 45
+
+  eventpbx:
+    callers: ['xmpp:*@xmpp.example.com', 'matrix:@*:example.com']
+    primary: eventpbx-5552
+    inbound_route:
+      - ring: ["xmpp:admin@xmpp.example.com", "matrix:@admin:example.com"]
+        timeout: 45
+
+# FIRST MATCH WINS. to_pattern is a LUA PATTERN, not a regex, and is anchored by the
+# renderer, so "11[02]" cannot also match "0112345".
+outbound:
+  # Pins the registration, so it carries no line and no callers list gates it -- which is what
+  # keeps 110/112 reachable from an account permitted nothing else.
+  - {to_pattern: '11[02]', registration: pstn-02012345678, emergency: true}
+
+  # Short internal extensions, one to five digits. `%d?` four times over rather than a
+  # repetition count, which Lua patterns do not have.
+  - {to_pattern: '%d%d?%d?%d?%d?', line: eventpbx}
+
+  # A per-person default: this caller presents the office DID rather than the household one.
+  - {to_pattern: '.*', from_glob: ['xmpp:office@xmpp.example.com'], line: office}
+
+  - {to_pattern: '.*', line: home}

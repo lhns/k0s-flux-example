@@ -1,0 +1,83 @@
+{{- /*
+  Root release only: a GitRepository + HelmRelease per component, each running THIS SAME
+  CHART against an artifact filtered to that component.
+
+  Helm embeds the whole chart in its release Secret's data.release, and the apiserver caps
+  any Secret at 1 MiB. Filtering per component bounds that by one component's files instead
+  of the repo. See docs/generator-chart-size.md.
+
+  The generated releases do not carry `generate` -- that is what stops the recursion. They
+  take the root's `groups` verbatim and no component name: the ignore below is the parameter.
+*/ -}}
+{{- with .Values.generate }}
+{{- $src := .source | required "generate.source is required (url, branch, secretRef of the repo this chart lives in)" }}
+{{- $interval := .interval | default "30m" }}
+{{- range $group := $.Values.groups }}
+{{- range $kustPath, $_ := $.Files.Glob (printf "%s/*/kustomization.yaml" $group.base) }}
+{{- $dir := dir $kustPath }}
+{{- $component := base $dir }}
+{{- $genName := printf "gen-%s-%s" $group.prefix $component }}
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: {{ $genName }}
+  namespace: flux-system
+spec:
+  interval: {{ $interval }}
+  url: {{ $src.url | quote }}
+  ref:
+    branch: {{ $src.branch | default "main" }}
+  {{- with $src.secretRef }}
+  secretRef:
+    name: {{ . }}
+  {{- end }}
+  {{- /* Exclude everything, then re-include by path. sourceignore does not prune excluded
+      directories, so the gitignore idiom for re-including them re-admits everything. Only
+      *.yaml is ever globbed, never *.yml. */}}
+  ignore: |
+    *
+    !/Chart.yaml
+    !/templates/**
+    !/{{ $dir }}/*.yaml
+    !/{{ $dir }}/substitution-secrets/*.yaml
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: {{ $genName }}
+  namespace: flux-system
+spec:
+  interval: {{ $interval }}
+  {{- /* Each stored revision is a full copy of the chart in its own Secret. */}}
+  maxHistory: 3
+  {{- /* This emits a Kustomization; whether that reconciles is its own Ready condition.
+      Waiting would fail the release on a slow component and retry only on backoff. */}}
+  install:
+    disableWait: true
+  upgrade:
+    disableWait: true
+  chart:
+    spec:
+      chart: "."
+      {{- /* The chart version never moves, so without this a new file never re-renders. */}}
+      reconcileStrategy: Revision
+      sourceRef:
+        kind: GitRepository
+        name: {{ $genName }}
+        namespace: flux-system
+  values:
+    groups:
+      - base: {{ $group.base }}
+        prefix: {{ $group.prefix }}
+        {{- with $group.interval }}
+        interval: {{ . }}
+        {{- end }}
+        {{- if hasKey $group "wait" }}
+        wait: {{ $group.wait }}
+        {{- end }}
+    ociComposer:
+      publicHost: {{ $.Values.ociComposer.publicHost | quote }}
+{{- end }}
+{{- end }}
+{{- end }}

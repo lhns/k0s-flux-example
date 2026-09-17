@@ -36,4 +36,48 @@ metadata:
   namespace: matrix
 spec:
   description: "synapse -> bridge appservice ports (whatsapp :29318, telegram :29317,
-    signal :29328, instagram :29330, discord :29334), intra-namespace."
+    signal :29328, instagram :29330, discord :29334, sip :29337), intra-namespace."
+---
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: matrix-livekit
+  namespace: matrix
+spec:
+  description: "livekit-sip + ec-phone-shim -> livekit (:7880) twirp/signalling, intra-namespace."
+---
+# Separate from matrix-redis on purpose. Sharing synapse-redis would mean labelling livekit
+# net.matrix-redis: egress, which hands livekit -- and livekit-sip, which holds the same
+# credentials -- reach into Synapse's replication bus.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: matrix-livekit-redis
+  namespace: matrix
+spec:
+  description: "livekit + livekit-sip -> livekit-redis (:6379), intra-namespace."
+---
+# The other direction across the Asterisk edge: cheogram-sip dials and texts the bridge.
+# asterisk-sip in apps/cheogram-sip covers matrix -> there and nothing the other way, and
+# kube-vnet guards ingress, so this end needs its own vnet.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: matrix-sip-bridge-sip
+  namespace: matrix
+spec:
+  description: "cheogram-sip/Asterisk -> matrix-sip-bridge SIP :5060/tcp (INVITE, MESSAGE, OPTIONS)."
+  allowedNamespaces:
+    names: [cheogram-sip]
+---
+# Media is bidirectional and kube-vnet guards ingress, so the Asterisk edge needs a vnet
+# at each end: this one, and asterisk-sip in apps/cheogram-sip.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: livekit-sip-media
+  namespace: matrix
+spec:
+  description: "cheogram-sip/Asterisk -> livekit-sip RTP 30000-30049 and SIP responses."
+  allowedNamespaces:
+    names: [cheogram-sip]

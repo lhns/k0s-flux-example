@@ -115,7 +115,7 @@ spec:
           # Shared pin with apps/gitea-runner — bump both together, and re-run the
           # listener check afterwards (README). Also satisfies v13's hard minimum
           # of Docker 25.0.
-          image: docker:29.7.2-dind
+          image: docker:29.8.1-dind
           securityContext:
             # dockerd needs it to manage cgroups, netfilter and overlay mounts.
             # Note this is root on the NODE, not merely in the pod — see the

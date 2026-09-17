@@ -1,0 +1,9 @@
+apiVersion: v2
+name: cheogram-sip-routing
+description: >-
+  Renders the SIP routing table into the ConfigMaps the dialplan and the render-config
+  initContainer read. The table IS this chart's values, which is the whole point: Helm
+  checks values.schema.json before anything renders, so a malformed table is rejected at
+  reconcile time instead of at call time.
+type: application
+version: 0.1.0

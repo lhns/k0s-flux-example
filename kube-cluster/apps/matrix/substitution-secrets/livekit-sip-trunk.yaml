@@ -1,0 +1,22 @@
+# EXAMPLE — placeholder values. In the source repo this file is SOPS-encrypted
+# (age, `encrypted_regex: ^(data|stringData)$`). Replace each CHANGEME-* and
+# encrypt with `sops -e -i` before applying.
+# The password livekit-sip authenticates to Asterisk with, mirrored into cheogram-sip by
+# reflector for its render-config.
+#
+# DUPLICATED in matrix-values.yaml, which is not the intent: substituteFrom is derived by the
+# generators chart, and that chart cannot apply (its Helm release Secret exceeds 1 MiB), so a
+# NEW substitution source cannot be referenced. Drop the copy there once it can.
+apiVersion: v1
+kind: Secret
+metadata:
+    name: livekit-sip-trunk
+    namespace: flux-system
+    annotations:
+        reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+        reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: cheogram-sip
+        reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+        reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: cheogram-sip
+stringData:
+    LIVEKIT_SIP_TRUNK_PASSWORD: CHANGEME-LIVEKIT_SIP_TRUNK_PASSWORD
+type: Opaque

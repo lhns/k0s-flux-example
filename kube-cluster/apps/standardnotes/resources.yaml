@@ -269,7 +269,7 @@ spec:
           # Digest-pinned like the web image below. A bare :latest means Always-pull, no
           # Renovate tracking, and a restart silently running unreviewed migrations
           # against standardnotes-db.
-          image: standardnotes/server:latest@sha256:6b371bc0c3ae755500b82f4c580fae7fd768e5f9214cdc2f195fc130cf6ffdcd
+          image: standardnotes/server:latest@sha256:b160c233ed2a00123b9b52c41e5355651af36d7598e8c918f9b536a826000bf9
           ports:
             - {name: api, containerPort: 3000}
             - {name: files, containerPort: 3104}
@@ -374,7 +374,7 @@ spec:
         # The image is digest-pinned so the sed targets can't silently drift on a
         # :latest rebuild — and the grep guards fail the pod if a target is missing.
         - name: patch-firstparty-allowlist
-          image: standardnotes/web:latest@sha256:f0015a8bf471debb21dd1d60ef2a89bf4956e10847b8eb28eeff52f0d11b521e
+          image: standardnotes/web:latest@sha256:31de6e6ce422671fa00f886f64a0402e2221206411a520be6c0c187204783e97
           command:
             - sh
             - -c
@@ -390,7 +390,7 @@ spec:
             - {name: html, mountPath: /work}
       containers:
         - name: web
-          image: standardnotes/web:latest@sha256:f0015a8bf471debb21dd1d60ef2a89bf4956e10847b8eb28eeff52f0d11b521e
+          image: standardnotes/web:latest@sha256:31de6e6ce422671fa00f886f64a0402e2221206411a520be6c0c187204783e97
           ports:
             - {name: http, containerPort: 80}
           readinessProbe:

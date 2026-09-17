@@ -194,26 +194,21 @@ def apply_blank_files(root: Path, cfg: dict) -> None:
         print(f"  blanked  {entry['path']}")
 
 
-def build_substituter(cfg: dict):
-    """Literal substitutions, longest-first, skipping anything inside a `keep` string.
+def _rewriter(keeps: list[str], substitutions, patterns, extra=None):
+    """One masked rewrite pass: literals longest-first, then regexes, then `extra`.
 
     Longest-first matters: a shorter pattern that is a substring of a longer one would
     otherwise mangle it. `keep` entries are protected by masking them out first, because
     they are API groups and finalizers that merely look like hostnames — rewriting one
-    breaks every manifest that references it.
+    breaks every manifest that references it. Scoped rules go through here too, so they
+    cannot bypass `keep`.
     """
-    keeps = sorted(cfg.get("keep") or [], key=len, reverse=True)
-    pairs = sorted(
-        ((a, b) for a, b in (cfg.get("substitutions") or [])),
-        key=lambda ab: len(ab[0]), reverse=True,
-    )
-    patterns = [(re.compile(r["pattern"]), r["replacement"])
-                for r in (cfg.get("substitution_patterns") or [])]
-    redact_pats = [(re.compile(r["pattern"]), r["replacement"])
-                   for r in (cfg.get("redact_patterns") or [])]
-    redact_keys = cfg.get("redact_keys") or []
+    keeps = sorted(keeps, key=len, reverse=True)
+    pairs = sorted(((a, b) for a, b in (substitutions or [])),
+                   key=lambda ab: len(ab[0]), reverse=True)
+    pats = [(re.compile(r["pattern"]), r["replacement"]) for r in (patterns or [])]
 
-    def substitute(text: str) -> str:
+    def rewrite(text: str) -> str:
         # Mask keeps with sentinels that no substitution can match.
         masks: dict[str, str] = {}
         for i, k in enumerate(keeps):
@@ -224,18 +219,88 @@ def build_substituter(cfg: dict):
 
         for src, dst in pairs:
             text = text.replace(src, dst)
-        for rx, dst in patterns:
+        for rx, dst in pats:
             text = rx.sub(dst, text)
-        for rx, dst in redact_pats:
-            text = rx.sub(dst, text)
-        for key in redact_keys:
-            text = re.sub(rf'(^\s*{re.escape(key)}\s*:\s*)\S.*$', r'\1CHANGEME', text, flags=re.M)
+        if extra is not None:
+            text = extra(text)
 
         for token, original in masks.items():
             text = text.replace(token, original)
         return text
 
-    return substitute
+    return rewrite
+
+
+def build_substituter(cfg: dict):
+    """The global rewrite: substitutions, then substitution_patterns, then the redactions."""
+    redact_pats = [(re.compile(r["pattern"]), r["replacement"])
+                   for r in (cfg.get("redact_patterns") or [])]
+    redact_keys = cfg.get("redact_keys") or []
+
+    def redact(text: str) -> str:
+        for rx, dst in redact_pats:
+            text = rx.sub(dst, text)
+        for key in redact_keys:
+            text = re.sub(rf'(^\s*{re.escape(key)}\s*:\s*)\S.*$', r'\1CHANGEME', text, flags=re.M)
+        return text
+
+    return _rewriter(cfg.get("keep") or [], cfg.get("substitutions"),
+                     cfg.get("substitution_patterns"), extra=redact)
+
+
+def _glob_rx(glob: str) -> re.Pattern:
+    """Compile one path glob. `**` crosses directory separators, `*` and `?` do not.
+
+    Hand-rolled rather than pathlib.glob or fnmatch: pathlib's `dir/**` yields directories
+    only, so a scope written that way matches no FILE at all, and fnmatch's `*` happily
+    crosses `/`. Both fail quietly in opposite directions.
+    """
+    out, i = [], 0
+    while i < len(glob):
+        c = glob[i]
+        if glob.startswith("**", i):
+            out.append(".*")
+            i += 2
+        elif c == "*":
+            out.append("[^/]*")
+            i += 1
+        elif c == "?":
+            out.append("[^/]")
+            i += 1
+        else:
+            out.append(re.escape(c))
+            i += 1
+    return re.compile("".join(out) + r"\Z")
+
+
+def build_path_substituters(cfg: dict, root: Path):
+    """Scoped rewrites: each entry's rules apply only to the files its globs match.
+
+    For strings too short or too common to rewrite everywhere -- a trigram that also occurs
+    inside base64 ciphertext, a bare four-digit extension an image digest can contain.
+    Globs match the repo-relative POSIX path inside the BUILT tree, so they see it as
+    delete_paths and blank_files left it.
+
+    Scoped sources are deliberately NOT added to verify()'s denylist: surviving outside the
+    scope is the point. That makes an empty glob invisible, so it is reported loudly here --
+    a rule matching nothing after a rename is sanitisation switching itself off.
+    """
+    files = [(p, p.relative_to(root).as_posix()) for p in iter_files(root)]
+    scopes = []
+    for entry in cfg.get("path_substitutions") or []:
+        matched: set[Path] = set()
+        for g in entry.get("paths") or []:
+            rx = _glob_rx(g)
+            hits = {p for p, rel in files if rx.match(rel)}
+            if not hits:
+                print(f"  WARNING  path_substitutions: '{g}' matched no file -- renamed or "
+                      "moved? Nothing was scoped-substituted for it.")
+            matched |= hits
+        if matched:
+            scopes.append((matched, _rewriter(cfg.get("keep") or [],
+                                              entry.get("substitutions"),
+                                              entry.get("patterns"))))
+    return scopes
 
 
 def convert_sops(path: Path) -> bool:
@@ -430,6 +495,11 @@ def main() -> int:
 
         print("== substitute")
         substitute = build_substituter(cfg)
+        # Scoped rules run AFTER the global ones, so a global rule still sees the
+        # original text: a trunk hostname is rewritten whole before any scoped rule for
+        # a bare word inside it could break it apart. Naming the real hostname here would
+        # make this comment rewrite itself.
+        scopes = build_path_substituters(cfg, tree)
         changed = 0
         skipped = []
         for p in iter_files(tree):
@@ -438,6 +508,9 @@ def main() -> int:
                 continue
             before = read_text_any(p)
             after = substitute(before)
+            for paths, scoped in scopes:
+                if p in paths:
+                    after = scoped(after)
             if after != before:
                 p.write_text(after, encoding="utf-8", newline="\n")
                 changed += 1

@@ -4,9 +4,9 @@
 apiVersion: v1
 kind: Secret
 metadata:
-    name: stalwart
-    namespace: stalwart
-type: Opaque
+    name: immich-album-federation-values
+    namespace: flux-system
 stringData:
-    config.json: CHANGEME-config.json
-    STALWART_RECOVERY_ADMIN: CHANGEME-STALWART_RECOVERY_ADMIN
+    IMMICH_FED_APIKEY_LHNS: CHANGEME-IMMICH_FED_APIKEY_LHNS
+    IMMICH_FED_APIKEY_MAX: CHANGEME-IMMICH_FED_APIKEY_MAX
+type: Opaque

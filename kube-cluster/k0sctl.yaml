@@ -12,6 +12,17 @@ spec:
       keyPath: ~/.ssh/id_rsa
     role: controller
     privateAddress: 10.20.2.52
+    # Same aliasing trick as the workers below: defined once, aliased on the other two
+    # controllers so the three cannot drift apart.
+    files: &controller-files
+    - name: authentication-config
+      src: k0s-files/authentication-config.yaml   # relative to this k0sctl.yaml's dir (kube-cluster/)
+      # /var/lib/k0s, not /etc/k0s: kube-apiserver runs as uid 986 and /etc/k0s is
+      # 0750 root:root, so it could not even traverse it. Every file the apiserver
+      # reads already lives here. 0644 matches konnectivity.conf; the file holds no
+      # secret, just an issuer URL and claim names.
+      dst: /var/lib/k0s/authentication-config.yaml
+      perm: "0644"
   - ssh:
       address: 10.20.2.53
       user: root
@@ -19,6 +30,7 @@ spec:
       keyPath: ~/.ssh/id_rsa
     role: controller
     privateAddress: 10.20.2.53
+    files: *controller-files
   - ssh:
       address: 10.20.2.54
       user: root
@@ -26,6 +38,7 @@ spec:
       keyPath: ~/.ssh/id_rsa
     role: controller
     privateAddress: 10.20.2.54
+    files: *controller-files
   - ssh:
       address: 10.20.2.72
       user: root
@@ -96,6 +109,10 @@ spec:
         api:
           k0sApiPort: 9443
           port: 6443
+          extraArgs:
+            # Authelia as an OIDC issuer. See k0s-files/authentication-config.yaml --
+            # this arg and any --oidc-* flag are mutually exclusive.
+            authentication-config: /var/lib/k0s/authentication-config.yaml
           sans:
             - kube.example.com
         storage:

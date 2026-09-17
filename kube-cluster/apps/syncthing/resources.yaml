@@ -111,7 +111,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: syncthing
-          image: syncthing/syncthing:2.1.3
+          image: syncthing/syncthing:2.1.5
           env:
             # Bind the GUI on all interfaces so Traefik can reach it (config.xml may
             # otherwise pin 127.0.0.1). syncthing keeps its own GUI login.

@@ -1,0 +1,34 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # MetalLB for the cheogram-sip-lb VIP (10.20.2.81); reflector because prosody in the
+    # snikket ns reads the same two component secrets; reloader so a secret rotation rolls
+    # the pod, since the config is rendered once at startup. app-snikket because the
+    # gateway is useless without the prosody components it connects to.
+    # Read by the root generator; inert to kustomize.
+    # app-matrix-substitution-secrets owns livekit-sip-trunk, which reflector mirrors
+    # here; render-config exits non-zero without it, so the pod will not start early.
+    dependsOn: infra-metallb,infra-reflector,infra-reloader,app-snikket,app-matrix-substitution-secrets
+resources:
+- resources.yaml
+- routing-release.yaml
+- secret-components.yaml
+- secret-registrations.yaml
+- vnet.yaml
+configMapGenerator:
+- name: cheogram-sip-env
+  namespace: cheogram-sip
+  envs:
+  - cheogram-sip.env
+# Overlaid onto a writable copy of the image's /etc/asterisk by the render-config
+# initContainer, because the entrypoint seds those files at startup.
+- name: cheogram-sip-config
+  namespace: cheogram-sip
+  files:
+  - sip.conf
+  - rtp.conf
+  - motif.conf
+  - extensions.lua
+  - logger.conf
+  - confbridge-matrix.conf

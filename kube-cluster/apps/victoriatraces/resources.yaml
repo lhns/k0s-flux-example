@@ -90,13 +90,19 @@ spec:
         runAsGroup: 0
       containers:
         - name: victoriatraces
-          image: victoriametrics/victoria-traces:v0.11.0
+          image: victoriametrics/victoria-traces:v0.11.1
           # Memory only, per apps/webtop/README.md -- a CPU limit would throttle, not protect.
+          # VictoriaTraces sizes its caches from the LIMIT (-memory.allowedPercent, 60% by
+          # default), so the limit is the working budget, not a ceiling it rarely touches.
+          # At 2Gi it OOMKilled roughly every 36 hours, and twice in 90 minutes while
+          # merging a backlog. An OOM restarts the container in place and never unmounts
+          # the CephFS volume, which is why it never took a node down; changing this block
+          # recreates the POD and does unmount, so apply it only while Ceph is healthy.
           resources:
             requests:
-              memory: 512Mi
+              memory: 1Gi
             limits:
-              memory: 2Gi
+              memory: 4Gi
           args:
             - -retentionPeriod=2
             - -storageDataPath=/victoria-traces-data
@@ -167,7 +173,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: otelcol
-          image: otel/opentelemetry-collector-contrib:0.160.0
+          image: otel/opentelemetry-collector-contrib:0.161.0
           resources:
             requests:
               memory: 128Mi

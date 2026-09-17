@@ -43,12 +43,38 @@ spec:
         name: headlamp
   values:
     config:
+      # Log in as yourself via Authelia instead of pasting a service-account token.
+      # The API server side of this lives in k0s-files/authentication-config.yaml;
+      # without it the login succeeds and every kube call is then rejected.
+      oidc:
+        # Issuer, client id, scopes and PKCE all live IN the secret, not here: with
+        # externalSecret on, the chart emits only `envFrom: secretRef` and drops the
+        # whole OIDC env block, so anything set here would be silently ignored.
+        externalSecret:
+          enabled: true
+          name: headlamp-oidc
+        # The chart otherwise creates its own empty Secret/oidc -- one already exists
+        # in the namespace from the default, and leaving this on gives you two.
+        secret:
+          create: false
       # Enables the Helm plugin in the UI — browse charts, install/upgrade/rollback
       enableHelm: true
       watchPlugins: true
       # Load our own plugin from a *separate* dir (see initContainers below).
       extraArgs:
         - "-user-plugins-dir=/headlamp/user-plugins"
+        # The chart wires only client-id, client-secret and issuer-url as flags, so every
+        # other OIDC setting has to be passed here -- an OIDC_* env var alone is read by
+        # nothing. Without this the scope defaults to profile,email: no `groups` claim, so
+        # RBAC bound to oidc:admin never matches.
+        #
+        # NO offline_access, deliberately. Headlamp retries a failed refresh on every API
+        # request with no backoff and never falls back to re-login, so once the refresh
+        # token expires an open tab hammers Authelia's token endpoint until its rate limit
+        # locks out every OIDC client, this one included. It also forces a consent screen
+        # that implicit consent does not suppress. The cost is re-login when the access
+        # token expires, which is what the tab did anyway -- just cleanly.
+        - "-oidc-scopes=openid,profile,email,groups"
     pluginsManager:
       enabled: true
       configContent: |

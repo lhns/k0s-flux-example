@@ -1,3 +1,4 @@
 .cache/
 kube-barman-creds.txt
 .claude/
+__pycache__/

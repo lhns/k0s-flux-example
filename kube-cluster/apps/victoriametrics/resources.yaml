@@ -93,11 +93,25 @@ spec:
         runAsGroup: 0
       containers:
         - name: victoriametrics
-          image: victoriametrics/victoria-metrics:v1.151.0
+          image: victoriametrics/victoria-metrics:v1.152.0
           args:
-            - -retentionPeriod=12
+            # 24 months. Raised from 12 for two reasons: the cluster is the long-term
+            # store now, and vmstorage DROPS any sample older than this on ingest
+            # (vm_rows_ignored_total{reason="small_timestamp"}), so a backfill window
+            # wider than the retention silently loses its oldest chunks. Keep both
+            # victoriametrics stores on the same value while the migration runs -- the
+            # source ages out history that has not been copied yet.
+            - -retentionPeriod=24
             - -maxLabelsPerTimeseries=50
             - -search.cacheTimestampOffset=15m
+            # vmctl's explore step enumerates __name__ over the whole chunk, which is a
+            # /api/v1/label/.../values call -- bounded by maxLabelsAPIDuration (default 5s),
+            # NOT by maxQueryDuration. On this HDD 5s covers an hour chunk, and a day or
+            # week only while the index partition is still hot; older partitions blow it and
+            # the migration aborts mid-run. Both are raised: the labels one is what actually
+            # gates the explore, the query one bounds the export that follows.
+            - -search.maxLabelsAPIDuration=15m
+            - -search.maxQueryDuration=15m
             - -maxLabelValueLen=8192
             - -storageDataPath=/victoria-metrics-data
             # Without this VM sizes its caches to 60% of whatever it can see, and with no
@@ -123,7 +137,7 @@ spec:
             requests:
               memory: 8Gi
             limits:
-              memory: 10Gi
+              memory: 20Gi
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -180,7 +194,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: otelcol
-          image: otel/opentelemetry-collector-contrib:0.160.0
+          image: otel/opentelemetry-collector-contrib:0.161.0
           resources:
             requests:
               memory: 256Mi
@@ -241,7 +255,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: otelcol
-          image: otel/opentelemetry-collector-contrib:0.160.0
+          image: otel/opentelemetry-collector-contrib:0.161.0
           # recovery exporter: dormant at replicas 0, sized for when it is scaled up
           resources:
             requests:

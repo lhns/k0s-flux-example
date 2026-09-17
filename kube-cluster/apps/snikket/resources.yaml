@@ -71,6 +71,9 @@ spec:
         # `snikket` listed in apps/lldap/vnet.yaml allowedNamespaces - the label
         # alone does nothing.
         kube-vnet/net.lldap.lldap: egress
+        # apps/cheogram-sip reaches prosody's external-component port (5347).
+        # Needs BOTH this label and cheogram-sip listed in vnet.yaml.
+        kube-vnet/net.snikket-component: ingress
     spec:
       # The images read SNIKKET_* from the environment; injected <SVC>_PORT vars
       # would collide with prosody's own expectations.
@@ -96,14 +99,30 @@ spec:
                 secretKeyRef:
                   name: snikket-ldap
                   key: LDAP_BIND_PASSWORD
+            # Read by sip.cfg.lua as ENV_SIP_COMPONENT_SECRET / ENV_ASTERISK_COMPONENT_SECRET.
+            # Mirrored from the cheogram-sip ns by reflector, so the gateway and prosody
+            # cannot drift apart on a rotation.
+            - name: SIP_COMPONENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: cheogram-sip-components
+                  key: SIP_COMPONENT_SECRET
+            - name: ASTERISK_COMPONENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: cheogram-sip-components
+                  key: ASTERISK_COMPONENT_SECRET
           ports:
             - {name: c2s, containerPort: 5222, protocol: TCP}
             - {name: s2s, containerPort: 5269, protocol: TCP}
             - {name: proxy65, containerPort: 5000, protocol: TCP}
+            # External components. Reachable only from apps/cheogram-sip via kube-vnet;
+            # deliberately absent from every IngressRoute and VIP.
+            - {name: component, containerPort: 5347, protocol: TCP}
           volumeMounts:
             - {name: data, mountPath: /snikket}
             - {name: certs, mountPath: /snikket/letsencrypt/live/xmpp.example.com, readOnly: true}
-            - {name: ldap-config, mountPath: /etc/snikket-extra, readOnly: true}
+            - {name: extra-config, mountPath: /etc/snikket-extra, readOnly: true}
             # subPath, NOT a directory mount: /etc/prosody/modules holds 68
             # symlinks into prosody-modules, and mounting over the directory
             # would shadow every one of them and break the server. The cost of
@@ -173,9 +192,9 @@ spec:
             claimName: snikket-data
         - name: acme-challenges
           emptyDir: {}
-        - name: ldap-config
+        - name: extra-config
           configMap:
-            name: snikket-ldap-config
+            name: snikket-extra-config
         - name: ldap-module
           configMap:
             name: snikket-ldap-module
@@ -214,3 +233,4 @@ spec:
     - {name: c2s, port: 5222, targetPort: c2s, protocol: TCP}
     - {name: s2s, port: 5269, targetPort: s2s, protocol: TCP}
     - {name: proxy65, port: 5000, targetPort: proxy65, protocol: TCP}
+    - {name: component, port: 5347, targetPort: component, protocol: TCP}

@@ -1,0 +1,22 @@
+# livekit-sip. No credentials here: api_key/api_secret/ws_url come from
+# LIVEKIT_API_KEY/LIVEKIT_API_SECRET/LIVEKIT_WS_URL, which override the file, so this
+# stays a reviewable ConfigMap rather than a fourth SOPS blob.
+redis:
+  # MUST be the same store the SFU uses; that is what they coordinate over.
+  # livekit itself is pointed at it with --redis-host, see resources.yaml.
+  address: livekit-redis.matrix.svc.cluster.local:6379
+
+# Both SIP legs are in-cluster (Asterisk in cheogram-sip), so nothing here is ever
+# reached from the internet and there is no NAT to traverse. Left at the default,
+# the service STUNs out and advertises the public address in SDP, which no pod can
+# route to -- signalling would succeed and audio would silently go nowhere.
+use_external_ip: false
+media_use_external_ip: false
+
+sip_port: 5060
+# Distinct from Asterisk's 10000-10049 only so a packet capture is legible. The two
+# are separate pods with separate addresses, so an overlap would work fine.
+rtp_port: 30000-30049
+
+health_port: 8081
+log_level: info

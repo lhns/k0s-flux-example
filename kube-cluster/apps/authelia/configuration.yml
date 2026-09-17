@@ -101,6 +101,17 @@ server:
     ## Enables the expvars endpoint.
     # enable_expvars: false
 
+    ## Endpoint rate limits.
+    ## Buckets key on source IP alone and LAN traffic hairpins through the router, so all 23
+    ## OIDC clients share one bucket — sized below for that, not for one client. Only non-200
+    ## responses consume a token. `period` is the refill interval for ONE request (under 10s
+    ## is a startup error) and `requests` the burst. 2FA/password-reset limiters stay default.
+    rate_limits:
+      openid_connect_token:
+        buckets:
+          - period: '10 seconds'
+            requests: 300
+
     ## Configure the authz endpoints.
     authz:
       forward-auth:
@@ -854,7 +865,7 @@ access_control:
 
     - domain:
         - '*.example.com'
-        - '*.jnksh2nlnot4lserebfnezkwp2ayzg6jhftp6ffe7zstu6fxresb23id.onion'
+        - '*.exampleonionaddressxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.onion'
       subject:
         - 'group:admin'
       policy: 'two_factor'
@@ -1030,7 +1041,7 @@ session:
 
       ## The domain to protect.
       ## Note: the Authelia portal must also be in that domain.
-      domain: 'jnksh2nlnot4lserebfnezkwp2ayzg6jhftp6ffe7zstu6fxresb23id.onion'
+      domain: 'exampleonionaddressxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.onion'
 
       ## Required. The fully qualified URI of the portal to redirect users to on proxies th>
       ## Rules:
@@ -1038,7 +1049,7 @@ session:
       ##   - The above 'domain' option MUST either:
       ##      - Match the host portion of this URI.
       ##      - Match the suffix of the host portion when prefixed with '.'.
-      authelia_url: 'https://auth.jnksh2nlnot4lserebfnezkwp2ayzg6jhftp6ffe7zstu6fxresb23id.onion'
+      authelia_url: 'https://auth.exampleonionaddressxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.onion'
 
   ## Cookie Session Domain default 'name' value.
   name: 'authelia_session'
@@ -1625,6 +1636,14 @@ identity_providers:
             subject:
               - 'group:admin'
               - 'group:outline'
+      # Headlamp maps the groups in this token onto Kubernetes RBAC (oidc: prefix), so this
+      # policy decides who can get a cluster identity at all. Keep it to admin.
+      headlamp:
+        default_policy: 'deny'
+        rules:
+          - policy: 'two_factor'
+            subject:
+              - 'group:admin'
 
     ## The lifespans configure the expiration for these token types in the duration common syntax. In addition to this
     ## syntax the lifespans can be customized per-client.
@@ -1688,7 +1707,7 @@ identity_providers:
     clients:
       - client_id: 'immich'
         client_name: 'immich'
-        client_secret: '$pbkdf2-sha512$310000$AR9FL9JrfMi8UXgicxfEFA$Yo.M8yb5por4LVWEEghOX3l/eO8/5BZ4x68f2HZve91oDRvhUfo.JrHEk0hZueuykjdhrrcgbLKpne8yTGTjBQ'
+        client_secret: 'CHANGEME-password-hash'
         public: false
         authorization_policy: 'immich'
         redirect_uris:
@@ -1716,7 +1735,7 @@ identity_providers:
         #claims_policy: 'default'
       - client_id: 'mealie'
         client_name: 'Mealie'
-        client_secret: '$pbkdf2-sha512$310000$PZyP4wBybISDHYzxIIMwbA$N2QgYNMjw3E7Woe6rm5rr6yOupXcyC1TbZqOOPOJwlkJBcZDvJ20KH5ozb1FKY6R7jWsBl0QapZe93zU2knzlQ'
+        client_secret: 'CHANGEME-password-hash'
         public: false
         authorization_policy: 'mealie'
         require_pkce: true
@@ -1734,7 +1753,7 @@ identity_providers:
         claims_policy: 'default'
       - client_id: 'inventree'
         client_name: 'InvenTree'
-        client_secret: '$pbkdf2-sha512$310000$AHZCqFUrcTHF77YUrZ8YJg$N7MMj658nVtA2nXL7gvL7MsKMT7leP5VFzJ9i1ufbp5s942x0An4RRXPjaUtyOGNDdol.SxRvpbehS3RHZSB7Q'
+        client_secret: 'CHANGEME-password-hash'
         public: false
         redirect_uris:
           - 'https://inventree.example.com/accounts/authelia/login/callback/'
@@ -1750,7 +1769,7 @@ identity_providers:
       - client_id: 'guacamole'
         client_name: 'Guacamole'
         public: false
-        client_secret: '$pbkdf2-sha512$310000$Jel/TtlYVUjEi1ISlAF7fQ$WSnfAOTXUOLmX8WXhhgTnHqe6vVNYwDOnSescInu5tYaHt0Bu0EN9oeX/q/3Y7GDmKhwYfejfdNHTXgSUI84HQ'
+        client_secret: 'CHANGEME-password-hash'
         redirect_uris:
           - 'https://guacamole.example.com'
           - 'https://guacamole.kube.example.com'
@@ -1769,7 +1788,7 @@ identity_providers:
         claims_policy: 'default'
       - client_id: 'semaphore'
         client_name: 'Semaphore'
-        client_secret: '$pbkdf2-sha512$310000$/JwNeco3MciVIhpQi1yDow$PTozu11OCZjEClDJj20rG1Wszz2bEuI5CPZ87a92chzYJ19ohnOfvKxAvFG.8iLqedEOuWrkezoKYoA/gu4cmQ'
+        client_secret: 'CHANGEME-password-hash'
         public: false
         redirect_uris:
           - 'https://semaphore.example.com/api/auth/oidc/mysso/redirect'
@@ -1784,7 +1803,7 @@ identity_providers:
         claims_policy: 'default'
       - client_id: 'portainer'
         client_name: 'Portainer'
-        client_secret: '$pbkdf2-sha512$310000$P.1FEtje/1HaJoIvuZIRKA$9qTnIZsRrhgVB6XQwLSQmMuP66g398Tad9OIz4AhyrSU6BTcWj80ynYTrZ9SVcc.i2Hroi75NpG5.Nl2y3ObHA'
+        client_secret: 'CHANGEME-password-hash'
         public: false
         redirect_uris:
           - 'https://portainer.example.com'
@@ -1811,7 +1830,7 @@ identity_providers:
       # its own per-group membership.
       - client_id: 'spliit'
         client_name: 'Spliit'
-        client_secret: '$pbkdf2-sha512$310000$P18nqNt8UsUrYicBxx7.Vg$5U2QzbmU7i1ajO3HETv/aYCYND58kFRiuhH/MZOXzywhwkDcqHY/k2jRFK0YguEVlTpP5SAwjrBXwfnh36nCxA'
+        client_secret: 'CHANGEME-password-hash'
         public: false
         require_pkce: true
         pkce_challenge_method: 'S256'
@@ -1833,7 +1852,7 @@ identity_providers:
         claims_policy: 'default'
       - client_id: 'grafana'
         client_name: 'Grafana'
-        client_secret: '$pbkdf2-sha512$310000$uAbSuKWuWENfUCHfTipULg$JSeHsNYMDORyst1lQkJ9ZNCrLR3hNwQbtqFaibmP3U7OOdU28I9AzWxbD8joT9Jb8kqN.oBnt/p57ePtIhApSA'
+        client_secret: 'CHANGEME-password-hash'
         public: false
         require_pkce: true
         pkce_challenge_method: 'S256'
@@ -1852,7 +1871,7 @@ identity_providers:
         claims_policy: 'default'
       - client_id: 'homeassistant'
         client_name: 'Home Assistant'
-        client_secret: '$pbkdf2-sha512$310000$1/YPls1jzh799Wpra56k/g$rFhxthup8FPYJRmpeiAPIqiTeuWviirb//eNQN7gXl9HPOo9MhIv5ELGNlocqIYD8LUi0h9w/xbvhJRuG9qlLw'
+        client_secret: 'CHANGEME-password-hash'
         public: false
         require_pkce: true
         pkce_challenge_method: 'S256'
@@ -1881,7 +1900,7 @@ identity_providers:
         claims_policy: 'default'
       - client_id: 'gitea'
         client_name: 'Gitea'
-        client_secret: '$pbkdf2-sha512$310000$OW62kjaiUO7In4cF3jnDWA$OrCaiKvCnOiBIV7pVj9x9HYiABekV8PiWtZOZnoPJW4CnYP99MpQP4t0IjXpIt3PJZl9xdodD5oTtdkMh5tNEw'
+        client_secret: 'CHANGEME-password-hash'
         public: false
         authorization_policy: 'gitea'
         redirect_uris:
@@ -1912,7 +1931,7 @@ identity_providers:
       # possible.
       - client_id: 'forgejo'
         client_name: 'Forgejo'
-        client_secret: '$pbkdf2-sha512$310000$7E68mZzUfGAslWH4UQB9tQ$gP8vozcdwWTaEwjsyuzgQQMXwbxXovJl353C73J/i3d9Z.XoHc42acLT6Wnv/UukSpVt4oSqws1QkNSbVpuIyg'
+        client_secret: 'CHANGEME-password-hash'
         public: false
         authorization_policy: 'forgejo'
         redirect_uris:
@@ -1929,7 +1948,7 @@ identity_providers:
         claims_policy: 'default'
       - client_id: 'proxmox'
         client_name: 'Proxmox'
-        client_secret: '$pbkdf2-sha512$310000$wtdyD4r8xsjyJ9sqcgRoFA$MVkB1tVYTHoY7uK8MiCr4pDzvRm1NvNP3LAQNdUyRmSk8r0rw0wnY0FNTRQxZXmNOVbQVlC.h3qttjB3If2.UA'
+        client_secret: 'CHANGEME-password-hash'
         public: false
         authorization_policy: 'proxmox'
         require_pkce: true
@@ -1944,7 +1963,7 @@ identity_providers:
         consent_mode: 'implicit'
       - client_id: 'jellyfin'
         client_name: 'Jellyfin'
-        client_secret: '$pbkdf2-sha512$310000$OrO4ZEhe8AkdPLNdkBT7tA$6xoFz53ScWq06l7AbH0AFnS5AEq1Z7N.oo4MoQwMvhcRVX.Z4HTN3zIymJprc6uBPr0CChUlcsD1ATaFM56mAg'
+        client_secret: 'CHANGEME-password-hash'
         public: false
         authorization_policy: 'jellyfin'
         require_pkce: true
@@ -1966,7 +1985,7 @@ identity_providers:
         consent_mode: 'implicit'
       - client_id: 'synapse'
         client_name: 'Synapse'
-        client_secret: '$pbkdf2-sha512$310000$VuzyNW7sqNrwU.XIbkCQeA$SGH5sbrjYw1oTuiwEXy2wULVQ0XpmvwOyhyz/IBmW9dOSLdxCsVzahV974kaNyWArYJ55pJo8PMHQNncyAbJNQ'
+        client_secret: 'CHANGEME-password-hash'
         public: false
         redirect_uris:
           - 'https://matrix.example.com/_synapse/client/oidc/callback'
@@ -1983,7 +2002,7 @@ identity_providers:
         consent_mode: 'implicit'
       - client_id: "mas"
         client_name: Matrix
-        client_secret: "$pbkdf2-sha512$310000$7qe6cAQ3lxNUW3/WYw0qRA$GdHsUuB2wCaVQa.76R2kh2GH6pDxRdNiC0IWpdlS/uZyuAs/kc6Z3SCI.2Oie8JaoZ/hDMzNmwthpxza5y4pSg"
+        client_secret: "CHANGEME-password-hash"
         public: false
         redirect_uris:
           - https://mas.example.com/upstream/callback/01K9APM3HFCHNVCGRXSHPVHYFQ
@@ -2003,7 +2022,7 @@ identity_providers:
         consent_mode: 'implicit'
       - client_id: 'sftpgo'
         client_name: 'SFTPGo'
-        client_secret: '$pbkdf2-sha512$310000$VxWiVNkmfWCtZ9.SWjZq3g$svZQ7QDOMewsjz6QO6CvrZxvYRAxgi67m.2Yas4eAj89HXs50A5KIa9sW9/621giDGX7YWTf9BqoJlTHc2EDlA'
+        client_secret: 'CHANGEME-password-hash'
         public: false
         authorization_policy: 'sftpgo'
         claims_policy: 'sftpgo'
@@ -2033,7 +2052,7 @@ identity_providers:
         consent_mode: 'implicit'
       - client_id: 'vaultwarden'
         client_name: 'Vaultwarden'
-        client_secret: '$pbkdf2-sha512$310000$lh2TR/nQad6EPGAyiefrAw$pxMX4hUSr6FEkLVVmZ8hRtzMnstRxBUQRLFM278hG72yHjVhdG/h2tron5IguwDcpdRYZTxa3pnhiFFiMdkfaQ'
+        client_secret: 'CHANGEME-password-hash'
         public: false
         authorization_policy: 'vaultwarden'
         require_pkce: true
@@ -2058,7 +2077,7 @@ identity_providers:
         consent_mode: 'implicit'
       - client_id: 'homebox'
         client_name: 'HomeBox'
-        client_secret: '$pbkdf2-sha512$310000$gtmYJ6KJT/qfqJDp.ZX11w$xAiYkLjOlZGiABfJ7dh/3IFVCWFGTMYY3Lrzs6njRNPOny0gI95ZeBX8DzZvHEauTC7Bi8FMx.zl0IVx1OrvLQ'
+        client_secret: 'CHANGEME-password-hash'
         public: false
         authorization_policy: 'homebox'
         claims_policy: 'default'
@@ -2075,7 +2094,7 @@ identity_providers:
         consent_mode: 'implicit'
       - client_id: 'outline'
         client_name: 'Outline'
-        client_secret: '$pbkdf2-sha512$310000$gNn.oxcRivKEDSPs2FLbrA$8Ce3wHMUd54osN0mtwBS4dhhSTHCApGnXuh7nIGOS.Wl3PEDWeKoNhiN4k.E3INmtyAvDP4/mLfE7CtVtOUTbA'
+        client_secret: 'CHANGEME-password-hash'
         public: false
         authorization_policy: 'outline'
         require_pkce: false
@@ -2099,7 +2118,7 @@ identity_providers:
         consent_mode: 'implicit'
       - client_id: 'homarr'
         client_name: 'Homarr'
-        client_secret: '$pbkdf2-sha512$310000$w4uH2YzpocjKkFkH1urB/w$.liruPNF/aeGqZVDf4wd8v/W3AqMw2w692VsobHvV5uMmyFcBa/lHK5QJhQ3aRRJ68mfn8za3WGYDPvDzSKueg'
+        client_secret: 'CHANGEME-password-hash'
         public: false
         authorization_policy: 'one_factor'
         require_pkce: false
@@ -2145,7 +2164,7 @@ identity_providers:
         consent_mode: 'implicit'
       - client_id: 'stalwart'
         client_name: 'Stalwart'
-        client_secret: '$pbkdf2-sha512$310000$x.tpz.kvImAIcZ5jqo8d9w$N7KJMBNipuNMUPKYTEi73QMcwTWZSf1UuTaPk0QPtODU0lo7wnMZ8xNiymRyaLyVF5ughPCr2s5piI4bZweZBQ'
+        client_secret: 'CHANGEME-password-hash'
         public: false
         authorization_policy: 'two_factor'
         require_pkce: true
@@ -2172,7 +2191,7 @@ identity_providers:
         consent_mode: 'implicit'
       - client_id: galley
         client_name: Galley
-        client_secret: '$pbkdf2-sha512$310000$eBOoEY0P3poNhoag2gGmmA$KDm.VsJoyR.hfvlcJd4Y.tu0XAwVjCyd5.H3Qu2aNumVkfIbDiFmNBuYV8r0PDWh2OqyDGD0G2NihJRJkTlZ7g'
+        client_secret: 'CHANGEME-password-hash'
         public: false
         authorization_policy: one_factor
         redirect_uris:
@@ -2186,6 +2205,44 @@ identity_providers:
         userinfo_signed_response_alg: none
         token_endpoint_auth_method: client_secret_basic
         consent_mode: 'implicit'
+      # Headlamp. The id_token from this client is sent verbatim to the kube-apiserver, which
+      # maps preferred_username and groups onto RBAC -- so claims_policy must be one that puts
+      # both in the ID TOKEN, not only on /userinfo, or every login lands with no groups.
+      #
+      # offline_access and the refresh_token grant are load-bearing: the id_token lasts an hour
+      # and Headlamp's session is 24, so without a refresh token the UI dies mid-session.
+      - client_id: 'headlamp'
+        client_name: 'Headlamp'
+        # yamllint disable-line rule:line-length
+        client_secret: 'CHANGEME-password-hash'
+        public: false
+        authorization_policy: 'headlamp'
+        # Headlamp sends no code_challenge even with OIDC_USE_PKCE=true, so any PKCE
+        # enforcement rejects the authorize request outright. Both lines matter:
+        # setting pkce_challenge_method alone effectively turns require_pkce back on,
+        # so it has to be absent, not just paired with require_pkce: false.
+        require_pkce: false
+        redirect_uris:
+          - 'https://headlamp.kube.example.com/oidc-callback'
+        scopes:
+          - 'openid'
+          - 'profile'
+          - 'email'
+          - 'groups'
+        # No offline_access and no refresh_token grant: Headlamp retries a failed refresh on
+        # every API request forever, which exhausts the token endpoint's rate limit and locks
+        # out every client. offline_access also forces a consent screen implicit mode does not
+        # suppress. See apps/headlamp/release.yaml.
+        grant_types:
+          - 'authorization_code'
+        # Declaring grant_types stops Authelia defaulting response_types.
+        response_types:
+          - 'code'
+        userinfo_signed_response_alg: 'none'
+        # Headlamp puts the credentials in the POST body, not an Authorization header.
+        token_endpoint_auth_method: 'client_secret_post'
+        consent_mode: 'implicit'
+        claims_policy: 'default'
      #- ## The Client ID is the OAuth 2.0 and OpenID Connect 1.0 Client ID which is used to link an application to a
         ## configuration.
         #client_id: 'example'
@@ -2195,7 +2252,7 @@ identity_providers:
 
         ## The client secret is a shared secret between Authelia and the consumer of this client.
         # yamllint disable-line rule:line-length
-        #client_secret: '$pbkdf2-sha512$310000$c8p78n7pUMln0jzvd4aK4Q$JNRBzwAo0ek5qKn50cFzzvE9RXV88h1wJn5KGiHrD0YKtZaR/nCb2CJPOsKaPK0hjf.9yHxzQGZziziccp6Yng'  # The digest of 'insecure_secret'.
+        #client_secret: 'CHANGEME-password-hash'  # The digest of 'insecure_secret'.
 
         ## Sector Identifiers are occasionally used to generate pairwise subject identifiers. In most cases this is not
         ## necessary. It is critical to read the documentation for more information.

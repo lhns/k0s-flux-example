@@ -218,12 +218,49 @@ kubectl get node <node>
 kubectl get pods -A -o wide | grep -E "<node>.*(nodeplugin|Crash|Error)"
 ```
 
-> Kernel caveat: before 6.12.105, unmounting a CephFS volume on these nodes can
-> hit `kernel BUG at fs/super.c:650` ("Busy inodes after unmount of ceph") and
-> panic the machine instantly — `last` shows `crash`, never a clean shutdown.
-> Since draining unmounts every volume it evicts, a drain on an older kernel can
-> kill the node mid-drain. Confirm `uname -r` is >= 6.12.105 before relying on a
-> graceful drain.
+> **Kernel caveat: unmounting CephFS can panic the node, and NO kernel fixes it.**
+> `kernel BUG at fs/super.c:650` ("Busy inodes after unmount of ceph"), always preceded by
+> `ceph: [...]: umount timed out, 0`. The machine dies instantly; `last -x` shows `crash`.
+>
+> `ceph_kill_sb()` waits at most `mount_timeout` (default 60s) for in-flight OSD requests,
+> then abandons them and calls `kill_anon_super()` with inodes still referenced. Mainline
+> still contains that bounded wait, so there is nothing to upgrade into. Ceph trackers
+> [#79149](https://tracker.ceph.com/issues/79149) and
+> [#74156](https://tracker.ceph.com/issues/74156) are open but stalled; the one patch
+> targeting this mechanism stalled in April on a design disagreement. Nothing is filed with
+> Debian. It is NOT CVE-2026-89646 -- that was introduced in 6.15 and Debian marks trixie
+> `<not-affected>`.
+>
+> This file previously claimed 6.12.105 fixed it. That traces to `cbf59617` ("fix
+> writeback_count leak"), one of three `fs/ceph` commits in 6.12.105, whose changelog says a
+> leak "can prevent the filesystem from cleanly unmounting" -- right release, wrong bug.
+>
+> **Do not move to trixie-backports.** 7.1.8 keeps this bug and adds CVE-2026-89646, whose
+> fix exists in no Debian suite.
+>
+> **In practice:** it is not only draining. Deleting or restarting ANY pod with a CephFS
+> volume can panic its node. `umount timed out` has a 100% fatality rate here -- 18
+> occurrences across all retained journals, 18 dead nodes, no survivals. So let a stuck pod
+> stay stuck until Ceph is healthy rather than restarting it to "clear" the problem, and
+> prefer an in-place container restart (`kubectl exec ... -- kill 1`), which re-execs the
+> process without ever calling NodeUnstageVolume.
+>
+> `Aborted: operation with the given Volume ID already exists` afterwards is the volume lock
+> held by the original hang -- a symptom, not a second fault.
+
+### Not every node crash is that bug
+
+Of 32 crashes in the retained journals (back to 2026-04-29), **17 carry the CephFS
+signature** and **14 are abrupt cutoffs with no kernel output at all** -- no BUG, no Oops, no
+hung task, no OOM, no MCE. These are QEMU guests, so a silent cutoff means the host reset
+them; it is not a guest fault and no amount of CephFS work will prevent it.
+
+Three of those 14 are a **single site-wide power event** on 2026-09-13: kube-worker-02 stops
+at 19:44:29, kube-worker-04 at 19:46:04, kube-worker-03 at 19:46:31, **and the jumphost
+rebooted at 00:44** -- all back roughly five hours later.
+
+Do not attribute a crash to the kernel bug without checking for `umount timed out` in
+`journalctl -b -1 -k` (needs sudo on the node; `lhns` is not in `adm`/`systemd-journal`).
 
 ## Testing the generator chart
 

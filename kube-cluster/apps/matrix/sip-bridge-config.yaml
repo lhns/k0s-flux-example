@@ -1,0 +1,274 @@
+# matrix-sip-bridge. Site config for the mxmain binary, mounted read-only and
+# passed with -c -n, so nothing here is ever rewritten by the config upgrader.
+#
+# Plaintext, with the credentials as substitution placeholders Flux fills from
+# substitution-secrets/. The generator turns this into a SECRET, not a ConfigMap -- see the
+# as-secret annotation in kustomization.yaml. Drop it and the tokens below are applied in
+# the clear.
+#
+# A dollar-brace in a COMMENT here is not inert: envsubst reads the whole file and fails
+# the reconcile on anything it cannot parse as a variable name.
+#
+# The appservice token pair is the same two variables as registrations/sip.yaml: rotate one
+# side alone and Synapse answers 403 to every transaction.
+network:
+    sip:
+        listen: 0.0.0.0:5060
+        # tcp, not udp: a SIP MESSAGE that overflows a UDP datagram is dropped
+        # with no error at either end.
+        transport: tcp
+        # What Asterisk must be able to reach, so the Service address and not the
+        # pod's. Also the host resolved once at startup for the SDP c= line.
+        public_address: matrix-sip-bridge.matrix.svc.cluster.local:5060
+        # Identity is sip:<username>@<domain>, and the user part MUST equal the
+        # peer name in apps/cheogram-sip/sip.conf: chan_sip matches our
+        # unauthenticated requests on the From user part.
+        username: matrixbridge
+        domain: example.com
+        media_address: ""
+        media_port: 40000
+        conference_header: X-Conference
+        # Who placed the call, for the dialplan to apply its own policy to. It is a claim,
+        # trusted only as far as this peer is; extensions.lua builds the scheme itself.
+        caller_header: X-Matrix-Caller
+        # Static peer, per the bridge README's SIP server contract. sip.conf
+        # pins host= to our Service, so there is nothing to register.
+        register:
+            enabled: false
+            server: ""
+            password: ""
+            expiry: 5m
+    messages:
+        enabled: true
+        outbound_to: sip:{number}@cheogram-sip-internal.cheogram-sip.svc.cluster.local:5060
+        outbound_from: ""
+        max_length: 1600
+    calls:
+        # Both directions carry real calls: the dialplan rings the bridge
+        # alongside XMPP on an inbound call, and the matrixbridge context
+        # routes one a Matrix user places.
+        enabled: true
+        conference_prefix: sip-
+        outbound_uri: sip:{number}@cheogram-sip-internal.cheogram-sip.svc.cluster.local:5060
+        membership_expiry: 6h
+        # A backstop against a wedged dialplan, not ring policy: the cheogram-sip
+        # call plan owns how long a phone rings, and this must stay above its total.
+        ring_timeout: 300s
+        # The only signal a call ended: the bridge drops its own SIP leg once the caller is
+        # in the conference, so teardown lags by up to one interval.
+        participant_poll_interval: 3s
+        livekit:
+            url: http://livekit.matrix.svc.cluster.local:7880
+            jwt_service_url: "https://matrix-rtc.example.com/livekit/jwt"
+            api_key: ${LIVEKIT_KEY}
+            api_secret: ${LIVEKIT_SECRET}
+            timeout: 30s
+            trunk_name: matrix-sip-bridge
+            trunk_address: cheogram-sip-internal.cheogram-sip.svc.cluster.local:5060
+            trunk_number: "livekit"
+            trunk_auth_username: "livekit"
+            trunk_auth_password: "${LIVEKIT_SIP_TRUNK_PASSWORD}"
+            trunk_reconcile_interval: 5m
+bridge:
+    command_prefix: "!sip"
+    personal_filtering_spaces: true
+    private_chat_portal_meta: true
+    async_events: false
+    split_portals: false
+    resend_bridge_info: false
+    no_bridge_info_state_key: false
+    bridge_status_notices: errors
+    transient_state_debounce: 0s
+    # Null is the default and means a dead SIP transport is never recovered: the
+    # pod stays 1/1 Running with no endpoint. See CLAUDE.md.
+    unknown_error_auto_reconnect: 1m
+    unknown_error_max_auto_reconnects: 10
+    bridge_matrix_leave: false
+    bridge_notices: false
+    tag_only_on_create: true
+    only_bridge_tags: [m.favourite, m.lowpriority]
+    mute_only_on_create: true
+    deduplicate_matrix_messages: false
+    cross_room_replies: false
+    revert_failed_state_changes: false
+    kick_matrix_users: true
+    enable_send_state_requests: false
+    phone_numbers_in_profile: false
+    cleanup_on_logout:
+        enabled: false
+        manual:
+            private: nothing
+            relayed: nothing
+            shared_no_users: nothing
+            shared_has_users: nothing
+        bad_credentials:
+            private: nothing
+            relayed: nothing
+            shared_no_users: nothing
+            shared_has_users: nothing
+    # There is one SIP endpoint and no per-user account, so every Matrix user
+    # reaches it through the single `sip` login. Without relay the bridge starts,
+    # logs a warning and silently drops everyone else's messages.
+    relay:
+        enabled: true
+        admin_only: true
+        prefer_default: true
+        allow_bridge: true
+        default_relays: [sip]
+        user_distinguishers: ["\U0001F7E6", "\U0001F7E3", "\U0001F7E9", "\u2B55\uFE0F", "\U0001F536", "\u2B1B\uFE0F", "\U0001F535", "\U0001F7E2"]
+        # Blank on purpose: the far end is SMS, and a "<name>: " prefix on every
+        # message wastes a length-limited segment.
+        message_formats:
+            m.text: "{{ .Message }}"
+            m.notice: "{{ .Message }}"
+            m.emote: "{{ .Message }}"
+            m.file: "{{ .Message }}"
+            m.image: "{{ .Message }}"
+            m.audio: "{{ .Message }}"
+            m.video: "{{ .Message }}"
+            m.location: "{{ .Message }}"
+        displayname_format: "{{ .DisambiguatedName }}"
+    portal_create_filter:
+        mode: deny
+        list: []
+        always_deny_from_login: []
+    permissions:
+        "*": relay
+        "example.com": user
+        "@admin:example.com": admin
+database:
+    type: postgres
+    # Shared `matrix` role, own database (database.yaml). sslmode=require
+    # encrypts without validating the cert, which CNPG's self-signed CA fails.
+    # postgres-rw, not the pooler: nothing in this tree uses the pooler.
+    uri: postgres://matrix:${MATRIX_SIP_DB_PASSWORD}@postgres-rw.postgres.svc.cluster.local:5432/sip-bridge?sslmode=require
+    max_open_conns: 5
+    max_idle_conns: 1
+    max_conn_idle_time: null
+    max_conn_lifetime: null
+homeserver:
+    # In-cluster client-server API. Never matrix.example.com: that hop would leave
+    # the pod network and come back in through Traefik.
+    address: http://synapse.matrix.svc.cluster.local:8008
+    domain: example.com
+    software: standard
+    status_endpoint:
+    message_send_checkpoint_endpoint:
+    async_media: false
+    websocket: false
+    ping_interval_seconds: 0
+    retry_limit: 4
+appservice:
+    # Must match registrations/sip.yaml, which Synapse has already loaded.
+    address: http://matrix-sip-bridge:29337
+    public_address: https://matrix.example.com
+    hostname: 0.0.0.0
+    port: 29337
+    id: sip
+    bot:
+        username: sipbot
+        displayname: SIP bridge bot
+        avatar: ""
+    ephemeral_events: true
+    async_transactions: false
+    as_token: ${MATRIX_SIP_AS_TOKEN}
+    hs_token: ${MATRIX_SIP_HS_TOKEN}
+    username_template: sip_{{.}}
+matrix:
+    message_status_events: false
+    delivery_receipts: false
+    message_error_notices: true
+    sync_direct_chat_list: true
+    federate_rooms: true
+    upload_file_threshold: 5242880
+    ghost_extra_profile_info: false
+analytics:
+    token: null
+    url: https://api.segment.io/v1/track
+    user_id: null
+provisioning:
+    # Nothing provisions this bridge over HTTP; `generate` would mint a new
+    # secret on every start anyway, since -n forbids writing it back.
+    shared_secret: disable
+    allow_matrix_auth: true
+    debug_endpoints: false
+    enable_session_transfers: false
+    fail_on_webauthn: false
+    request_id_header: Request-Id
+    trust_incoming_request_id: false
+public_media:
+    enabled: false
+    signing_key: generate
+    expiry: 0
+    hash_length: 32
+    path_prefix: /_mautrix/publicmedia
+    use_database: false
+direct_media:
+    enabled: false
+    server_name: sip-media.example.com
+    well_known_response:
+    media_id_prefix:
+    allow_proxy: true
+    server_key: generate
+backfill:
+    enabled: false
+    max_initial_messages: 50
+    max_catchup_messages: 500
+    unread_hours_threshold: 720
+    threads:
+        max_initial_messages: 50
+    queue:
+        enabled: false
+        manual: false
+        batch_size: 100
+        batch_delay: 20
+        max_batches: -1
+        max_batches_override: {}
+double_puppet:
+    servers: {}
+    allow_discovery: false
+    secrets:
+        example.com: "as_token:${MATRIX_SIP_AS_TOKEN}"
+# OFF, and not by default: Element Call SFrame-encrypts media in any room that
+# carries an m.room.encryption event, while the bridge publishes plain audio into
+# LiveKit. An encrypted portal room therefore gives a call that connects, reports
+# healthy everywhere and is SILENT, with no error on either side.
+encryption:
+    allow: false
+    default: false
+    require: false
+    appservice: false
+    msc4190: false
+    msc4392: false
+    self_sign: false
+    allow_key_sharing: false
+    plaintext_mentions: false
+    pickle_key: generate
+    delete_keys:
+        delete_outbound_on_ack: false
+        dont_store_outbound: false
+        ratchet_on_decrypt: false
+        delete_fully_used_on_decrypt: false
+        delete_prev_on_new_session: false
+        delete_on_device_delete: false
+        periodically_delete_expired: false
+        delete_outdated_inbound: false
+    verification_levels:
+        receive: unverified
+        send: unverified
+        share: cross-signed-tofu
+    rotation:
+        enable_custom: false
+        milliseconds: 604800000
+        messages: 100
+        disable_device_change_key_rotation: false
+# Disabled deliberately. With a prefix set, ANY variable that starts with it and
+# does not name a config field is a startup error rather than a warning.
+env_config_prefix: null
+logging:
+    min_level: info
+    # stdout only: the image is distroless/static running as nonroot with no
+    # writable volume, so the default ./logs/bridge.log writer cannot open.
+    writers:
+        - type: stdout
+          format: json

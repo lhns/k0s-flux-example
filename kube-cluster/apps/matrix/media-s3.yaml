@@ -1,11 +1,8 @@
-# EXAMPLE — placeholder values. In the source repo this file is SOPS-encrypted
-# (age, `encrypted_regex: ^(data|stringData)$`). Replace each CHANGEME-* and
-# encrypt with `sops -e -i` before applying.
 # Synapse media storage provider -> s3.example.com, bucket "synapse".
 #
-# A --config-path overlay rather than an edit to homeserver.yaml, the same
-# mechanism secret-synapse.yaml uses for the database block. SOPS because it
-# carries the S3 secret key; everything else here is plain config.
+# A --config-path overlay rather than an edit to homeserver.yaml, like
+# synapse-database.yaml. The as-secret annotation in kustomization.yaml is what keeps
+# the S3 key out of a ConfigMap.
 #
 # The module itself is NOT in the stock synapse image -- an initContainer
 # pip-installs it into /pymods and PYTHONPATH points there. See resources.yaml.
@@ -24,11 +21,14 @@
 # own botocore Config() and never passes s3.addressing_style, so it can only
 # come from the shared AWS config file. See the synapse-aws-config ConfigMap
 # and AWS_CONFIG_FILE in resources.yaml.
-apiVersion: v1
-kind: Secret
-metadata:
-    name: synapse-media-s3
-    namespace: matrix
-type: Opaque
-stringData:
-    media-s3.yaml: CHANGEME-media-s3.yaml
+media_storage_providers:
+  - module: s3_storage_provider.S3StorageProviderBackend
+    store_local: true
+    store_remote: true
+    store_synchronous: false
+    config:
+      bucket: synapse
+      endpoint_url: https://s3.example.com
+      region_name: us-east-1
+      access_key_id: ${MATRIX_S3_ACCESS_KEY_ID}
+      secret_access_key: ${MATRIX_S3_SECRET_ACCESS_KEY}

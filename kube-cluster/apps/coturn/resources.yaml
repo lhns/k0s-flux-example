@@ -69,6 +69,12 @@ spec:
                 cat /config/turnserver.conf
                 echo "static-auth-secret=$TURN_SHARED_SECRET"
               } > /rendered/turnserver.conf
+              # 65534 is the nobody the coturn image drops to. This container is root,
+              # so without the chown the 0400 below locks out coturn itself -- and it does
+              # not fail on that, it warns "Cannot find config file" and runs on defaults:
+              # no use-auth-secret, no external-ip, no relay range. Every call that needs a
+              # relay then fails while direct ones keep working.
+              chown 65534:65534 /rendered/turnserver.conf
               chmod 0400 /rendered/turnserver.conf
           env:
             - name: TURN_SHARED_SECRET
@@ -81,7 +87,7 @@ spec:
             - {name: rendered, mountPath: /rendered}
       containers:
         - name: coturn
-          image: coturn/coturn:4.17.2-r0
+          image: coturn/coturn:4.18.0-r0
           args: ["-c", "/etc/coturn/turnserver.conf"]
           ports:
             - {name: turn-tcp, containerPort: 3478, protocol: TCP}

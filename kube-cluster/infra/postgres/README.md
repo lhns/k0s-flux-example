@@ -40,16 +40,26 @@ app user are still in `secret/postgres-app`. If some apps genuinely need session
 a second `Pooler` with `poolMode: session` rather than downgrading this one.
 
 ## Backups
-Point-in-time recovery, via the Barman Cloud Plugin (`infra/barman-cloud-plugin`):
-- **Base backups** are cheap **Ceph volume snapshots** (daily `ScheduledBackup`, method
-  `volumeSnapshot`, class `ceph-rbd-snapshotclass`) — they stay in Ceph, so restores are fast.
-- **WAL** is continuously archived to **Ceph RGW** (`s3://kube-barman`, 30d) by the plugin's
-  `ObjectStore` — that's what makes PITR possible.
-- Restore: a new `Cluster` with `spec.bootstrap.recovery` (snapshot base + WAL replay).
+Point-in-time recovery, via the Barman Cloud Plugin (`infra/barman-cloud-plugin`). Both halves
+go to **Ceph RGW** (`s3://kube-barman`, 30d) through the plugin's `ObjectStore`:
+- **Base backups** — daily `ScheduledBackup`, `method: plugin`, gzip. Not `volumeSnapshot`;
+  `scheduledbackup.yaml` records why.
+- **WAL** — continuously archived by the same plugin. That is what makes PITR possible.
+- Restore: a new `Cluster` with `spec.bootstrap.recovery` (base + WAL replay).
 
-Trade-off: snapshots live in Ceph → this survives logical/oops errors and gives PITR, but
-**not a full Ceph loss** (WAL-in-S3 alone can't rebuild a DB). For off-Ceph DR, add a weekly
-`method: plugin` object-store base backup (same plugin/bucket).
+`spec.backup.volumeSnapshot` in `cluster.yaml` is retained only so an ad-hoc
+`method: volumeSnapshot` `Backup` still works; nothing schedules one.
+
+An on-demand backup before something risky is a `Backup` object applied **outside git** — it
+is a point-in-time action, not desired state, so Flux would prune it:
+
+```sh
+kubectl -n postgres get backup --sort-by=.metadata.creationTimestamp | tail -3
+```
+
+Trade-off: base backups and WAL now both live in RGW, so this survives losing the Postgres
+volumes and gives PITR — but the bucket is **on the same Ceph**, so it is not full-Ceph-loss
+DR. Off-cluster copies of that bucket are the missing piece, not another backup method.
 
 ## Connecting a client (from any namespace)
 **Pooled (default):** join the `postgres-pooler` vnet with **egress** and connect to

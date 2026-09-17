@@ -137,3 +137,17 @@ spec:
   name: discord
   owner: matrix
   databaseReclaimPolicy: retain
+---
+# matrix-sip-bridge database. Owned by the same `matrix` role as every other
+# bridge here, so it needs no DatabaseRole and no second reflected password.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: sip-bridge
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: sip-bridge
+  owner: matrix
+  databaseReclaimPolicy: retain

@@ -12,4 +12,15 @@ resources:
 - resources.yaml
 - database.yaml
 - db-role-secret.yaml
-- config-secret.yaml
+# The peer list as a real file. Only the two apiKeys are credentials; the peer names,
+# URLs and cleanupOrphans flags are plain config, so the generator patches this into a
+# Secret rather than the whole list being an encrypted blob.
+configMapGenerator:
+- name: immich-album-federation-config
+  namespace: immich-album-federation
+  files:
+  - config.yaml=federation-config.yaml
+  options:
+    disableNameSuffixHash: true
+    annotations:
+      generators.example.com/as-secret: "true"

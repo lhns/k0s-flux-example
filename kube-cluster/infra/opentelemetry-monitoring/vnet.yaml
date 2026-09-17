@@ -8,7 +8,7 @@
 # Mirror the traefik egress-vnet pattern (infra/traefik/vnet.yaml): a shared
 # egress channel the collector initiates from, that scrape targets opt into as
 # ingress receivers. Each future scrape-target namespace needs its own ingress
-# binding into this vnet (flux-system is wired below as the only live target today).
+# binding into this vnet, scoped to the pods that actually expose /metrics.
 ---
 apiVersion: kube-vnet.lhns.de/v1alpha1
 kind: VirtualNetwork
@@ -82,3 +82,20 @@ spec:
   podSelector:
     matchLabels:
       app.kubernetes.io/part-of: flux
+---
+# Scrape target: matrix-sip-bridge only (/metrics on its appservice port). Selected by
+# name, not app.kubernetes.io/instance: matrix — that label is on Synapse, Postgres and
+# every other bridge, and would admit the collector into all of them for nothing.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetworkBinding
+metadata:
+  name: matrix-sip-bridge-scrape-ingress
+  namespace: matrix
+spec:
+  virtualNetworkRef:
+    name: otel-scrape
+    namespace: opentelemetry
+  direction: ingress
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: matrix-sip-bridge
