@@ -65,21 +65,24 @@ the provider never saw, failed async uploads, and already-uploaded files awaitin
 
 ### Getting the module into synapse
 
-`matrixdotorg/synapse` has no boto3. An **initContainer** pip-installs the provider into `/pymods`
-with `PYTHONPATH=/pymods`. Three non-obvious details:
+`matrixdotorg/synapse` has no boto3. `images.yaml` declares an **ImageBuild**, `synapse-pymods`,
+that pip-installs the provider and its CLI extras into `/pymods` on top of the synapse image;
+synapse mounts that as an **image volume** at `/pymods` with `PYTHONPATH=/pymods`. An `ImageBuild`
+rather than an `ImageComposition` because pip resolves the transitive closure inside the build —
+only the four direct packages are pinned, and nothing here hand-resolves wheels.
 
-- **Persistent PVC, not emptyDir**, skipped when the version marker matches — otherwise every
-  restart needs PyPI, and a blip during a node drain becomes a homeserver outage.
-- **`--no-deps`** for the provider, boto3 separately. `pip --target` ignores site-packages and will
-  try to build **psycopg2 from source**; there is no compiler in the image. psycopg2/Twisted/PyYAML
-  are declared deps but only the CLI uses them and all three are already present.
-- **Runs as root, chowns `/pymods` to 991.** The PVC is provisioned root-owned. Pod-level `fsGroup`
-  would work but applies to every volume — including a recursive chown of the media store.
-
-Any change here **restarts synapse and blocks startup for the length of the pip install** (~3 min).
-Replacing it with an ImageComposition would fix that; it is not oci-composer today because that
-means hand-resolving eight transitive wheels and `unpack: zip` does not exist. `unpack: deb` would
-be wrong regardless — this image imports from `/usr/local/lib/python3.13/site-packages`.
+- **`FROM` must be the synapse container's exact tag.** The modules are resolved against that
+  interpreter, and two renovate managers see the two pins as unrelated deps. `scripts/validate.sh`
+  fails the lint if they ever disagree; a split bump is an `ImportError` at startup pointing
+  nowhere near the cause.
+- **`--no-deps`** for the provider, the rest normally. `pip --target` ignores site-packages and
+  will try to build **psycopg2 from source**; there is no compiler in the image.
+  psycopg2/Twisted/PyYAML are declared deps but only the CLI uses them and all three are present.
+- **`subPath: pymods`** on synapse's mount: the image root is the whole synapse filesystem.
+- **The sweep CronJob runs the image as its container image** instead of mounting it. kustomize's
+  `ImageTagTransformer` has no image-volume fieldspec under a `jobTemplate`, so a volume there
+  would keep the bare name `synapse-pymods` and fail to pull; a container `image:` is rewritten.
+  That is why the image is runnable (single stage `FROM` synapse) rather than `scratch`.
 
 ### Path-style addressing
 
@@ -669,12 +672,13 @@ table.
 ### Asterisk side
 
 The bridge listens on **tcp** 5060: a SIP MESSAGE that overflows a UDP datagram is dropped with
-no error at either end. `apps/cheogram-sip/sip.conf` therefore needs `tcpenable=yes`, and both
-ends need `accept_outofcall_message` with an `outofcall_message_context`.
+no error at either end. Asterisk therefore needs a `type=transport` on tcp and
+`message_context` on the endpoint; both are in `apps/cheogram-sip`.
 
-The peer is **static** — the bridge never REGISTERs — so `host=` names the Service. Its own
-requests arrive unauthenticated from a pod address that is not that host, which is why the peer
-name must equal `sip.username` in the bridge config and why `insecure=invite,port` is set.
+The peer is **static** — the bridge never REGISTERs — so its AOR contact names the Service. Its
+own requests arrive unauthenticated from a pod address that is not that contact, which is why
+the peer name must equal `sip.username` in the bridge config and why the endpoint is
+`identify_by=username`.
 
 ## Databases — shared CNPG (`postgres` ns)
 

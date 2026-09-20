@@ -53,7 +53,7 @@ spec:
   chart:
     spec:
       chart: opentelemetry-kube-stack
-      version: "0.21.0"
+      version: "0.23.0"
       interval: 1h0m0s
       sourceRef:
         kind: HelmRepository
@@ -192,6 +192,14 @@ spec:
         suffix: cluster
         mode: deployment
         replicas: 1
+        # Without an explicit image the operator injects its own collector version, so
+        # an operator bump silently moves this collector — and k8s_cluster/k8sobjects
+        # metric renames fail quietly. The k8s distro carries every receiver used here;
+        # keep the tag equal to the daemon's. Both repository AND tag are required.
+        image:
+          repository: otel/opentelemetry-collector-k8s
+          # renovate: datasource=docker depName=otel/opentelemetry-collector-k8s
+          tag: "0.161.0"
         presets:
           clusterMetrics:
             enabled: true

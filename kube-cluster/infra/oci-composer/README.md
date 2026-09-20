@@ -7,6 +7,27 @@ path, or an initContainer that clones something at runtime.
 
 First consumer: [`../../apps/freshrss`](../../apps/freshrss/README.md).
 
+## Every `sourceRef` must pin `revision`
+
+A pin bump moves the source and the spec-hash tag in one commit, but the composition's watch can
+fire before the `GitRepository`'s own update lands. The source is then self-consistent at the
+previous generation, so nothing about it looks wrong, and the composition publishes the OLD content
+under the NEW tag. The corrective build differs (provenance stamps the revision into the manifest),
+`onConflict: Fail` refuses, and the object is wedged until the tag changes.
+
+`sourceRef.revision` closes it: the layer stays `Pending` until the artifact is at the named
+revision. `operator.requirePinnedSources` (and `imageBuild.`) makes it mandatory.
+
+The value is the revision source-controller publishes for that pin:
+
+| pin | revision |
+| --- | --- |
+| `ref.commit: <sha>` | `sha1:<sha>` |
+| `ref.tag: <tag>` | `<tag>` — the ref half matches whatever commit the tag resolves to |
+
+A wrong value is `Pending` forever, so `scripts/check-source-pins.py` asserts the two agree — in
+`validate.sh`, and as a Renovate `postUpgradeTasks` fixer, since Renovate sees only the pin.
+
 ## When to use it
 
 **Only when the inputs are not already images** — git repositories (including `subpath` selection

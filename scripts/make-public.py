@@ -61,6 +61,10 @@ def is_text(p: Path) -> bool:
         return False
 
 
+def _lf(text: str) -> str:
+    return text.replace(chr(13)+chr(13)+chr(10), chr(10)).replace(chr(13)+chr(10), chr(10)).replace(chr(13), chr(10))
+
+
 def read_text_any(p: Path) -> str:
     """Read text, tolerating legacy encodings.
 
@@ -459,7 +463,10 @@ def main() -> int:
     cfg_path = REPO / args.config
     if not cfg_path.exists():
         return print(f"config not found: {cfg_path}") or 1
-    cfg = yaml.safe_load(read_text_any(cfg_path))
+    # Newlines normalised first: a CRLF working tree (git autocrlf on Windows) makes
+    # PyYAML count the CR and the LF as two line breaks, which doubles every line of
+    # a `content: |` block and ships a blank line between each one.
+    cfg = yaml.safe_load(_lf(read_text_any(cfg_path)))
 
     scratch = Path(tempfile.mkdtemp(prefix="k0s-flux-public-"))
     tree = scratch / "tree"

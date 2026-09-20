@@ -4,8 +4,8 @@
 # synapse-database.yaml. The as-secret annotation in kustomization.yaml is what keeps
 # the S3 key out of a ConfigMap.
 #
-# The module itself is NOT in the stock synapse image -- an initContainer
-# pip-installs it into /pymods and PYTHONPATH points there. See resources.yaml.
+# The module itself is NOT in the stock synapse image -- it comes from the
+# synapse-pymods image volume at /pymods, where PYTHONPATH points. See images.yaml.
 #
 # store_local + store_remote: every upload is written to local disk AND to S3.
 # Local copies are removed later by the s3_media_upload sweep, not by synapse.

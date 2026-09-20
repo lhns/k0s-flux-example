@@ -1,8 +1,11 @@
 # cheogram-sip
 
 XMPP to SIP gateway. An XEP-0114 component on one side and Asterisk on the other, so a
-Conversations-family client places and takes real phone calls over Jingle. Image
-`singpolyma/cheogram-sip`, from the JMP / Soprani.ca people.
+Conversations-family client places and takes real phone calls over Jingle.
+
+Two images, because the two halves want different things. The XEP-0114 component is
+`singpolyma/cheogram-sip`, from the JMP / Soprani.ca people. Asterisk is our own fork,
+`ghcr.io/lhns/asterisk` — see [The Asterisk image](#the-asterisk-image).
 
 Two registrar hosts. Inbound is attributed to the **line** whose DID was dialled and rings
 that line's call plan (`lines.<name>.inbound_route`); outbound is permitted by the
@@ -10,12 +13,15 @@ line's own `callers` list.
 
 | host | role |
 | --- | --- |
-| `sip.example.net` (ExampleISP fiber) | outbound PSTN, and inbound on its numbers |
+| `sip.example.net` (ExampleISP fiber) | outbound PSTN, 110/112, and inbound on its numbers |
 | `voip.example.org` | inbound, and its own short internal extensions |
 
-`sip.example.net` carries three numbers, one carrier account each, on two lines. Each registers its
-own contact, `<number>@xmpp.example.com`, so an inbound call's extension says which number was
-dialled; that attributes the call to a line, and the line's `inbound_route` says who it rings.
+Everything — both trunks and both in-cluster peers — is `res_pjsip`, in `pjsip.conf`.
+
+`sip.example.net` carries three numbers, one carrier account each, on two lines — and so three
+`res_pjsip` object sets, because a registration is the finest thing pjsip can attribute an
+inbound call to. Which of them the call arrived on says which number was dialled; that
+attributes it to a line, and the line's `inbound_route` says who it rings.
 
 eventpbx cannot place outbound PSTN calls: the INVITE is correct and digest authenticated,
 and it answers `100 Trying` then `200 OK` and plays a recorded refusal. That is their policy,
@@ -23,16 +29,14 @@ not a config fault, and it presents as a connected call rather than an error.
 
 PSTN refuses outbound SMS: a `MESSAGE` to the PSTN trunk is answered `501 Sip Gw only`. Also
 their policy, not a config fault. Unlike the eventpbx refusal it is a visible error, but it
-arrives after chan_sip has already answered the sender, so nothing propagates back.
+arrives after the stack has already answered the sender, so nothing propagates back.
 
 ## Registrations
 
-Every registration except one is an entry in the routing chart's `registrations` table
-(`routing/values.yaml`), rendered into `registrations.tsv`. The `render-config`
-initContainer loops that file and `printf`s one `register =>` line per entry
-into `registrations.conf`, which `sip.conf` `#include`s — because a register line names its
-host after an at-sign, and any such occurrence in `sip.conf` itself makes the entrypoint skip
-its whole setup.
+Every registration is an entry in the routing chart's `registrations` table
+(`routing/values.yaml`), rendered into `registrations.tsv`. The `render-config` initContainer
+loops that file and writes each entry's password into an `#include` — nothing else. The
+object set that uses it is generated from the same table into `pjsip.conf`.
 
 **The entry name is the name of the Secret key holding that entry's password.** Nothing names
 a password in the values: they render into a plaintext ConfigMap, which
@@ -49,76 +53,114 @@ implicitly, so the initContainer refuses to start the pod when an entry's key is
 empty, and `tests/check-routing.py` catches it one step earlier by reading the key names
 straight out of the SOPS files (only the values there are encrypted).
 
-An entry whose trunk also has a **peer** in `sip.conf` names a `peer_secret_file`, and the
-same password is written there as a `secret=` line. Every other entry gets a peer of its own
-rendered into `peers.conf` by the same initContainer, named after the **entry** rather than
-after its host: `fromuser` is pinned per peer, so a peer named after a host shared by three
-DIDs could present only one of them. `routing.lua`'s `peer` field names that section, and it
-is what the dialplan dials — see the comment on that `#include` in `sip.conf`.
+Every entry's object set is named after the **entry**, never after its host: `from_user` is
+pinned per endpoint, so a name shared by three DIDs could present only one of them.
+`routing.lua`'s `peer` field carries that name; it is what the dialplan dials and what an
+inbound call is attributed by.
 
-`contact_user` is PJSIP's name for the same field and is what inbound keys on, so the pair
-(`host`, `contact_user`) has to be unique — two entries sharing one arrive on the same
-extension and nothing downstream can tell them apart, and `tests/check-routing.py` rejects
-that. The pair, not the contact alone: the household and eventpbx registrations both
-register `SIP_JID` and are told apart by the peer the call arrived on.
+The whole set — auth, aor, registration, identify, endpoint — is generated from the fields
+below, and only the password rendered, as pjsip's `password=`, into the file
+`peer_secret_file` names. Every entry must carry one: the chart never sees a password, so
+that `#include` is the only place one can land.
 
-The household number's own registration is the one the **image's entrypoint** builds, from
-`SIP_USER`/`SIP_HOST`/`SIP_JID`, and it cannot be stopped without fighting the image. It is
-declared in the table anyway, marked `entrypoint: true`, because without an entry it has no
-line and therefore no identity. That flag keeps it out of `registrations.tsv` — a second
-REGISTER for the same account would fight the entrypoint's. Its key follows the convention like
-every other; it is simply the one key the main container reads too, as `SIP_PASSWORD`.
-`tests/check-routing.py` holds that row against `cheogram-sip.env`, because it is the one row
-nothing here renders and therefore nothing here can correct.
+`contact_user` is the Contact user part the carrier echoes back, and one of the two things
+inbound keys on, so the pair (`host`, `contact_user`) has to be unique — two entries sharing
+one arrive indistinguishable, and `tests/check-routing.py` rejects that. The pair, not the
+contact alone, because two trunks may well use the same one.
 
-It is also the **fallback** for its host: an inbound call whose contact matches no entry is
-attributed to it. That is what the carrier no longer echoing our registered Contact would look
-like, and it degrades per-DID inbound back to one line rather than to nothing.
+**It cannot contain an `@`.** pjsip parses the Contact URI it builds, so a JID in that slot
+makes the entire `type=registration` object fail to load — one sorcery error at startup and
+then silence. Measured on the built image, asserted twice in
+`tests/check-routing.py`, and the reason inbound attribution is the **endpoint** rather than
+the extension: see below.
+
+`entrypoint: true` marks the host's **default** registration. An inbound call that nothing
+else identifies is attributed to it, which is what the carrier ceasing to echo anything would
+look like: per-DID inbound degrades to one line rather than to nothing. It is therefore also
+the only endpoint on that host allowed a `type=identify`, since a call matched by source
+address can land nowhere else. At most one per host. Its `user` and `host` are also
+`cheogram-sip.env`'s `SIP_USER` and `SIP_HOST` — the trunk the component appends to a bare
+number — and `tests/check-routing.py` holds the two files against each other.
 
 ## Shape
 
 ```
-eventpbx ---- SIP/UDP 5060 outbound REGISTER only, no inbound forward
+both trunks -- SIP/UDP 5060 outbound REGISTER only, no inbound forward
     |           RTP UDP 10000-10049 both ways
     |
-[cheogram-sip] --XEP-0114, plaintext, pod network--> snikket pod, prosody :5347
+[pod: asterisk + cheogram-sip] --XEP-0114 x2, plaintext, pod network--> snikket pod, :5347
     |
     cheogram-sip-lb, MetalLB 10.20.2.81, externalTrafficPolicy: Local, 50 UDP ports
 ```
 
+Two containers in one pod, from two different images: Asterisk from our fork, and the
+Haskell `cheogram-sip` binary from upstream. They reach each other only over XMPP, through
+prosody, so the split costs nothing and separates two different failure modes — the binary
+exits whenever its component connection drops, while Asterisk holds live calls and reconnects
+on its own. Neither runs the upstream image's `/usr/bin/entrypoint.sh`: it renders config and
+then starts *both* processes, so running it in either container would put a second
+`sip.xmpp.example.com` on the wire. `render-config` does that rendering instead, which is also
+what keeps every credential out of both runtime containers' environments.
+
 Two components, both defined in `apps/snikket/sip.cfg.lua`, neither in DNS and neither in
 any cert: `sip.xmpp.example.com` (user facing, dial `+49XXXXXXXXX@sip.xmpp.example.com`) and
-`asterisk.xmpp.example.com` (Asterisk's own chan_xmpp connection).
+`asterisk.xmpp.example.com` (Asterisk's own `res_xmpp` connection).
 
 Not a container in the snikket pod, though `CONNECT_IP`/`CONNECT_PORT` would allow either.
 Snikket is `Recreate` on an RWO PVC, so every Asterisk iteration would be a cold restart of
 the household chat server. This way it costs exactly one, ever.
 
-## The image fights you
+## The Asterisk image
 
-It is `latest`-only, amd64-only, last pushed 2024-02-21, and uses `chan_sip`, which upstream
-Asterisk removed in 21. The digest is pinned, so the digest is the version. Re-diff
-`extensions.lua` against the image after any bump.
+`ghcr.io/lhns/asterisk`, built by <https://github.com/lhns/asterisk> from branch
+`22.11.0-cheogram-dtls`: Asterisk 22.11.0 plus three commits giving `chan_motif` DTLS-SRTP
+(XEP-0320) and RTCP-MUX/ICE, `res_xmpp` the matching disco feature, and `res_rtp_asterisk` a
+DTLS MTU fix. Without them nothing here completes an encrypted Jingle call. That fork's CI
+asserts the patches did what they claim, not merely that they applied — a startup check plus a
+prosody/slixmpp call that the outgoing `session-initiate` really carries a well-formed
+`<fingerprint hash='sha-256' setup='actpass'>` and `<rtcp-mux/>`.
 
-- **`/etc/asterisk` must be writable.** The entrypoint seds the component secret and the
-  trunk password into `xmpp.conf` and `sip.conf`. A read-only ConfigMap mount there makes it
-  fail, so `render-config` copies the image's own `/etc/asterisk` into a Memory-backed
-  emptyDir and overlays ours. Memory-backed because the password lands in that file.
-- **`sip.conf` must keep a line starting `;register => 1234`.** The entrypoint inserts the
-  real register line after it. Delete the sentinel and registration never happens, silently.
-  The init container asserts it.
-- **`sip.conf` must not mention the trunk host after an at-sign, not even in a comment.** The
-  entrypoint guards its whole setup with `if ! grep "@$SIP_HOST" sip.conf`, so any occurrence
-  makes it skip registration, the peer and the dialplan edit. A comment warning about this
-  trap once triggered it. The init container asserts this too.
-- **`sip.conf [general]` needs `context=public`.** `extensions.lua` defines only `public`,
-  `jingle` and `xmpp`; the Debian default `context=default` does not exist there, so every
-  inbound call would die in a missing context.
-- **The entrypoint prints the register line, password included,** whenever it finds sip.conf
-  already configured, which is every container restart. Its stdout is filtered for that.
-- **The peer block is written by the entrypoint**, not by us. Only `[general]` is ours.
-- **The binary exits when it loses the component connection.** Every prosody restart costs it
-  a crash-restart cycle, because `wait-prosody` only runs on pod start, not container restart.
+Digest-pinned, as everything here is; rebasing onto a newer Asterisk is work in the fork, then
+a pin bump. The GHCR package is public, so nothing needs an `imagePullSecret` — making it
+private would.
+
+The image carries no `/usr/bin/entrypoint.sh` and no `/etc/asterisk`, which shapes two things:
+
+- **`/etc/asterisk` is ours entirely**, not an overlay: the `cheogram-sip-config` ConfigMap is
+  the whole of it, copied into a Memory-backed emptyDir (the trunk passwords are rendered in
+  there) by `render-config`. A file Asterisk wants and does not find is a module quietly
+  running on compiled-in defaults, so every one is explicit — `asterisk.conf`, `modules.conf`,
+  `pjproject.conf` and a whole `confbridge.conf`.
+- **Asterisk EXITS without `modules.conf`.** `loader.c` calls a missing one a failed module
+  initialization and stops, with nothing else in the log. `modules.conf` also `noload`s every
+  unused module that otherwise logs an ERROR per boot for a config file deliberately absent —
+  ARI, CDR/CEL, `res_parking` and the rest. Each had already declined to load, so the list only
+  reduces noise; prove that when extending it, by diffing the `Running` set from `module show`.
+- **`pbx_config` is noloaded**, because there is no `extensions.conf` and none is wanted.
+  So there is no `default` context: `public`'s `i` and `h` handlers end the call themselves
+  rather than handing off to one.
+
+Other standing traps here:
+
+- **Every endpoint needs `context=public`.** `extensions.lua` defines no `default`, so an
+  endpoint that omits it sends every inbound call into a context that does not exist.
+- **Asterisk runs as `asterisk -f`.** Without it, it forks and the container's liveness stops
+  tracking it; its console is detached either way, so `logger.conf`'s file, streamed by a
+  `tail -F`, is the only place its log exists.
+- **The `cheogram-sip` binary exits when it loses the component connection.** Every prosody
+  restart costs it a crash-restart cycle, because `wait-prosody` only runs on pod start, not
+  container restart. It does not take Asterisk with it.
+- **Re-diff `extensions.lua`** against the upstream image after a digest bump: it began as that
+  image's copy, and the component half still comes from there.
+- **There is no `[general]`.** `context`, `message_context`, `force_rport`, `rtp_symmetric`,
+  `direct_media`, `identify_by` and the codec list are per endpoint, and an endpoint missing one
+  is silently wrong about it; `external_*_address`/`local_net` are per transport.
+  `tests/check-routing.py` asserts each of them on the generated file.
+- **`identify_by` must be stated.** Its default has moved between Asterisk versions, so an
+  endpoint that leaves it out can quietly start matching inbound calls by source address.
+- **`CHANNEL(peername)` and `SIP_HEADER()` read nothing here.** The dialplan uses
+  `CHANNEL(endpoint)`, `CALLERID` and `PJSIP_HEADER(read,...)`; `SIP_HEADER` returning empty
+  would drop every Matrix outbound call, which reads `X-Conference` off the bridge's INVITE.
 
 ## Outbound gate
 
@@ -140,10 +182,13 @@ An `emergency` rule pins a registration rather than a line, so no `callers` list
 and 110/112 stay reachable from an account permitted nothing else. `tests/check-routing.py`
 holds its `to_pattern` to digits and classes, because it is the one ungated path.
 
-`extensions.lua` is our copy of the image's. The entrypoint hardcodes a single caller by
-rewriting the comment `-- outbound calls` into `if from ~= "$SIP_JID" then return end`; our
-file omits that comment, so the sed is a no-op. **A sed that matches nothing exits 0**, so the
-gate above is what stands between the trunk and everyone.
+`extensions.lua` is our copy of the image's, and nothing rewrites it at runtime, so the gate
+above is the whole of what stands between the trunk and everyone.
+
+The **negative** case has never been exercised on a real call: `dialplan_test.lua` asserts
+refusal per path and the suite fails if the gate is disabled, but no live call has been
+refused, and a silently open trunk looks exactly like a working one. A refusal logs
+`Cannot dial '<to>': caller is not in the callers list of line '<line>'`.
 
 Where the outer boundary sits: the components have `modules_disabled = { "s2s" }`, so only
 local accounts reach them, and `apps/snikket/ldap.cfg.lua` only admits `memberOf=xmpp` or
@@ -164,13 +209,11 @@ are load-bearing and both fail silently:
   later ones cannot be established". This is a global relaxation; it is acceptable only
   because both components are ours, reachable solely from this pod.
 
-## SIP_HOST is the PSTN trunk, not just "the one the image registers"
+## SIP_HOST is the PSTN trunk, not just "the one with the rendered peer"
 
-The entrypoint builds a peer and register line from `SIP_HOST`, but the `cheogram-sip` binary
-is *also* handed it as its PSTN gateway, and it appends that host to any number dialled
-without one. So the dialplan never sees a bare number, and the routing table could never
-apply, unless `SIP_HOST` already is the trunk you want. Hence PSTN is `SIP_HOST` and
-eventpbx is defined by hand in `sip.conf`, which is the reverse of how this was first built.
+The `cheogram-sip` binary is handed `SIP_HOST` as its PSTN gateway, and it appends that host
+to any number dialled without one. So the dialplan never sees a bare number, and the routing table could never
+apply, unless `SIP_HOST` already is the trunk you want. Hence PSTN is `SIP_HOST`.
 
 The dialplan strips a host equal to `SIP_HOST` before routing, treating it as "no host was
 given", so short extensions still reach their own trunk.
@@ -180,15 +223,15 @@ Outbound selection:
 | dialled | goes |
 | --- | --- |
 | no label | the first matching rule in the routing table, below |
-| label in `SIP_TRUNKS` | that peer, with credentials |
-| label naming a **line** | that line's primary registration's peer, with credentials |
+| label in `SIP_TRUNKS` | that host's default registration, with credentials |
+| label naming a **line** | that line's primary registration, with credentials |
 | anything else | **refused** |
 
-`SIP_TRUNKS` entries MUST equal peer names in `sip.conf`. The last row is the fail-closed
-part: an unrecognised label used to fall through to `SIP/<user>@<label>`, a dial with no
-credentials that resolved the label as a DNS name — which a provider may answer with a
-recorded refusal, i.e. a connected call rather than an error. Federated SIP dialling goes with
-it, and comes back, if at all, as a deliberate allow list.
+`SIP_TRUNKS` entries MUST equal a registration's `host`: no object is named after a host, so
+a label resolves through that host's default registration. The last row is the fail-closed
+part — nothing falls through to an uncredentialed `SIP/<user>@<label>` dial, which a provider
+may answer with a recorded refusal, i.e. a connected call rather than an error. Federated SIP
+dialling would come back, if at all, as a deliberate allow list.
 
 ## The routing table
 
@@ -203,43 +246,63 @@ routing/values.yaml  --helm--> ConfigMap cheogram-sip-routing
                        |                                     per call via SIP_ROUTING_FILE
                        |
                        +-----> ConfigMap cheogram-sip-registration-table
-                                  +-- registrations.tsv  --> render-config loops it and
-                                                             printfs registrations.conf
-                                                             and peers.conf
+                       |          +-- registrations.tsv  --> render-config loops it and
+                       |                                     printfs each entry's password
+                       |
+                       +-----> ConfigMap cheogram-sip-pjsip
+                                  +-- pjsip.conf         --> copied into /etc/asterisk by
+                                                             render-config, parsed once
 ```
 
-Two renderings of the same values, because their readers are not the same: the dialplan wants
-a Lua table, and `render-config` is `/bin/sh`, which has no business parsing one. The TSV is
-that half — `name`, `user`, `host`, `contact_user`, `peer_secret_file`, TAB separated, one
-`while read` away. An `entrypoint` entry appears only in the Lua half.
+Three renderings of the same values, because their readers are not the same: the dialplan
+wants a Lua table, `render-config` is `/bin/sh`, which has no business parsing one, and
+Asterisk wants its own config syntax. The TSV is the shell half — `name`, `user`,
+`host`, `contact_user`, `peer_secret_file`, TAB separated, one `while read` away. `peer_secret_file` is last because TAB is IFS whitespace, so
+`read` collapses a run of them and only the last field may be empty.
 
 `routing-release.yaml` is the HelmRelease, pointing at a path in this repo against the
 `flux-system` GitRepository — the same arrangement as `flux-system/generators.yaml`, and
 `reconcileStrategy: Revision` for the same reason: editing the values bumps no chart version.
-Two ConfigMaps because their readers reload differently. `pbx_lua` gives each channel its own
+Three ConfigMaps because their readers reload differently. `pbx_lua` gives each channel its own
 `lua_State` and re-executes `extensions.lua` per call, so `load_routing`'s `loadfile` re-reads
 the mount every call: a routing edit is live once kubelet refreshes the volume, with no
 restart, and a malformed table fails closed (no trunk) instead of at pod start.
-`cheogram-sip-routing` therefore carries `reloader.stakater.com/ignore`. The registration table
-is read once by `render-config`, so `reloader` still rolls the pod when that half changes.
+`cheogram-sip-routing` therefore carries `reloader.stakater.com/ignore`. The other two are
+read once at pod start — `registrations.tsv` by `render-config`, `pjsip.conf` by Asterisk —
+so they must live in ConfigMaps that are **not** ignored, or an edited trunk would reach the
+ConfigMap and never the running process. `tests/check-routing.py` asserts that.
+
+Nothing per-trunk is written twice: every value in the generated `pjsip.conf` is an entry's
+own field or a deployment fact (`transports`, `external_address`, `local_nets`). `entrypoint`
+is what decides which endpoint carries the host's single `type=identify` and `identify_by=ip`,
+so "exactly one per host" holds by construction rather than by review.
 
 `tests/` holds this app's checks; the convention is documented in `../../README.md`. What the
 schema cannot state lives in `tests/check-routing.py`, which runs against the **rendered**
-output: every registration's `host` must be a peer in `sip.conf`; every `line` must exist and
-every `primary` must belong to the line that presents it; every registration's `peer` must be
-the section the initContainer actually writes; every outbound rule must resolve,
-and a rule may pin a registration only as an emergency route; `did` must be unique and
-(`host`, `contact_user`) must be unique; each host needs exactly one default registration, so
-the inbound fallback is defined; a line name may not also be a `SIP_TRUNKS` host, or `#label`
-would be ambiguous; and a rule may present only a registration whose peer pins `fromuser` to
-it — in `sip.conf` or in the rendered `peers.conf`, whose format string it reads out of
-`resources.yaml` rather than restating — because a carrier may reject or silently rewrite a From
-the account does not own. On the
-registrations half: every entry name must resolve to a Secret key that exists, `sip.conf` must
-`#include` what the initContainer writes and still mention no `@SIP_HOST`, and the
-`entrypoint` row must agree with `cheogram-sip.env`. It also asserts that Helm still rejects a
-bad table, because a schema that has quietly stopped being read looks exactly like one that
-passes.
+output: every registration's `peer` must be the section that stack actually defines, and must
+be the entry name; every `line` must exist and every `primary` must belong to the line that
+presents it; every outbound rule must resolve, and a rule may pin a registration only as an
+emergency route; `did` must be unique and (`host`, `contact_user`) must be unique; each host
+needs exactly one default registration, so the inbound fallback is defined; a line name may
+not also be a `SIP_TRUNKS` host, or `#label` would be ambiguous; and a rule may present only a
+registration whose endpoint pins `from_user` to it, because a carrier may reject or silently
+rewrite a From the account does not own. Of each entry it also demands the whole object set,
+`line=yes` with `endpoint=`, no `@` in any `contact_user`, and exactly one `type=identify` per host, on that
+host's default registration: two would make which endpoint answers a source-address match
+undefined, and one elsewhere would let such a call pass for a per-DID match. On the
+registrations half: every entry name must resolve to a Secret key that exists, the config must
+`#include` what the initContainer writes, the initContainer must read the TSV's fields in the
+order the chart renders them — only the last may be empty, since TAB is IFS whitespace — and
+the `entrypoint` row must agree with `cheogram-sip.env`. It also asserts that Helm still
+rejects a bad table, because a schema that has quietly stopped being read looks exactly like
+one that passes.
+
+Two things there are not about the routing table at all, because this is the component's only
+test harness and both are otherwise unchecked: the shape of `[livekit]` and `[matrixbridge]`
+— transports on 5060, `identify_by=username`, an AOR for the bridge and none for livekit,
+inbound `auth` for livekit and none for the bridge — and that both containers run the same
+digest-pinned fork image. On a stock or older Asterisk the pod starts, answers, and gets
+Jingle encryption wrong, with nothing to say so.
 
 **`to_pattern` is a Lua pattern, not a regex.** Asterisk's Lua 5.1 has no regex engine, and a
 regex here would not error — it would match nothing and the call would fall through to the
@@ -260,8 +323,7 @@ fall out of step. `primary` says only which member the line *presents* outbound 
 Presentation Number, as against the Network Number the carrier transmits regardless.
 
 There is **no default line**: every line prefixes, so `#<host>` is not a line name and fails
-closed. The cost is a one-time break — every existing Matrix portal and every saved XMPP
-contact is re-keyed, rooms are re-created and history stays in the old ones.
+closed.
 
 Split a portal ID back with `^(.*)-([0-9]+)$`, anchored on the trailing digit run, so a line
 name may contain hyphens. `-` and not `_`, because mautrix escapes a literal underscore to
@@ -273,13 +335,14 @@ to transmit it on the carrier, and Sec. 120(2) permits presenting only a number 
 Nutzungsrecht exists for — so the only meaningful choice is *which* registration, and a
 free-text CID field here would be reassuring and inert.
 
-Two traps. The per-DID discriminator is the carrier echoing our registered Contact in the
-inbound Request-URI — **observed behaviour, not a standard**; if it stops, inbound collapses
-to the host's default line, which is otherwise indistinguishable from a correct match. Every
-call attributed that way logs `inbound fallback:`. And a line can only really present its primary once that
-registration has a peer of its own pinning `fromuser`, which is what `peers.conf` now gives
-every non-entrypoint registration; `tests/check-routing.py` still refuses a rule selecting a
-line whose primary has none.
+Two traps. Per-DID inbound rests on the carrier handing something of ours back: the `;line=`
+token pjsip puts in our Contact, or the Contact user part itself in the Request-URI. Both are
+**observed or hoped-for behaviour, not a standard** — whether this carrier echoes `;line=` is
+untested — and if both stop, inbound collapses to the host's default line, which is otherwise
+indistinguishable from a correct match. Every call attributed that way logs `inbound
+fallback:`; a call matched to a non-default endpoint cannot have been one, and does not. And a
+line can only present its primary while that registration's own section pins the number;
+`tests/check-routing.py` refuses a rule selecting a line whose primary does not.
 
 ### What of the table is live, and what is not
 
@@ -343,9 +406,10 @@ not route anywhere, and would put a resolver in the call path.
 
 | address | where | risk |
 | --- | --- | --- |
-| `10.21.27.11` | `hostAliases` in `resources.yaml` | ExampleISP's proxy, from their portal. Only needed because `sip.example.net` does not resolve. If it changes, or if they ever publish real DNS, the entry silently wins and registration stops with no error. |
-| `203.0.113.10` | `sip.conf` `externip`, `rtp.conf` `ice_host_candidates`, and `coturn/turnserver.conf` | The static tunnel address, duplicated across two apps with no single source of truth. Wrong value means one-way audio in SIP and dead TURN relays at once. |
-| `10.20.0.0/16`, `172.18.0.0/16`, `172.19.0.0/16` | `sip.conf` `localnet` | LAN, podCIDR, serviceCIDR. Only change on a cluster rebuild. |
+| `10.21.27.11` | `hostAliases` in `resources.yaml` | ExampleISP's proxy, from their portal. Only needed because `sip.example.net` does not resolve. Also what `type=identify` and every AOR contact resolve to, so it is read at config load as well as per REGISTER. If it changes, or if they ever publish real DNS, the entry silently wins and registration stops with no error. |
+| `203.0.113.10` | `routing/values.yaml` `external_address`, `rtp.conf` `ice_host_candidates`, and `coturn/turnserver.conf` | The static tunnel address, duplicated across two apps with no single source of truth. Wrong value means one-way audio in SIP and dead TURN relays at once. |
+| `10.20.0.0/16`, `172.18.0.0/16`, `172.19.0.0/16` | `routing/values.yaml` `local_nets` | LAN, podCIDR, serviceCIDR. Only change on a cluster rebuild. |
+| `matrix-sip-bridge.matrix.svc.cluster.local` | the `[matrixbridge]` AOR contact and `extensions.lua`'s `bridge_host` | A MESSAGE's Request-URI is routed as written, so the dialplan needs the name too; `tests/check-routing.py` holds the two together. |
 | `10.20.2.81` | `metallb/pool.yaml` and the Service | Ours. |
 
 eventpbx's SBC is deliberately **not** pinned; it is resolved from `voip.example.org`.
@@ -364,7 +428,7 @@ s.sendto(m.encode(),("10.21.27.11",5060)); print(s.recvfrom(4096)[0].decode().sp
 ```
 
 **Do not diagnose this path with ping or traceroute.** ICMP is filtered on it, so both fail
-while UDP 5060 works perfectly. That mistake cost an evening.
+while UDP 5060 works perfectly.
 
 ## Router
 
@@ -390,24 +454,21 @@ the WAN carrying a VLAN address and the ISP drops it as spoofed. The symptom is 
 with conntrack still counting replies. Confirm success by the `received=` value in the
 registrar's answer: it should be the `10.100.x` address, not the CGNAT one.
 
-The RouterOS SIP helper (`/ip firewall service-port sip`) is disabled. It was suspected during
-that outage and was not the cause, but a SIP ALG rewriting Contact and SDP while Asterisk sets
-its own `externip` is a known conflict, so leaving it off is the right posture.
+The RouterOS SIP helper (`/ip firewall service-port sip`) is disabled: a SIP ALG rewriting
+Contact and SDP conflicts with Asterisk setting its own `external_*_address`.
 
 Separately, and unrelated to this app, **Snikket itself needs TCP 5222 and TCP 5269 forwarded
-to `10.20.2.15`**. Both were missing until 2026-09-12, which meant clients could not connect
-from outside the LAN and no inbound s2s had ever succeeded. The second one breaks push
-notifications, and push is what wakes a backgrounded phone for an incoming call, so calls did
-not ring even though the gateway was working.
+to `10.20.2.15`**. 5269 is what carries push notifications, and push is what wakes a
+backgrounded phone for an incoming call, so without it a call does not ring even while the
+gateway works.
 
 ## Addressing quirk
 
-The advertised address and the egress address differ. `externip`/`ice_host_candidates` say
+The advertised address and the egress address differ. `external_*_address`/`ice_host_candidates` say
 `203.0.113.10`, a static address arriving through a tunnel, while outbound traffic egresses
 from the DS-Lite CGNAT address. So a far end that latches onto our source (comedia, or ICE
 peer-reflexive) and one that obeys our SDP send media to two different places. Both work in
-practice, and ICE is what rescued the first working call, but it is a standing source of
-one-way audio if something changes.
+practice, but it is a standing source of one-way audio if something changes.
 
 Asterisk deliberately does **not** use the shared coturn: its `turnusername`/`turnpassword`
 are static, while coturn runs `use-auth-secret` with time-bounded HMACs Asterisk cannot
@@ -417,13 +478,15 @@ static address and forwarded ports, so it is the side that least needs a relay.
 ## Verifying
 
 ```bash
-# trunk
-kubectl -n cheogram-sip exec deploy/cheogram-sip -c cheogram-sip -- asterisk -rx 'sip show registry'
-kubectl -n cheogram-sip exec deploy/cheogram-sip -c cheogram-sip -- asterisk -rx 'sip show peers'
-# components
-kubectl -n cheogram-sip exec deploy/cheogram-sip -c cheogram-sip -- asterisk -rx 'xmpp show connections'
+# the trunks. -c asterisk: the binary is the OTHER container in this pod and has no CLI
+kubectl -n cheogram-sip exec deploy/cheogram-sip -c asterisk -- asterisk -rx 'pjsip show registrations'
+kubectl -n cheogram-sip exec deploy/cheogram-sip -c asterisk -- asterisk -rx 'pjsip show endpoints'
+# a sorcery error is an object that did NOT load, logged once at startup and never again
+kubectl -n cheogram-sip logs deploy/cheogram-sip -c asterisk | grep -i sorcery
+# Asterisk's own component. The user-facing one is the cheogram-sip container's log
+kubectl -n cheogram-sip exec deploy/cheogram-sip -c asterisk -- asterisk -rx 'xmpp show connections'
 # what actually happened to a call, including the dialled JID and the disposition
-kubectl -n cheogram-sip exec deploy/cheogram-sip -c cheogram-sip -- sh -c 'tail -3 /var/log/asterisk/cdr-csv/Master.csv'
+kubectl -n cheogram-sip exec deploy/cheogram-sip -c asterisk -- sh -c 'tail -3 /var/log/asterisk/cdr-csv/Master.csv'
 ```
 
 The CDR is the useful instrument. Asterisk logs almost nothing at default verbosity, and
@@ -439,23 +502,25 @@ client directly, which is a useful way to test the media path without involving 
 asterisk -rx 'channel originate Motif/jingle-endpoint/user@xmpp.example.com/Resource application Echo'
 ```
 
-## The Matrix bridge peer
+## The Matrix bridge endpoint
 
-`matrix-sip-bridge` (`apps/matrix`) is an ordinary SIP peer, `[matrixbridge]` in `sip.conf`, not
-an AMI client. It is **static**: it never REGISTERs, so `host=` names its Service in the `matrix`
-namespace, and `transport=tcp` because SIP MESSAGE over UDP fragments and is silently dropped.
-That needs `tcpenable=yes` in `[general]`, or chan_sip refuses the peer without using it.
+`matrix-sip-bridge` (`apps/matrix`) is an ordinary SIP peer, `[matrixbridge]` in `pjsip.conf`,
+not an AMI client. It is **static**: it never REGISTERs, so its AOR contact names its Service in
+the `matrix` namespace, with `;transport=tcp` in the URI because SIP MESSAGE over UDP fragments
+and is silently dropped — and because pjsip takes the transport from the contact, not from the
+endpoint's `transport=` alone.
 
-The peer name must equal `sip.username` in the bridge's own config. The bridge digest-
+The endpoint name must equal `sip.username` in the bridge's own config. The bridge digest-
 authenticates `REGISTER` and nothing else, so its INVITEs and MESSAGEs arrive unauthenticated
-from a pod address that is not `host=`; the From user part is all chan_sip can match them on,
-which is also why `insecure=invite,port` is set.
+from a pod address that is not the AOR contact; `identify_by=username` on the From user part is
+the whole match, and the endpoint therefore carries no `auth` at all. What keeps anything else
+in the cluster from claiming the name is `vnet.yaml`.
 
-`accept_outofcall_message=yes` plus an `outofcall_message_context` is required globally *and* on
-the peer, or an inbound MESSAGE is refused before any dialplan sees it. Setting it in `[general]`
-is a global default neither trunk overrides, so *every* out-of-call MESSAGE — carrier SMS included
-— lands in `messages-in`. That is why the context is a dispatcher rather than the bridge's own
-inbound path; see "SMS" below.
+`message_context=messages-in` is on every endpoint, the trunks included, so *every* out-of-call
+MESSAGE — carrier SMS as well as the bridge's — lands there. That is why the context is a
+dispatcher rather than the bridge's own inbound path; see "SMS" below. An endpoint that left it
+unset would send its MESSAGEs into `public` instead, whose Message branch is a deliberately dead
+second copy.
 
 ### Inbound calls into Matrix
 
@@ -497,10 +562,8 @@ The `matrix-answered` gosub runs on whichever leg answered, XMPP included, and *
 the answered leg up if the gosub fails** — so its body is wrapped in `pcall`. A Lua error there
 would otherwise drop ordinary calls to the household number.
 
-`confbridge-matrix.conf` is appended to the image's `confbridge.conf` and adds only the two user
-profiles: livekit-sip is the marked user, the caller is `end_marked`. The bridge ends a call by
-removing livekit-sip from the LiveKit room, and that pairing is the only thing that then hangs
-the caller up.
+The two user profiles this uses are in `confbridge.conf`: livekit-sip is the marked user, the
+caller is `end_marked`, and that pairing is what a Matrix hangup ends the caller with.
 
 ### Outbound calls from Matrix
 
@@ -515,12 +578,12 @@ which is the only way this path can answer the bridge with a real SIP status ins
 
 The 200 is deliberately withheld until the far end answers. The bridge only asks livekit-sip to
 join the conference *after* its INVITE is answered, so answering early would trade the one failure
-signal there is for a second of earlier audio. A failure hangs the leg up with a cause chan_sip
+signal there is for a second of earlier audio. A failure hangs the leg up with a cause the stack
 turns into a response: a destination that is not a number or a bad conference header 404, no trunk
 503, busy 486, no answer 480. The bridge fails the call on all of them alike.
 
 Trunk selection is `resolve_destination`, shared with the XMPP path so the two cannot drift. Caller
-ID is not the dialplan's: every peer pins `fromuser`, so the call presents that peer's own number
+ID is not the dialplan's: every endpoint pins `from_user`, so the call presents that endpoint's own number
 whatever `CALLERID` says. Which of our numbers a caller presents is selected by picking the peer,
 which is the line's primary registration's — so a `from_glob` rule is what makes it per-person,
 and only on the XMPP path, where the caller is known.
@@ -532,7 +595,7 @@ each MESSAGE before doing anything with it. A message is outbound only when the 
 is the bridge peer **and** the extension is a bare number. Both conditions are required — on the
 `From` alone, a carrier-injected `From: sip:matrixbridge@…` would be an outbound-SMS primitive on
 our trunk, billed to us. The trunk's own messages fail both: their `From` is a subscriber number
-and their extension is the JID from the register line's quoted contact.
+and their extension is the DID's own contact.
 
 Inbound goes to XMPP **and** Matrix, mirroring how an inbound call rings both, and the order is
 load-bearing. XMPP is sent first because the bridge's handler can block for 32s and a hung bridge
@@ -543,13 +606,14 @@ The bridge leg is sent only for a sender that normalises to `+E.164` — the sam
 uses for the conference name, and both derive it from `matrix_conference_name`, which is what keeps
 an SMS and a call from one number in **one** portal room. The sender's host is rewritten to the
 line exactly as on the call path, so the JID resource is `+49…#home` rather than the carrier's SBC
-address. The line comes from the dialled contact, as on the call path; whether a carrier echoes
-our Contact on a `MESSAGE` is untested, and one that does not falls back to the host's default
-registration and logs `how=[entrypoint]`. The `+` matters on the bridge leg: the bridge rejects a number without one
+address. The line comes from the dialled contact; a Message channel has no endpoint, so the pjsip
+attribution the call path gets is not available here, and a carrier that does not echo our
+Contact on a `MESSAGE` falls back to the host's default registration and logs
+`how=[entrypoint]`. The `+` matters on the bridge leg: the bridge rejects a number without one
 and then drops the message *while answering 200 OK*.
 
-Outbound reuses `resolve_destination`, and sends with no `from`, so chan_sip applies the peer's
-`fromuser` — the same way the call path gets its caller ID. There is no allow-list and no rate
+Outbound reuses `resolve_destination`, and sends with no `from`, so the endpoint's own
+`from_user` applies — the same way the call path gets its caller ID. There is no allow-list and no rate
 limit: the trust boundary is the `[matrixbridge]` peer plus the numeric-destination check, as for
 outbound calls. Any Matrix user in a portal room can text any routable number a trunk accepts.
 
@@ -557,7 +621,7 @@ Today that is none of them: PSTN answers outbound `MESSAGE` with `501 Sip Gw onl
 outbound path is built, correct and dead. It stays because it costs nothing and works the day
 a trunk that accepts `MESSAGE` is added. Inbound SMS is unaffected and does work.
 
-The silent-failure surface here is large — chan_sip answers `202` before the dialplan runs, the
+The silent-failure surface here is large — Asterisk answers `202` before the dialplan runs, the
 bridge answers `200` for a message it drops, and `MESSAGE_SEND_STATUS=SUCCESS` means "handed over",
 not delivered. The `sms inbound`/`sms outbound`/`xmpp outbound` NOTICE lines are the whole
 observability story.
@@ -565,43 +629,12 @@ observability story.
 The bridge caps a MESSAGE at 20480 serialised bytes with no segmentation and no retry, so a long
 Matrix message fails outright.
 
-## Decided, not yet built
-
-Design settled, no code. Nothing in this section describes current behaviour.
+## 110/112, and voicemail
 
 110 and 112 are configured to behave sensibly, but they are not the emergency plan. This path is
 VoIP behind DS-Lite CGNAT, with a documented history of one-way audio and of trunks that stop
 registering when a route changes. A mobile stays the actual emergency plan.
 
-- **Voicemail means recording a file and delivering it**, because `app_voicemail` is not in the
-  image. `app_record`, `app_confbridge`, `app_queue`, `app_followme` and `app_mixmonitor` are.
-  The bridge already has media upload and Matrix API access, so a recording becomes an `m.audio`
-  event with the MSC3245 voice marker and renders as a normal voice message.
-- **Voicemail is Matrix only by design, and that is not a defect.** Snikket's prosody has
-  `mod_http_file_share` enabled and Conversations-family clients render voice messages fine, so
-  the gap is delivery, not support: Asterisk cannot perform an XEP-0363 upload, and the component
-  relays only text, since `MessageSend` carries a body and not a file. The XMPP side still gets
-  the call, just not the recording. Parity, if ever wanted, means teaching the bridge XEP-0363
-  against Snikket's `http_file_share` and sending an OOB message. Asterisk cannot help either way.
-
-## State
-
-Working, both directions, with real audio. From the CDR:
-
-```
-public  5551 -> admin@xmpp.example.com   billsec=3    ANSWERED   inbound
-jingle  lhns -> jingle-endpoint     billsec=3    ANSWERED   outbound
-public  7669 -> admin@xmpp.example.com   billsec=12   ANSWERED   inbound
-jingle  lhns -> jingle-endpoint     billsec=10   ANSWERED   outbound
-```
-
-`context=public` is an inbound call from the trunk, `context=jingle` an outbound one from a
-client. `billsec` above zero is the bit that matters: media flowed, so ICE, DTLS-SRTP and the
-RTP forwards all work in both directions. Also proven: DTLS needs no certificate config, the
-client's fingerprint simply arrives.
-
-Not yet proven live: the gate's **negative** case. Dial out from an account in no line's
-`callers` and confirm refusal, because a silently open trunk looks exactly like a working one.
-It is covered offline — `dialplan_test.lua` asserts refusal per path and the suite fails if the
-gate is disabled — but a real call has not been refused yet. A refusal logs
-`Cannot dial '<to>': caller is not in the callers list of line '<line>'`.
+Voicemail is a `record` stage that records nothing: `app_voicemail` declines to load with no
+`voicemail.conf`, and the plan is to record a file and have the bridge post it as a Matrix voice
+message. The design, and why it is Matrix only, is in `kube-cluster/TODO.md`.

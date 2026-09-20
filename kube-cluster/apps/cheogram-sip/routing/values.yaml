@@ -1,39 +1,73 @@
 # NO PASSWORD HERE, EVER. These values render into a plaintext ConfigMap in git.
 
+# res_pjsip transports. Nothing per-trunk: every registration below rides trunk_transport.
+# 5060 on both protocols is what apps/matrix and the cheogram-sip-internal Service point at.
+transports:
+  - name: transport-udp
+    protocol: udp
+    bind: 0.0.0.0:5060
+  # matrixbridge and nothing else. SIP MESSAGE has to be TCP: a multi-part text that overflows
+  # a UDP datagram is dropped with no error anywhere.
+  - name: transport-tcp
+    protocol: tcp
+    bind: 0.0.0.0:5060
+
+# The transport every trunk registers and dials over.
+trunk_transport: transport-udp
+
+# Deployment facts, applied to every transport above: externip and localnet, which pjsip takes
+# per transport. Without them the SDP carries the pod address and audio goes nowhere.
+external_address: 203.0.113.10
+local_nets:
+  - 10.20.0.0/16
+  - 172.18.0.0/16
+  - 172.19.0.0/16
+
 # One REGISTER per entry. The entry name IS the Secret key name under /sip-secrets that
 # holds its password, so a rename that misses one is a pod that does not start.
 registrations:
-  # Built by the image's entrypoint out of SIP_USER/SIP_HOST/SIP_JID, so `entrypoint: true`
-  # keeps it out of registrations.tsv -- a second REGISTER for this account would fight it.
-  # Declared anyway: it is the only way this number has a line, and therefore an identity.
+  # Each entry's endpoint/aor/auth/registration set is GENERATED from the fields below into
+  # pjsip.conf, under the ENTRY NAME. Three DIDs share sip.example.net and pjsip cannot carry a
+  # per-DID discriminator in one endpoint, so each needs a set of its own; see the README.
+  #
+  # contact_user must be a legal SIP user part: pjsip parses the Contact URI it builds, so
+  # an "@" in that slot makes the registration object fail to load.
+
+  # The PSTN trunk's own account: SIP_USER at SIP_HOST, which the component also appends to
+  # any bare number, so tests/check-routing.py holds this row against cheogram-sip.env.
+  # `entrypoint: true` means this host's DEFAULT registration -- the inbound fallback, and
+  # the one endpoint the generator gives a type=identify and identify_by=ip, so a call the
+  # carrier does not tag with our ;line= lands here rather than nowhere. A host with one
+  # registration needs no flag: it is its own default.
   pstn-02012345678:
     user: "02012345678"
     host: sip.example.net
-    contact_user: admin@xmpp.example.com
+    contact_user: "02012345678"
     did: "+492012345678"
     line: home
     entrypoint: true
+    peer_secret_file: pstn-02012345678-secret.conf
 
   pstn-02012345671:
     user: "02012345671"
     host: sip.example.net
-    contact_user: 02012345671@xmpp.example.com
+    contact_user: "02012345671"
     did: "+492012345671"
     line: office
+    peer_secret_file: pstn-02012345671-secret.conf
 
   pstn-02012345672:
     user: "02012345672"
     host: sip.example.net
-    contact_user: 02012345672@xmpp.example.com
+    contact_user: "02012345672"
     did: "+492012345672"
     line: office
+    peer_secret_file: pstn-02012345672-secret.conf
 
-  # This host also has a PEER in sip.conf, which needs the same password again as a
-  # `secret=` line; peer_secret_file names the #include that gets it.
   eventpbx-5552:
     user: "5552"
     host: voip.example.org
-    contact_user: admin@xmpp.example.com
+    contact_user: "5552"
     did: "5552"
     line: eventpbx
     peer_secret_file: ev-secret.conf

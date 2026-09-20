@@ -229,7 +229,7 @@ spec:
         runAsGroup: 0
       containers:
         - name: sftpgo
-          image: ghcr.io/drakkan/sftpgo:v2.7.5
+          image: ghcr.io/drakkan/sftpgo:v2.7.6
           env:
             - name: SFTPGO_WEBDAVD__BINDINGS__0__PORT
               value: "10080"

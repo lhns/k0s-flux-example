@@ -68,20 +68,6 @@ spec:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: synapse-pymods
-  namespace: matrix
-spec:
-  # RWX because synapse's rollout is not Recreate -- the new pod's initContainer
-  # mounts this while the old pod still holds it.
-  accessModes: [ReadWriteMany]
-  storageClassName: cephfs
-  resources:
-    requests:
-      storage: 1Gi
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
   name: synapse-data
   namespace: matrix
 spec:
@@ -166,63 +152,11 @@ spec:
         kube-vnet/net.matrix-bridges: egress
     spec:
       enableServiceLinks: false
+      # No fsGroup: it applies to EVERY volume and would recursively chown the
+      # 32 GiB / 315k-inode media store.
       securityContext:
         runAsUser: 991
         runAsGroup: 991
-      # TEMPORARY, pending an ImageComposition. The stock synapse image has no
-      # boto3, so the s3 media storage provider cannot be imported without help.
-      # pip runs against a PERSISTENT volume and skips when the module is already
-      # there, so PyPI is only needed on a version change -- not on every restart.
-      # An emptyDir here would make a PyPI outage during any node drain into a
-      # homeserver outage.
-      #
-      # Same image as synapse itself, so the interpreter that resolves the
-      # dependencies is the one that will import them (python 3.13, and
-      # site-packages is /usr/local/lib/python3.13, not Debian dist-packages).
-      initContainers:
-        - name: install-s3-provider
-          image: matrixdotorg/synapse:v1.161.0
-          # Root only for this container, and only to write the freshly-provisioned
-          # PVC (which comes up root-owned) before chowning it to synapse's 991.
-          # Pod-level fsGroup would do it too, but fsGroup applies to EVERY volume
-          # and would recursively chown the 32 GiB / 315k-inode media store.
-          securityContext:
-            runAsUser: 0
-            runAsGroup: 0
-          command: ["sh", "-c"]
-          args:
-            - |
-              set -e
-              # Marker includes the extras, so adding one forces a reinstall.
-              want=1.6.1+cli
-              if [ "$(cat /pymods/.version 2>/dev/null)" = "$want" ]; then
-                echo "s3 storage provider $want already present, skipping"
-                exit 0
-              fi
-              rm -rf /pymods/* /pymods/.version
-              # --no-deps is load-bearing. pip --target ignores what is already in
-              # site-packages, so a plain install tries to build psycopg2 from
-              # source and dies: there is no compiler in this image. psycopg2,
-              # Twisted and PyYAML are declared deps of the provider but are only
-              # needed by the s3_media_upload CLI, and all three are already in the
-              # image. boto3 is installed separately WITH its deps -- those are
-              # pure-python wheels and resolve fine.
-              pip install --no-cache-dir --target=/pymods --no-deps \
-                "synapse-s3-storage-provider==1.6.1"
-              pip install --no-cache-dir --target=/pymods boto3
-              # humanize and tqdm are used only by the s3_media_upload CLI, which
-              # the sweep CronJob runs from this same bundle. psycopg2 and PyYAML,
-              # its other CLI deps, are already in the image.
-              pip install --no-cache-dir --target=/pymods humanize tqdm
-              python -c "import sys; sys.path.insert(0,'/pymods'); import s3_storage_provider, boto3; print('import check ok')"
-              echo "$want" > /pymods/.version
-              chown -R 991:991 /pymods
-          volumeMounts:
-            - name: pymods
-              mountPath: /pymods
-          resources:
-            requests: {cpu: 50m, memory: 128Mi}
-            limits: {memory: 512Mi}
       containers:
         - name: synapse
           image: matrixdotorg/synapse:v1.161.0
@@ -255,7 +189,7 @@ spec:
             - name: TZ
               value: Europe/Berlin
             # Where the s3 media storage provider and its dependencies live. The
-            # base image is stock upstream and has no boto3; see the initContainer.
+            # base image is stock upstream and has no boto3; see images.yaml.
             - name: PYTHONPATH
               value: /pymods
             # boto3 reads path-style addressing from here; the provider has no
@@ -292,8 +226,12 @@ spec:
             - name: registrations
               mountPath: /registrations
               readOnly: true
+            # subPath: the image is the synapse image with /pymods added, so its
+            # root is the whole synapse filesystem, not the bundle.
             - name: pymods
               mountPath: /pymods
+              subPath: pymods
+              readOnly: true
             - name: media-s3
               mountPath: /media-s3
               readOnly: true
@@ -326,8 +264,9 @@ spec:
           secret:
             secretName: synapse-appservice-registrations
         - name: pymods
-          persistentVolumeClaim:
-            claimName: synapse-pymods
+          image:
+            reference: synapse-pymods
+            pullPolicy: IfNotPresent
         - name: media-s3
           secret:
             secretName: synapse-media-s3
@@ -616,7 +555,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: livekit-sip
-          image: livekit/sip:v1.14.0
+          image: livekit/sip:v1.15.0
           env:
             # No SIP_CONFIG_FILE: the image's ENTRYPOINT is
             # ["livekit-sip", "--config=/sip/config.yaml"], and the flag always wins, so
@@ -897,8 +836,12 @@ spec:
             runAsUser: 0
             runAsGroup: 0
           containers:
+            # Runs the pymods image rather than mounting it: kustomize rewrites a
+            # container `image:` anywhere, but has no image-volume fieldspec under a
+            # CronJob's jobTemplate, so a volume here would keep the bare name and
+            # fail to pull. The image is the synapse image plus /pymods.
             - name: sweep
-              image: matrixdotorg/synapse:v1.161.0
+              image: synapse-pymods
               workingDir: /work
               env:
                 - name: PYTHONPATH
@@ -955,9 +898,6 @@ spec:
               volumeMounts:
                 - name: data
                   mountPath: /data
-                - name: pymods
-                  mountPath: /pymods
-                  readOnly: true
                 - name: media-s3
                   mountPath: /media-s3
                   readOnly: true
@@ -976,9 +916,6 @@ spec:
             - name: data
               persistentVolumeClaim:
                 claimName: synapse-data
-            - name: pymods
-              persistentVolumeClaim:
-                claimName: synapse-pymods
             - name: media-s3
               secret:
                 secretName: synapse-media-s3
@@ -1463,7 +1400,7 @@ spec:
 # config is a read-only Secret rather than a file the bridge rewrites in place.
 #
 # It is a SIP ENDPOINT, not a controller of one PBX: Asterisk dials it as the
-# `[matrixbridge]` peer in apps/cheogram-sip/sip.conf, so call policy stays in
+# `[matrixbridge]` peer in apps/cheogram-sip's pjsip.conf, so call policy stays in
 # the dialplan. The SIP listener is tcp -- a SIP MESSAGE that overflows a UDP
 # datagram is dropped with no error at either end.
 # ===========================================================================
@@ -1658,7 +1595,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: baibot
-          image: ghcr.io/etkecc/baibot:v1.26.0
+          image: ghcr.io/etkecc/baibot:v1.27.0
           env:
             - name: TZ
               value: Europe/Berlin

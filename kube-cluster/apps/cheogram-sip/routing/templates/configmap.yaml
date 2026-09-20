@@ -14,14 +14,11 @@ rather than a bad route.
 return {
   registrations = {
 {{- range $name, $r := .Values.registrations }}
-  {{- /* The chan_sip peer an outbound call on this entry LEAVES BY, which is not always its
-  host: three registrations share one host and only one peer per host can pin fromuser. An
-  entry that has no peer of its own in sip.conf gets one rendered by the render-config
-  initContainer, named after the entry; the `entrypoint` row and any row naming a
-  peer_secret_file already have one, named after the host. The two renderers must agree, which
-  is what tests/check-routing.py holds them to. */}}
-  {{- $peer := $name }}{{ if or $r.entrypoint $r.peer_secret_file }}{{ $peer = $r.host }}{{ end }}
-    [{{ include "cheogram-sip-routing.q" $name }}] = { user = {{ include "cheogram-sip-routing.q" $r.user }}, host = {{ include "cheogram-sip-routing.q" $r.host }}, peer = {{ include "cheogram-sip-routing.q" $peer }}, contact_user = {{ include "cheogram-sip-routing.q" $r.contact_user }}, did = {{ include "cheogram-sip-routing.q" $r.did }}, line = {{ include "cheogram-sip-routing.q" $r.line }}{{ if $r.entrypoint }}, entrypoint = true{{ end }} },
+  {{- /* `peer`: the config section an outbound call on this entry LEAVES BY, and what an
+  inbound one is attributed by. Always the ENTRY NAME, never the host: three registrations
+  share sip.example.net and the presented number is pinned per section, so a section named after
+  the host could present only one of them. It is what CHANNEL(endpoint) hands the dialplan. */}}
+    [{{ include "cheogram-sip-routing.q" $name }}] = { user = {{ include "cheogram-sip-routing.q" $r.user }}, host = {{ include "cheogram-sip-routing.q" $r.host }}, peer = {{ include "cheogram-sip-routing.q" $name }}, contact_user = {{ include "cheogram-sip-routing.q" $r.contact_user }}, did = {{ include "cheogram-sip-routing.q" $r.did }}, line = {{ include "cheogram-sip-routing.q" $r.line }}{{ if $r.entrypoint }}, entrypoint = true{{ end }} },
 {{- end }}
   },
   lines = {
@@ -55,15 +52,15 @@ name, user, host, contact_user, peer_secret_file. The name doubles as the Secret
 that entry's password, which is why no key is named here -- see values.yaml. printf rather
 than a literal tab so the separator is visible in this file.
 
-An `entrypoint` entry is SKIPPED: the image builds that register line itself, and a second
-REGISTER for the same account would fight it.
+peer_secret_file is LAST because it is the only optional field: TAB is IFS whitespace, so
+`read` collapses a run of them and an empty field anywhere else would shift every later one
+into the wrong variable.
+
 */}}
 {{- define "cheogram-sip-routing.registrations" -}}
 {{- $lines := list -}}
 {{- range $name, $r := .Values.registrations -}}
-{{- if not $r.entrypoint -}}
 {{- $lines = append $lines (printf "%s\t%s\t%s\t%s\t%s" $name $r.user $r.host $r.contact_user ($r.peer_secret_file | default "")) -}}
-{{- end -}}
 {{- end -}}
 {{ join "\n" $lines }}
 {{- end -}}
@@ -94,3 +91,14 @@ metadata:
 data:
   registrations.tsv: |
     {{- include "cheogram-sip-routing.registrations" . | nindent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # DELIBERATELY NOT in cheogram-sip-routing: that one is reloader-ignored, and Asterisk reads
+  # pjsip.conf once at start. A trunk change there would never reach a running pod.
+  name: cheogram-sip-pjsip
+  namespace: {{ .Release.Namespace }}
+data:
+  pjsip.conf: |
+    {{- include "cheogram-sip-routing.pjsip" . | nindent 4 }}

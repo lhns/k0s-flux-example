@@ -18,11 +18,16 @@ metadata:
     #
     # infra-reloader: the as-secret generators carry disableNameSuffixHash, so a config
     # change does not roll its pod by itself -- reloader is what notices.
-    dependsOn: infra-postgres,infra-reflector,infra-metallb,infra-traefik,infra-ceph-csi-cephfs,infra-ceph-csi-rbd,infra-reloader,app-coturn
+    #
+    # infra-oci-composer: images.yaml. Without the controller the ImageBuild fails admission
+    # with "no matches for kind" and that fails the WHOLE apply -- every bridge with it. It
+    # gates on the controller only, not on the build finishing.
+    dependsOn: infra-postgres,infra-reflector,infra-metallb,infra-traefik,infra-ceph-csi-cephfs,infra-ceph-csi-rbd,infra-reloader,app-coturn,infra-oci-composer
 # NOTE: no `namespace:` transformer — database.yaml + db-role-secret.yaml pin
 # `namespace: postgres`; everything else is in `matrix`.
 resources:
 - resources.yaml
+- images.yaml
 - routing.yaml
 - database.yaml
 - db-role-secret.yaml

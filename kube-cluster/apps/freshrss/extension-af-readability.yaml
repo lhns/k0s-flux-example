@@ -25,6 +25,7 @@ spec:
       sourceRef:
         kind: GitRepository
         name: freshrss-ext-af-readability
+        revision: sha1:7e0dc8fd82d5f13863e5121cbe0f7b1f2d194fd9
       to: /
       owner: {uid: 33, gid: 33}
   push:

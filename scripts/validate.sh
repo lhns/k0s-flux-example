@@ -37,6 +37,31 @@ echo "== substitution: no credential in a ConfigMap, no unreachable name =="
 "$py" scripts/check-substitution.py
 
 echo
+echo "== oci-composer: every sourceRef pins the revision its source is pinned at =="
+# A mismatch leaves the composition Pending forever; an absent one lets it publish stale
+# content under a fresh spec-hash tag and wedge. See kube-cluster/infra/oci-composer/README.md.
+"$py" scripts/check-source-pins.py
+
+echo
+echo "== matrix: synapse-pymods FROM matches the synapse image =="
+# The modules in /pymods are resolved against the base image's interpreter, and two
+# different renovate managers see the two pins as unrelated deps. A split bump is an
+# ImportError at synapse startup pointing nowhere near the cause.
+from_tag="$(grep -oE 'FROM matrixdotorg/synapse:[^@[:space:]]+' kube-cluster/apps/matrix/images.yaml | sed 's/.*://' | sort -u)"
+img_tag="$(grep -oE 'image: matrixdotorg/synapse:[^@[:space:]]+' kube-cluster/apps/matrix/resources.yaml | sed 's/.*://' | sort -u)"
+if [ -z "$from_tag" ] || [ -z "$img_tag" ]; then
+  echo "no matrixdotorg/synapse pin found in images.yaml or resources.yaml" >&2
+  exit 1
+fi
+if [ "$from_tag" != "$img_tag" ]; then
+  echo "== synapse tag drift ==" >&2
+  echo "  images.yaml FROM: $from_tag" >&2
+  echo "  resources.yaml:   $img_tag" >&2
+  exit 1
+fi
+echo "synapse $from_tag OK"
+
+echo
 echo "== sops: every encrypted file is whole and encrypted to the cluster's key =="
 # Structure only -- CI has no age key, so a broken MAC is NOT caught here.
 # scripts/check-sops-mac.sh, on a host that holds the key, is what catches that.

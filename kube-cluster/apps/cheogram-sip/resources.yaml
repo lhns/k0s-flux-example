@@ -29,7 +29,7 @@ metadata:
   name: cheogram-sip
   namespace: cheogram-sip
   annotations:
-    # The entrypoint renders the trunk password and the component secrets into
+    # render-config writes the trunk password and both component secrets into
     # /etc/asterisk once at startup, so a rotated Secret is otherwise never picked up.
     reloader.stakater.com/auto: "true"
 spec:
@@ -54,14 +54,12 @@ spec:
         # pod-to-pod, hence the egress edge as well.
         kube-vnet/net.asterisk-sip: ingress
         kube-vnet/net.matrix.livekit-sip-media: egress
-        # The other new direction: we dial and text matrix-sip-bridge's SIP port. Its own
-        # vnet, because asterisk-sip only covers matrix -> here.
+        # We dial and text matrix-sip-bridge's SIP port. Its own vnet, because asterisk-sip
+        # only covers matrix -> here.
         kube-vnet/net.matrix.matrix-sip-bridge-sip: egress
         # The trunk RTP ports arrive via cheogram-sip-lb, which kube-vnet auto-allows
         # (ext.svc), and the trunks themselves are ordinary external egress.
     spec:
-      # The image reads SIP_*/COMPONENT_* from the environment; injected <SVC>_PORT
-      # vars would collide.
       # sip.example.net does not resolve anywhere (NXDOMAIN publicly, on the LAN resolver and in
       # the cluster). It is a SIP domain, and the carrier hands out a proxy address instead.
       # Mapping it here lets the peer be named after the domain, which is what makes the
@@ -72,13 +70,25 @@ spec:
       # silently and must be removed.
       hostAliases:
         - {ip: 10.21.27.11, hostnames: [sip.example.net]}
+      # The image reads SIP_*/COMPONENT_* from the environment; injected <SVC>_PORT vars
+      # would collide.
       enableServiceLinks: false
+      # The image runs as uid 999, and a Secret volume is root-owned: without this the trunk
+      # passwords are unreadable. Cheap here because every mount is a ConfigMap or an
+      # emptyDir -- fsGroup chowns them recursively, which is why it is avoided on the apps
+      # that mount large volumes.
+      securityContext:
+        fsGroup: 999
       initContainers:
         # The binary dials prosody:5347 on its first instruction and does not retry, so it
         # loses two races: kube-vnet programming this pod's allow rule (about a second on
         # kube-router, and a denial arrives as an immediate Connection refused, not a
         # timeout), and prosody itself being up. Either one crash-loops the pod until it
         # happens to win. Poll instead of sleeping a guess.
+        #
+        # Gates the whole pod rather than only the cheogram-sip container that needs it:
+        # there is no per-container init, and res_xmpp reconnects on its own, so the
+        # asterisk container merely waits.
         - name: wait-prosody
           image: alpine:3
           command: ["sh", "-c"]
@@ -93,33 +103,51 @@ spec:
               echo "prosody reachable after $i retries"
           envFrom:
             - configMapRef: {name: cheogram-sip-env}
-        # /etc/asterisk must be WRITABLE: the entrypoint seds the component secret and
-        # the trunk password into xmpp.conf and sip.conf. A read-only ConfigMap mount
-        # over those files makes it fail. So copy the image's own /etc/asterisk into an
-        # emptyDir, overlay ours, and let the main container mount that read-write.
+        # /etc/asterisk must be WRITABLE: the trunk passwords and both component secrets are
+        # rendered into it, and a read-only ConfigMap mount over those files makes that
+        # impossible. The image ships no /etc/asterisk of its own, so this emptyDir is the
+        # whole of it -- the ConfigMap plus the credentials it #includes.
         - name: render-config
-          image: singpolyma/cheogram-sip@sha256:594cdb7bd570633b507b0ff60c1493257a15179c501d0bdf4a06b9720158059b
+          # The same image as the asterisk container, so what renders the config is what
+          # parses it. Nothing here needs more than a shell.
+          image: ghcr.io/lhns/asterisk:22.11.0-cheogram-dtls@sha256:6951c3cea8696d42de7c433bd65b58c86bd0c73f18a8e0f54ba499e7cbf76e32
           command: ["/bin/sh", "-c"]
           args:
             - |
               set -eu
-              cp -a /etc/asterisk/. /render/
-              cp /config/sip.conf /config/rtp.conf /config/motif.conf /config/extensions.lua /config/logger.conf /render/
-              # APPENDED, not copied over: the two Matrix conference user profiles are all
-              # we add, and the image's [general]/[default_bridge]/[default_user] have to
-              # survive. ConfBridge() with a profile that is not defined fails the call.
-              cat /config/confbridge-matrix.conf >> /render/confbridge.conf
-              grep -q "^\[matrix_caller\]$" /render/confbridge.conf || {
-                echo "confbridge.conf is missing the matrix_caller profile"; exit 1; }
+              cp /config/asterisk.conf /config/modules.conf /config/pjproject.conf /config/rtp.conf /config/motif.conf /config/extensions.lua /config/logger.conf /config/xmpp.conf /config/confbridge.conf /render/
+              # Generated by the routing chart, so it arrives in its own ConfigMap rather
+              # than from /config.
+              cp /pjsip/pjsip.conf /render/
+              # Asterisk EXITS on a missing modules.conf, with nothing but "Module
+              # initialization failed" in the log.
+              [ -s /render/modules.conf ] || { echo "modules.conf is empty"; exit 1; }
+              # Same: ConfBridge() with a profile that is not defined fails the call, and
+              # nothing but confbridge.conf defines these.
+              for p in default_bridge default_user matrix_caller matrix_marked; do
+                grep -q "^\[$p\]$" /render/confbridge.conf || {
+                  echo "confbridge.conf is missing the $p profile"; exit 1; }
+              done
               # The pod IP is only knowable at runtime, and ice_host_candidates needs it
               # on the left of the mapping to the public address.
               sed -i "s|__POD_IP__|$POD_IP|" /render/rtp.conf
+              # Asterisk's own component connection, #included rather than sed into
+              # xmpp.conf because one of the four values is a password.
+              [ -n "$ASTERISK_COMPONENT_SECRET" ] || {
+                echo "ASTERISK_COMPONENT_SECRET is empty"; exit 1; }
+              printf 'serverhost=%s\nport=%s\nusername=%s\nsecret=%s\n' \
+                "$CONNECT_IP" "$CONNECT_PORT" "$ASTERISK_COMPONENT_DOMAIN" "$ASTERISK_COMPONENT_SECRET" \
+                > /render/xmpp-component.conf
+              grep -q "^#include xmpp-component.conf$" /render/xmpp.conf || {
+                echo "xmpp.conf does not #include xmpp-component.conf; Asterisk would connect"
+                echo "as the image's default component, with the image's password"
+                exit 1; }
               # No credential ever goes through sed. sed's replacement text is not literal,
-              # so a backslash or ampersand in a password would corrupt sip.conf instead of
-              # failing, and ";" would be read as an Asterisk comment and truncate the
+              # so a backslash or ampersand in a password would corrupt pjsip.conf instead
+              # of failing, and ";" would be read as an Asterisk comment and truncate the
               # secret. printf into an #include sidesteps all of it.
               [ -n "$LIVEKIT_SIP_PASSWORD" ] || { echo "LIVEKIT_SIP_PASSWORD is empty"; exit 1; }
-              printf 'secret=%s\n' "$LIVEKIT_SIP_PASSWORD" > /render/lk-secret.conf
+              printf 'password=%s\n' "$LIVEKIT_SIP_PASSWORD" > /render/lk-secret.conf
               # Every trunk registration, driven by the routing chart's registrations table
               # (registrations.tsv, the machine-readable twin of routing.lua -- iterating a
               # Lua table from /bin/sh is not worth the parser). Adding a number, or a whole
@@ -129,128 +157,102 @@ spec:
               # That convention is only safe because a key that is missing or empty is a pod
               # that does not start, rather than a trunk that silently fails auth.
               tab="$(printf '\t')"
-              includes="registrations.conf lk-secret.conf"
-              : > /render/registrations.conf
-              : > /render/peers.conf
-              peers=""
+              includes="lk-secret.conf"
               # `|| [ -n "$rname" ]`: read exits non-zero on a last line with no trailing
               # newline, having already assigned it, so without this that entry is dropped.
               while IFS="$tab" read -r rname ruser rhost rcontact rpeer || [ -n "$rname" ]; do
                 [ -n "$rname" ] || continue
-                [ -s "/sip-secrets/$rname" ] || {
-                  echo "registration $rname: no non-empty secret key '$rname' under /sip-secrets"
+                # Read it rather than stat it: `-s` needs only directory traversal, so it
+                # passes on a file this container cannot open.
+                secret="$(cat "/sip-secrets/$rname")" || {
+                  echo "registration $rname: cannot read secret key '$rname' under /sip-secrets"
                   exit 1; }
-                rpw="$(cat "/sip-secrets/$rname")"
-                printf 'register => %s:%s@%s/"%s"\n' "$ruser" "$rpw" "$rhost" "$rcontact" \
-                  >> /render/registrations.conf
-                # Two shapes, told apart by peer_secret_file. An entry naming one already
-                # HAS a peer in sip.conf, named after its host, and needs only the same
-                # password there as a secret= line. An entry naming none gets a peer
-                # rendered here instead, named after the ENTRY: several registrations share
-                # one host and fromuser is pinned per peer, so a peer named after the host
-                # can present only one of them. routing.lua's `peer` field names the same
-                # section and the dialplan dials it, which is what lets a line present its
-                # primary. printf, never sed, for the password -- see above.
-                if [ -n "$rpeer" ]; then
-                  printf 'secret=%s\n' "$rpw" > "/render/$rpeer"
-                  includes="$includes $rpeer"
-                else
-                  printf '[%s]\ntype=peer\nhost=%s\ndefaultuser=%s\nfromuser=%s\nfromdomain=%s\nsecret=%s\ninsecure=invite\nnat=force_rport,comedia\nqualify=yes\ncontext=public\ndisallow=all\nallow=alaw\nallow=ulaw\ndtmfmode=rfc2833\ndirectmedia=no\n' \
-                    "$rname" "$rhost" "$ruser" "$ruser" "$rhost" "$rpw" >> /render/peers.conf
-                  peers="$peers $rname"
-                fi
+                [ -n "$secret" ] || {
+                  echo "registration $rname: secret key '$rname' is empty"
+                  exit 1; }
+                # Only the password is rendered: the endpoint/aor/auth/registration set is
+                # generated into pjsip.conf, and a rendered register line as well would put
+                # two REGISTERs on one account.
+                [ -n "$rpeer" ] || {
+                  echo "registration $rname: no peer_secret_file, so its password has nowhere to go"
+                  exit 1; }
+                printf 'password=%s\n' "$secret" > "/render/$rpeer"
+                includes="$includes $rpeer"
               done < /registrations/registrations.tsv
-              # Only included when something was written: a table whose every entry names a
-              # peer_secret_file renders peers.conf empty, and the assertions below demand a
-              # non-empty file of everything they check.
-              [ -z "$peers" ] || includes="$includes peers.conf"
-              # This file is the one place the trunk host MUST appear after an at-sign. A wrong
-              # host here registers nowhere and reports nothing; the check further down is the
-              # inverse one, that sip.conf itself still carries no such occurrence.
-              grep -q "@$SIP_HOST" /render/registrations.conf || {
-                echo "nothing registers at $SIP_HOST; the PSTN DIDs would register nowhere"; exit 1; }
-              # if these ever drift from the filenames sip.conf #includes, the peer registers
-              # with no secret and fails auth silently.
+              # A wrong host registers nowhere and reports nothing, so assert that the PSTN
+              # trunk's own account -- SIP_USER at SIP_HOST, the host the component appends to
+              # a bare number -- really is among the registrations above.
+              grep -q "^client_uri=sip:$SIP_USER@$SIP_HOST$" /render/pjsip.conf || {
+                echo "nothing registers $SIP_USER at $SIP_HOST; the PSTN trunk would be dead"
+                exit 1; }
+              # If a filename ever drifts from the #include that names it, the object
+              # authenticates with no password and fails auth silently.
               for f in $includes; do
-                grep -q "^#include $f$" /render/sip.conf || {
-                  echo "sip.conf does not #include $f"; exit 1; }
-                [ -s "/render/$f" ] || { echo "/render/$f is empty"; exit 1; }
+                grep -q "^#include $f$" /render/pjsip.conf || {
+                  echo "pjsip.conf does not #include $f"; exit 1; }
+                # The VALUE, not the file: `password=` alone is ten bytes, so `-s` passes and
+                # the object loads with no password and fails auth against the carrier.
+                grep -q '^password=..*$' "/render/$f" || {
+                  echo "/render/$f has no password value"; exit 1; }
               done
-              # The Matrix bridge is a STATIC peer, so its address is the one thing that
-              # cannot be wrong silently: a typo here leaves the peer UNREACHABLE with the
-              # bridge itself perfectly healthy.
-              grep -q "^host=matrix-sip-bridge.matrix.svc.cluster.local$" /render/sip.conf || {
-                echo "sip.conf lost the matrixbridge peer host"; exit 1; }
-              grep -q "^;register => 1234" /render/sip.conf \
-                || { echo "sip.conf lost the register sentinel; registration would silently never happen"; exit 1; }
-              # The entrypoint treats ANY occurrence of @$SIP_HOST in sip.conf as "already
-              # configured" and skips the register line, the peer and the dialplan edit. A
-              # comment mentioning the host is enough to trigger it, which has happened, so
-              # assert it here rather than debug a silent non-registration again.
-              if grep -q "@$SIP_HOST" /render/sip.conf; then
-                echo "sip.conf mentions @$SIP_HOST; the entrypoint would skip registration"
-                exit 1
-              fi
+              # The Matrix bridge is a STATIC endpoint, so its address is the one thing that
+              # cannot be wrong silently: a typo here leaves it UNREACHABLE with the bridge
+              # itself perfectly healthy.
+              grep -q "^contact=sip:matrix-sip-bridge.matrix.svc.cluster.local:5060;transport=tcp$" /render/pjsip.conf || {
+                echo "pjsip.conf lost the matrixbridge aor contact"; exit 1; }
+          envFrom:
+            # CONNECT_*, SIP_HOST/SIP_USER and ASTERISK_COMPONENT_DOMAIN. Everything
+            # rendered above reads them from here, so no rendered file can drift from what the
+            # dialplan and the components read at runtime.
+            - configMapRef: {name: cheogram-sip-env}
           env:
             - name: POD_IP
               valueFrom:
                 fieldRef: {fieldPath: status.podIP}
-            # render-config only. The main container has no use for it, and keeping it out means
-            # it cannot show up in an env dump there. The trunk registration passwords are NOT
-            # here any more: they are files under /sip-secrets, keyed by registration name, so
-            # that adding one needs no edit to this manifest.
+            # Every credential is mounted or injected HERE and in no runtime container:
+            # nothing there reads one, so an env dump cannot carry the trunk password.
+            # The other registration passwords are files under /sip-secrets, keyed by
+            # registration name, so that adding one needs no edit to this manifest.
+            #
             # Reflected from flux-system by reflector, and defined once there: the bridge
             # substitutes the same value into livekit-sip's trunk, so a second copy here
             # could drift and the trunk would fail auth with nothing to say why.
             - name: LIVEKIT_SIP_PASSWORD
               valueFrom:
                 secretKeyRef: {name: livekit-sip-trunk, key: LIVEKIT_SIP_TRUNK_PASSWORD}
-            # Asserts that at least one registration lands on the PSTN trunk, and that the
-            # entrypoint's idempotency guard cannot misfire.
-            - name: SIP_HOST
+            - name: ASTERISK_COMPONENT_SECRET
               valueFrom:
-                configMapKeyRef: {name: cheogram-sip-env, key: SIP_HOST}
+                secretKeyRef: {name: cheogram-sip-components, key: ASTERISK_COMPONENT_SECRET}
           volumeMounts:
             - {name: config, mountPath: /config, readOnly: true}
+            - {name: pjsip, mountPath: /pjsip, readOnly: true}
             - {name: registration-table, mountPath: /registrations, readOnly: true}
             - {name: sip-secrets, mountPath: /sip-secrets, readOnly: true}
             - {name: asterisk-etc, mountPath: /render}
       containers:
-        - name: cheogram-sip
-          image: singpolyma/cheogram-sip@sha256:594cdb7bd570633b507b0ff60c1493257a15179c501d0bdf4a06b9720158059b
-          # Cost of the wrapper: the shell is PID 1, so SIGTERM is not forwarded and shutdown
-          # waits out the grace period. Acceptable, since Recreate drops live calls anyway.
+        # Two containers, one pod. They share no filesystem and talk only over XMPP, through
+        # prosody, so the only thing that couples them is the image they come from. Split
+        # because they fail differently: the binary exits whenever the component connection
+        # drops, while Asterisk holds live calls and reconnects by itself.
+        #
+        # The image's /usr/bin/entrypoint.sh is used by NEITHER. It renders config and then
+        # starts both processes, so running it here would put a second `sip.xmpp.example.com` on
+        # the wire; render-config does the rendering instead.
+        - name: asterisk
+          # Our fork: released Asterisk cannot do DTLS-SRTP over Jingle. See README.md.
+          image: ghcr.io/lhns/asterisk:22.11.0-cheogram-dtls@sha256:6951c3cea8696d42de7c433bd65b58c86bd0c73f18a8e0f54ba499e7cbf76e32
           command: ["/bin/sh", "-c"]
           args:
             - |
-              # Asterisk daemonises inside the entrypoint, so its console is detached and
-              # nothing it logs reaches stdout. logger.conf writes verbose to a file; stream
-              # that to stdout so kubectl logs and the log stack see it like any other
-              # workload. -n0 so a restart does not replay the whole file.
+              # Asterisk logs to logger.conf's file, never to stdout; stream it so kubectl
+              # logs sees it. -n0 so a restart does not replay the whole file.
               tail -n0 -F /var/log/asterisk/messages 2>/dev/null &
-              # The entrypoint's idempotency check greps sip.conf and PRINTS what it
-              # matches, which on any restart is the register line with the trunk password.
-              /usr/bin/entrypoint.sh 2>&1 | grep --line-buffered -v "^register =>"
+              # -f: stay in the foreground, so this container's liveness IS Asterisk's and a
+              # crash restarts it. exec, so SIGTERM reaches it rather than the shell.
+              exec /usr/sbin/asterisk -f
           envFrom:
             - configMapRef: {name: cheogram-sip-env}
           env:
-            # The binary takes the user-facing component's secret as COMPONENT_SECRET
-            # (4th positional arg), while the entrypoint seds ASTERISK_COMPONENT_SECRET
-            # into xmpp.conf. Prosody reads the same two values as ENV_SIP_COMPONENT_SECRET
-            # and ENV_ASTERISK_COMPONENT_SECRET, which is why the Secret is mirrored.
-            - name: COMPONENT_SECRET
-              valueFrom:
-                secretKeyRef: {name: cheogram-sip-components, key: SIP_COMPONENT_SECRET}
-            - name: ASTERISK_COMPONENT_SECRET
-              valueFrom:
-                secretKeyRef: {name: cheogram-sip-components, key: ASTERISK_COMPONENT_SECRET}
-            # SIP_HOST is the PSTN trunk, so the entrypoint's password must be its one. The
-            # key follows the registration naming convention like every other, even though the
-            # image builds this register line itself: it is a declared entry (`entrypoint: true`)
-            # and the only one the main container reads.
-            - name: SIP_PASSWORD
-              valueFrom:
-                secretKeyRef: {name: cheogram-sip-registrations, key: pstn-02012345678}
             # The live ConfigMap mount, not a copy under /etc/asterisk: pbx_lua re-runs
             # extensions.lua per call, so a routing edit takes effect on the next call --
             # including a malformed one, which load_routing fails closed on.
@@ -266,20 +268,66 @@ spec:
               memory: 128Mi
             limits:
               memory: 1Gi
+        # The XEP-0114 component XMPP clients dial. Seven positional args, in the image
+        # entrypoint's order; SIP_HOST last is what makes it a PSTN gateway, and it appends
+        # that host to any number dialled without one.
+        - name: cheogram-sip
+          image: singpolyma/cheogram-sip@sha256:594cdb7bd570633b507b0ff60c1493257a15179c501d0bdf4a06b9720158059b
+          command: ["/bin/sh", "-c"]
+          args:
+            # REDIS_URL is set nowhere, so this passes an empty arg and the binary logs
+            # "No valid Redis specified, skipping..." -- optional, and unused here.
+            - |
+              exec /bin/cheogram-sip "$COMPONENT_DOMAIN" "$CONNECT_IP" "$CONNECT_PORT" \
+                "$COMPONENT_SECRET" "$REDIS_URL" "$ASTERISK_COMPONENT_DOMAIN" "$SIP_HOST"
+          # Named one by one rather than envFrom: the rest of cheogram-sip-env is dialplan
+          # configuration, which only Asterisk reads.
+          env:
+            - name: COMPONENT_DOMAIN
+              valueFrom:
+                configMapKeyRef: {name: cheogram-sip-env, key: COMPONENT_DOMAIN}
+            - name: ASTERISK_COMPONENT_DOMAIN
+              valueFrom:
+                configMapKeyRef: {name: cheogram-sip-env, key: ASTERISK_COMPONENT_DOMAIN}
+            - name: CONNECT_IP
+              valueFrom:
+                configMapKeyRef: {name: cheogram-sip-env, key: CONNECT_IP}
+            - name: CONNECT_PORT
+              valueFrom:
+                configMapKeyRef: {name: cheogram-sip-env, key: CONNECT_PORT}
+            - name: SIP_HOST
+              valueFrom:
+                configMapKeyRef: {name: cheogram-sip-env, key: SIP_HOST}
+            # The user-facing component's secret. Prosody reads the same value as
+            # ENV_SIP_COMPONENT_SECRET, which is why the Secret is mirrored to its namespace.
+            - name: COMPONENT_SECRET
+              valueFrom:
+                secretKeyRef: {name: cheogram-sip-components, key: SIP_COMPONENT_SECRET}
+          # No volumes at all: it reaches Asterisk over XMPP and needs none of /etc/asterisk.
+          # No memory limit either -- this process has never been measured, and an OOMKill
+          # here takes the user-facing component down with it.
+          resources:
+            requests:
+              memory: 64Mi
       volumes:
         - name: config
           configMap:
             name: cheogram-sip-config
-        # Both written by the cheogram-sip-routing HelmRelease, not by kustomize, so the
-        # names are fixed and carry no content hash. Not `optional`: a pod that starts
-        # without the routing table refuses every outbound call, which is far harder to see
-        # than a pod that never starts.
+        # The three below are written by the cheogram-sip-routing HelmRelease, not by
+        # kustomize, so the names are fixed and carry no content hash. Not `optional`: a pod
+        # that starts without the routing table refuses every outbound call, which is far
+        # harder to see than a pod that never starts.
         - name: routing
           configMap:
             name: cheogram-sip-routing
         - name: registration-table
           configMap:
             name: cheogram-sip-registration-table
+        # Generated pjsip.conf. NOT reloader-ignored, unlike `routing` above: Asterisk reads
+        # it once at start, so the pod has to roll for a trunk change to apply at all.
+        - name: pjsip
+          configMap:
+            name: cheogram-sip-pjsip
         # The registration passwords, one file per Secret key. Projected WHOLE, with no
         # `items`: the routing chart's registrations table names its own keys (key == entry
         # name), so a new number is an entry there plus a key here and no edit to this file.
@@ -287,8 +335,9 @@ spec:
         - name: sip-secrets
           secret:
             secretName: cheogram-sip-registrations
-            defaultMode: 0400
-        # Memory-backed: the entrypoint writes the trunk password into sip.conf, so it
+            # Group-readable, not 0400: the group is the pod's fsGroup above.
+            defaultMode: 0440
+        # Memory-backed: render-config writes the trunk passwords in here, so they
         # must never land on node disk.
         - name: asterisk-etc
           emptyDir:
@@ -299,8 +348,8 @@ spec:
 # address to pod address and needs no Service at all.
 #
 # Two protocols on 5060, not a duplicate: livekit-sip speaks UDP, matrix-sip-bridge TCP
-# (a SIP MESSAGE over UDP fragments and is silently dropped). Both need tcpenable=yes in
-# sip.conf to exist on the Asterisk side.
+# (a SIP MESSAGE over UDP fragments and is silently dropped). Each needs its own
+# type=transport in pjsip.conf to exist on the Asterisk side.
 apiVersion: v1
 kind: Service
 metadata:
@@ -315,7 +364,7 @@ spec:
 ---
 # Raw RTP on a dedicated MetalLB VIP. Traefik cannot carry UDP, so this cannot ride the
 # shared traefik VIP. externalTrafficPolicy: Local is required, not cosmetic: a SNAT'd
-# source address would make chan_sip's comedia latch onto a node instead of the far end,
+# source address would make rtp_symmetric latch onto a node instead of the far end,
 # which presents as one-way audio.
 #
 # SIP signalling (5060) is deliberately absent HERE. The trunks use registration auth, so

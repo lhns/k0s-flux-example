@@ -41,6 +41,8 @@ spec:
       sourceRef:
         kind: GitRepository
         name: freshrss-ext-autottl
+        # Must track the ref above. See infra/oci-composer/README.md.
+        revision: v0.7.4
       # The repository root IS the extension, and the artifact is mounted directly at
       # extensions/xExtension-AutoTTL — so the content belongs at the artifact's root, not in a
       # directory of its own. The mount path supplies the name.

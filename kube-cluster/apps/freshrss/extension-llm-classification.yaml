@@ -10,7 +10,7 @@ spec:
   interval: 12h
   url: https://github.com/FreshRSS/Extensions
   ref:
-    commit: 30deb1664311febf9efb610a5db7c8fc1f9f86f8
+    commit: 47db9391d0c66d3e15ad8bd4fa44e477fabdae1e
 ---
 apiVersion: oci.lhns.de/v1alpha1
 kind: ImageComposition
@@ -24,6 +24,7 @@ spec:
       sourceRef:
         kind: GitRepository
         name: freshrss-ext-llm-classification
+        revision: sha1:47db9391d0c66d3e15ad8bd4fa44e477fabdae1e
         subpath: xExtension-LlmClassification
       to: /
       owner: {uid: 33, gid: 33}

@@ -6,6 +6,10 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
+    "transports",
+    "trunk_transport",
+    "external_address",
+    "local_nets",
     "registrations",
     "lines",
     "outbound"
@@ -70,6 +74,57 @@
     }
   },
   "properties": {
+    "transports": {
+      "description": "res_pjsip type=transport objects. Deployment facts, not per-trunk: nothing here varies with a registration, and an endpoint naming a transport this list does not define fails to load.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "protocol",
+          "bind"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]+$"
+          },
+          "protocol": {
+            "type": "string",
+            "enum": [
+              "udp",
+              "tcp"
+            ]
+          },
+          "bind": {
+            "description": "<address>:<port>. The port is checked against what points at this Asterisk by tests/check-routing.py; a transport on another port is reachable from nothing.",
+            "type": "string",
+            "pattern": "^[0-9.]+:[0-9]+$"
+          }
+        }
+      }
+    },
+    "trunk_transport": {
+      "description": "The transport every registration and endpoint generated from `registrations` rides. Must name one of `transports`.",
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$"
+    },
+    "external_address": {
+      "description": "The address the SDP must carry, on every transport: behind double NAT the pod address reaches nothing and audio goes nowhere. chan_sip's externip.",
+      "type": "string",
+      "pattern": "^[0-9]+(\\.[0-9]+){3}$"
+    },
+    "local_nets": {
+      "description": "The nets that are NOT behind external_address, so media to them keeps the pod address. chan_sip's localnet.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9]+(\\.[0-9]+){3}/[0-9]+$"
+      }
+    },
     "registrations": {
       "description": "One outbound REGISTER per entry. The KEY IS THE WIRING: it is also the name of the Secret key holding that entry's password, mounted as a file under /sip-secrets. No password and no key name belongs in these values - they render into a plaintext ConfigMap, which scripts/check-substitution.py exists to keep credential-free. The pattern below is what makes the convention safe to state rather than transform: it is already a legal Kubernetes Secret key, so nothing is normalised at render time and a name that could not be one is rejected here at reconcile.",
       "type": "object",
@@ -85,7 +140,8 @@
           "host",
           "contact_user",
           "did",
-          "line"
+          "line",
+          "peer_secret_file"
         ],
         "properties": {
           "user": {
@@ -93,11 +149,11 @@
             "$ref": "#/definitions/sipfield"
           },
           "host": {
-            "description": "The registrar/proxy to REGISTER at. MUST equal a peer name in sip.conf: a name matching no peer falls through to a dial with no credentials, which a carrier may answer with a recorded refusal - a connected call, not an error. Cross-file, so tests/check-routing.py checks it against the RENDERED table. It is NOT necessarily the peer an outbound call leaves by: fromuser is pinned per peer, so an entry with no peer_secret_file gets a peer of its own named after the entry, and routing.lua carries that name as `peer`.",
+            "description": "The registrar/proxy to REGISTER at. NOT the section an outbound call leaves by: the presented number is pinned per section, so every entry gets one of its own named after the ENTRY, and routing.lua carries that name as `peer`. Several entries may therefore share a host; what an inbound call is attributed to is the section, not this.",
             "$ref": "#/definitions/sipfield"
           },
           "contact_user": {
-            "description": "PJSIP's registration/contact_user: what the carrier dials back, and therefore the extension an inbound call arrives on. It is the only per-DID inbound discriminator chan_sip offers, and it works only while the carrier echoes our registered Contact in the inbound Request-URI - observed behaviour, not a standard. Two entries sharing one on the same host make the dialled number invisible; tests/check-routing.py rejects that.",
+            "description": "PJSIP's registration/contact_user: what the carrier dials back, and therefore the extension an inbound call arrives on. It works only while the carrier echoes our registered Contact in the inbound Request-URI - observed behaviour, not a standard. Two entries sharing one on the same host make the dialled number invisible; tests/check-routing.py rejects that.",
             "$ref": "#/definitions/sipfield"
           },
           "did": {
@@ -110,11 +166,11 @@
             "$ref": "#/definitions/linename"
           },
           "entrypoint": {
-            "description": "This registration is the one the image's ENTRYPOINT builds from SIP_USER/SIP_HOST/SIP_JID. No register line is rendered for it and it needs no Secret key of its own; it is declared here only so that number has a line. A second REGISTER for the same account would fight the entrypoint's. At most one per host, because it is also the fallback when an inbound call's contact matches nothing.",
+            "description": "This host's DEFAULT registration: the one an inbound call is attributed to when nothing identifies which DID was dialled, and so the only endpoint on that host that may carry a type=identify. At most one per host, or the fallback is undefined. Its user and host are also cheogram-sip.env's SIP_USER and SIP_HOST, which is what the component appends to a bare number.",
             "const": true
           },
           "peer_secret_file": {
-            "description": "Optional. A host that ALSO has a hand-written peer section in sip.conf needs the same password there as a `secret=` line; this names the #include that gets it, and sip.conf must #include it under exactly this name. It doubles as the statement that this entry HAS such a peer, so no per-entry one is rendered for it.",
+            "description": "Names the #include the initContainer writes this entry's password into, and pjsip.conf must #include it under exactly this name. Required: the object set is hand-written, so this is the only place a password can land.",
             "type": "string",
             "pattern": "^[a-z0-9-]+\\.conf$"
           }

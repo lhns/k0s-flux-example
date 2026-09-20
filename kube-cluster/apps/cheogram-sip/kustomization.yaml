@@ -2,13 +2,13 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 metadata:
   annotations:
-    # MetalLB for the cheogram-sip-lb VIP (10.20.2.81); reflector because prosody in the
-    # snikket ns reads the same two component secrets; reloader so a secret rotation rolls
-    # the pod, since the config is rendered once at startup. app-snikket because the
-    # gateway is useless without the prosody components it connects to.
     # Read by the root generator; inert to kustomize.
-    # app-matrix-substitution-secrets owns livekit-sip-trunk, which reflector mirrors
-    # here; render-config exits non-zero without it, so the pod will not start early.
+    #
+    # MetalLB for the cheogram-sip-lb VIP (10.20.2.81); reflector because prosody in the
+    # snikket ns reads the same two component secrets; reloader for the annotation on the
+    # Deployment; app-snikket because the gateway is useless without the prosody components
+    # it connects to; app-matrix-substitution-secrets because it owns livekit-sip-trunk,
+    # which reflector mirrors here and render-config exits non-zero without.
     dependsOn: infra-metallb,infra-reflector,infra-reloader,app-snikket,app-matrix-substitution-secrets
 resources:
 - resources.yaml
@@ -21,14 +21,19 @@ configMapGenerator:
   namespace: cheogram-sip
   envs:
   - cheogram-sip.env
-# Overlaid onto a writable copy of the image's /etc/asterisk by the render-config
-# initContainer, because the entrypoint seds those files at startup.
+# The WHOLE of /etc/asterisk except pjsip.conf, which the routing chart generates: the image
+# ships none, and render-config copies these into an emptyDir alongside the credentials they
+# #include. A file Asterisk wants and does not find here is a module silently running on its
+# compiled-in defaults.
 - name: cheogram-sip-config
   namespace: cheogram-sip
   files:
-  - sip.conf
+  - asterisk.conf
+  - modules.conf
+  - pjproject.conf
+  - xmpp.conf
   - rtp.conf
   - motif.conf
   - extensions.lua
   - logger.conf
-  - confbridge-matrix.conf
+  - confbridge.conf

@@ -10,8 +10,9 @@
 # Neither repository is forked. The context comes from a GitRepository and the recipe is inline,
 # so the two files upstream does not have live here instead of in a fork we would have to rebase.
 ---
-# Pinned to the head of main. cloud-api's default branch is `dev`; main is where releases land
-# ("Release dev -> main" #60), and it has not moved since 2026-04-29.
+# Renovate follows the default branch, `dev`; releases land on main as a "Release dev -> main"
+# merge. So only accept a pin that main has already merged -- a dev head ahead of that merge is
+# unreleased. The pin below and main's head are the same tree.
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
 metadata:
@@ -21,7 +22,7 @@ spec:
   interval: 1h
   url: https://github.com/jetkvm/cloud-api
   ref:
-    commit: 988a07d4181e1e66b73903e5c5ba0cb0c4495389
+    commit: 6d5da4fa7a28d4c0fbd0134379761d1f5813d325
 ---
 # The UI lives in the firmware monorepo. subpath: ui in the ImageBuild below is what makes that
 # usable without forking: the build context becomes ui/, which is self-contained (its own
@@ -59,6 +60,7 @@ spec:
     sourceRef:
       kind: GitRepository
       name: jetkvm-cloud-api
+      revision: sha1:6d5da4fa7a28d4c0fbd0134379761d1f5813d325
   # Upstream's own Dockerfile cannot be used as-is: `FROM node:21.1.0-alpine` is not
   # digest-pinned and the FROM guard refuses it. Since it has to be rewritten anyway, three
   # other things are fixed at the same time -- each marked below.
@@ -67,7 +69,7 @@ spec:
       # (1) Node 22, not 21. package.json declares "engines": {"node": "22.x"}, so upstream's
       # own image fails its own engines check and runs an EOL runtime.
       # renovate: datasource=docker
-      FROM node:22.23.2-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS packages
+      FROM node:22.23.2-bookworm-slim@sha256:48e4b67d85f87bd551df43704e24d252f56cc5f8e9718841aace50f19948f0f9 AS packages
       WORKDIR /usr/src/app
       # Prisma's schema engine dlopens libssl and refuses to run without it. bookworm-slim ships no
       # openssl, so `prisma migrate deploy` warned "failed to detect the libssl/openssl version",
@@ -94,7 +96,7 @@ spec:
       # `prisma` is a dependency and not a devDependency -- so `prisma migrate deploy` in the
       # migrate initContainer runs from this image exactly as before.
       # renovate: datasource=docker
-      FROM node:22.23.2-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS app
+      FROM node:22.23.2-bookworm-slim@sha256:48e4b67d85f87bd551df43704e24d252f56cc5f8e9718841aace50f19948f0f9 AS app
       WORKDIR /usr/src/app
       RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
       COPY package.json package-lock.json ./
@@ -131,6 +133,7 @@ spec:
     sourceRef:
       kind: GitRepository
       name: jetkvm-kvm
+      revision: release/0.5.8
       # The firmware monorepo's ui/ directory becomes the context root.
       subpath: ui
   args:
@@ -141,7 +144,7 @@ spec:
   dockerfile:
     inline: |
       # renovate: datasource=docker
-      FROM node:22.23.2-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS build
+      FROM node:22.23.2-bookworm-slim@sha256:48e4b67d85f87bd551df43704e24d252f56cc5f8e9718841aace50f19948f0f9 AS build
       WORKDIR /src
       COPY package.json package-lock.json ./
       # The `prepare` lifecycle script is `cd .. && husky ui/.husky`. With ui/ as the context
@@ -157,7 +160,7 @@ spec:
       RUN npm run build:prod
 
       # renovate: datasource=docker
-      FROM nginx:1.31.6-alpine@sha256:d0a6faaed2491faecdb9021f449e8edd7b1bbba246fe2ddf7eba63cccd5b9803
+      FROM nginx:1.31.6-alpine@sha256:adad2ae9204d0fd7a34f40299bc838c3782be1293b10005eac4315ff5a1abf4e
       COPY --from=build /src/dist /usr/share/nginx/html
       # SPA fallback, but NOT for /assets/ -- a hashed bundle that 404s must stay a 404. Serving
       # index.html in its place makes a stale or failed deploy look like a working page that

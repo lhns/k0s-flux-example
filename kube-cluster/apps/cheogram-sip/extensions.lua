@@ -1,25 +1,27 @@
--- Our copy of the image's /etc/asterisk/extensions.lua. It deliberately omits the comment
--- "-- outbound calls", so the entrypoint's sed that would hardcode a single caller there is a
--- no-op -- and a sed that matches nothing exits 0, so the gate in resolve_destination is all
--- there is. COMPONENT_DOMAIN and the routing table come from the environment, not from that
--- sed. Re-diff against the image after a digest bump; see the README.
+-- Our copy of the image's /etc/asterisk/extensions.lua, read as it is: configuration comes
+-- from the environment and the routing table. Re-diff against the image after a digest
+-- bump; see the README.
 
 -- Fall back to something obviously broken rather than concatenating nil into every call.
 local component_domain = os.getenv("COMPONENT_DOMAIN") or "COMPONENT_DOMAIN-unset"
 
--- Our own trunk hosts, keyed lowercase. A destination whose label is one of these is
--- dialled through that peer, so it carries the registration credentials. The label after
--- "#" is now either one of these or a LINE name; see resolve_destination.
+-- Our own trunk hosts, keyed lowercase. The label after "#" is either one of these or a LINE
+-- name; a host label dials through that host's default registration, so it carries
+-- credentials. See resolve_destination.
 local trunks = {}
 for name in (os.getenv("SIP_TRUNKS") or os.getenv("SIP_HOST") or ""):gmatch("[^,%s]+") do
 	trunks[name:lower()] = name
 end
 
--- The Matrix bridge's chan_sip peer. It is the name of the [matrixbridge] section, the
--- From user part of everything the bridge sends, and -- because chan_sip resolves a peer
--- before DNS -- the host we address a MESSAGE back to. All three must agree with
--- sip.username in the bridge's own config.
+-- The Matrix bridge's pjsip endpoint: the name of the [matrixbridge] objects, and the From
+-- user part of everything the bridge sends, which identify_by=username matches it on. Both
+-- must agree with sip.username in the bridge's own config.
 local bridge_peer = os.getenv("SIP_BRIDGE_PEER") or "matrixbridge"
+
+-- Its address, for the one place an endpoint name is not enough: a MESSAGE's Request-URI is
+-- routed as written, so it needs a real host. The same Service as the [matrixbridge] AOR
+-- contact in pjsip.conf; tests/check-routing.py holds the two together.
+local bridge_host = os.getenv("SIP_BRIDGE_HOST") or "matrix-sip-bridge.matrix.svc.cluster.local"
 
 -- loadfile + pcall, never dofile: a malformed table must not raise in THIS chunk and take
 -- inbound down too. nil fails outbound CLOSED -- no peer, every caller refused.
@@ -87,8 +89,8 @@ function routing_registration(tbl, rule)
 	return reg, tostring(name)
 end
 
--- The peer an outbound call LEAVES BY, which is not the host once several registrations share
--- one: fromuser is pinned per peer, so each presentable DID has its own. See the README.
+-- The peer an outbound call LEAVES BY, which is not the host once several registrations
+-- share one: from_user is pinned per endpoint, so each presentable DID has its own.
 function registration_peer(reg)
 	if type(reg) ~= "table" then return nil end
 	if type(reg.peer) == "string" and reg.peer ~= "" then return reg.peer end
@@ -96,9 +98,10 @@ function registration_peer(reg)
 	return nil
 end
 
--- The host a peer name stands for. Which of several peers at one address chan_sip attributes
--- an inbound INVITE to is not predictable, so they must all resolve alike. Unrecognised names
--- are returned unchanged, so a trunk peer keeps meaning itself.
+-- The host a peer name stands for. A peer is named after its registration, never after the
+-- host several of them share, so this is how a peer name reaches the other registrations at
+-- the same address. Unrecognised names are returned unchanged, so a trunk host keeps meaning
+-- itself -- which is what the SMS path and a `#<host>` label pass in.
 local function peer_host(tbl, peer)
 	for _, r in pairs(tbl.registrations) do
 		if type(r) == "table" and tostring(r.peer or ""):lower() == peer
@@ -107,6 +110,20 @@ local function peer_host(tbl, peer)
 		end
 	end
 	return peer
+end
+
+-- A destination as Dial() and Originate() want it. The extension comes FIRST: PJSIP/<endpoint>
+-- alone dials the AOR's contact, which on a trunk is the registrar itself.
+function dial_string(tbl, peer, exten)
+	return "PJSIP/" .. exten .. "@" .. peer
+end
+
+-- MessageSend()'s destination. The endpoint before the slash is what carries the
+-- credentials and the transport; the URI after it is only the address, so it needs a real
+-- host -- the endpoint name there would be sent to as a hostname, uncredentialed.
+function message_target(tbl, peer, num)
+	return "pjsip:" .. peer .. "/sip:" .. num .. "@"
+		.. peer_host(tbl, tostring(peer):lower())
 end
 
 -- Does a rule's from_glob list cover this caller? No list is no narrowing, so anyone.
@@ -158,24 +175,53 @@ function routing_match(tbl, dest, from_uri)
 	return nil
 end
 
+-- Is this the registration an inbound call on its host falls back to, and by which rule?
+-- "entrypoint" when it is marked one, "sole" when it is the only registration there, nil
+-- when it is neither. Both names are the ones the handler NOTICEs on.
+local function host_default_kind(tbl, reg)
+	if reg.entrypoint then return "entrypoint" end
+	local host = tostring(reg.host or ""):lower()
+	local n = 0
+	for _, r in pairs(tbl.registrations) do
+		if type(r) == "table" and tostring(r.host or ""):lower() == host then n = n + 1 end
+	end
+	if n == 1 then return "sole" end
+	return nil
+end
+
 -- Which registration an INBOUND call or message arrived on, and therefore which line.
 --
 -- `extension` is the register contact the carrier dialled back, which is the only per-DID
--- discriminator chan_sip offers -- and only while the carrier echoes our registered Contact
+-- discriminator a carrier gives us -- and only while it echoes our registered Contact
 -- in the Request-URI. That is observed behaviour, not a standard. When it stops matching,
 -- this falls back to the host's own default registration (the `entrypoint` one, or the sole
--- one there) and per-DID inbound silently collapses to that one line, which is exactly the
--- behaviour that predates lines. Pass extension = nil to ask for that default outright: the
--- message path has a host but no contact.
+-- one there) and per-DID inbound silently collapses to that one line. Pass extension = nil
+-- to ask for that default outright: the message path has a host but no contact.
 --
--- The third return says HOW: "contact" is a real per-DID match, "entrypoint" and "sole" are
--- the fallback. The two are indistinguishable downstream, so the collapse above is invisible
--- without it; the call site NOTICEs anything but "contact".
+-- The third return says HOW. "contact" is a real per-DID match and "endpoint" is the pjsip
+-- one, which cannot have been a fallback; "entrypoint" and "sole" ARE the fallback and are
+-- otherwise indistinguishable downstream, so the collapse above would be invisible without
+-- it. The call site NOTICEs anything but a match.
 function inbound_registration(tbl, extension, peername)
 	if type(tbl) ~= "table" or type(tbl.registrations) ~= "table" then return nil end
 	local ext = tostring(extension or ""):lower()
 	local peer = tostring(peername or ""):lower()
 	if peer == "" then return nil end
+
+	-- A call carries an ENDPOINT, and there is one per registration, so the name alone says
+	-- which DID rang. It is the stronger discriminator and so is tried first, but it does
+	-- not make `how` a match: the host's default endpoint is also the only one carrying a
+	-- type=identify, so a call attributed to it may equally be the source-address fallback.
+	-- A MESSAGE has no endpoint and falls through to the host loop below.
+	for name, r in pairs(tbl.registrations) do
+		if type(r) == "table" and tostring(r.peer or ""):lower() == peer then
+			if ext ~= "" and tostring(r.contact_user or ""):lower() == ext then
+				return r, tostring(name), "contact"
+			end
+			return r, tostring(name), host_default_kind(tbl, r) or "endpoint"
+		end
+	end
+
 	peer = peer_host(tbl, peer)
 	local entry, entryname, sole, solename, several
 	for name, r in pairs(tbl.registrations) do
@@ -244,24 +290,6 @@ local function normalize_e164(num)
 	return out
 end
 
-function textBase10Decode(digits)
-	if digits:sub(0, 2) == "99" then
-		result = ""
-		for i = 3,digits:len(),3
-		do
-			result = result .. string.char(tonumber(digits:sub(i, i+2)))
-		end
-		return result
-	else
-		result = ""
-		for i = 1,digits:len(),2
-		do
-			result = result .. string.char(tonumber(digits:sub(i, i+1)) + 30)
-		end
-		return result
-	end
-end
-
 function jid_escape(s)
 	-- TODO: the class for escaping backslash is overbroad at the moment
 	return s
@@ -291,13 +319,8 @@ function jid_unescape(s)
 		:gsub("\\5c", "\\")
 end
 
--- A SIP address has to live in a JID localpart, which cannot contain "@". XEP-0106 would
--- escape it to  , which is correct but unreadable. "#" is legal in a localpart and is
--- one of the few characters RFC 3261 does NOT allow unescaped in a SIP user part, so the
--- split back to user@host stays unambiguous.
---
--- Cost: "#" starts a fragment in URI syntax, so a JID rendered into an xmpp: URI needs it
--- percent-encoded. Clients that build such links must handle that.
+-- "@" in a JID localpart becomes "#", not XEP-0106's escape; see the README for why, and for
+-- the cost. local_to_sip_uri below is the inverse: change one and calling back breaks.
 function sip_uri_to_local(uri)
 	return (uri:gsub("@", "#"))
 end
@@ -315,7 +338,7 @@ end
 -- destination whose localpart carries no host of its own. A roster contact's "user#label"
 -- localpart has none as far as the component can tell, so it arrives here as
 -- "user@label@SIP_HOST": the suffix must be stripped BEFORE the label is derived, or the
--- label is "label@SIP_HOST", matches nothing, and chan_sip resolves it as a DNS name.
+-- label is "label@SIP_HOST" and matches nothing.
 --
 -- A label equal to SIP_HOST therefore expresses no intent and is gone after the strip,
 -- which is what keeps short extensions off the PSTN trunk.
@@ -336,13 +359,17 @@ function resolve_destination(to, from_uri)
 	local label = to:match("@(.+)$")
 	local peer, rule, kind, line
 	if label then
-		peer = trunks[label:lower()]
-		if peer then
-			-- A raw trunk label predates lines and still sits in rosters. Gate it by the
-			-- line of that host's default registration, so an old contact keeps working and
-			-- is still checked. No unambiguous default means no line, which the gate refuses.
+		local host = trunks[label:lower()]
+		if host then
+			-- A label naming a HOST rather than a line. No section is named after a host,
+			-- so it dials through that host's default registration, with its credentials,
+			-- and is gated by that registration's line. No unambiguous default is no peer
+			-- and no line, which refuses.
 			kind = "trunk"
-			line = inbound_line(sip_routing, nil, peer)
+			local reg
+			line, reg = inbound_line(sip_routing, nil, host)
+			peer = registration_peer(reg)
+			if not peer then kind = "unrouted" end
 		else
 			local l, lname = routing_line(sip_routing, label)
 			if l then
@@ -378,7 +405,7 @@ function resolve_destination(to, from_uri)
 	return to, label, peer, exten, rule, kind, line
 end
 
--- Hangup causes for what Originate reports back, picked for the SIP response chan_sip
+-- Hangup causes for what Originate reports back, picked for the SIP response the stack
 -- derives from each: 17 -> 486, 34 -> 503, 19 -> 480, 1 -> 404. The bridge fails the call
 -- on any non-2xx alike, so these are for whoever reads the trace, not for its logic.
 local originate_cause = {
@@ -395,13 +422,9 @@ end
 
 -- The CLI command that ends a matrix conference, or nil plus a reason.
 --
--- ConfBridge's end_marked only fires when the LAST MARKED user leaves, and livekit-sip
--- is the only marked user: it ends the caller when livekit-sip goes, and does nothing at
--- all in the other direction. A caller hanging up therefore leaves livekit-sip sitting in
--- the conference, its LiveKit participant alive, and the Matrix call open until the
--- membership expires hours later. Marking both legs does not help -- the marked count
--- never reaches zero while one of them is there -- and end_marked_any arrived in Asterisk
--- 16.19, after the 16.2 this image ships. So the conference is ended explicitly.
+-- confbridge.conf's marked/end_marked pairing only ends the caller when livekit-sip leaves;
+-- a caller hanging up leaves livekit-sip in the conference with its LiveKit participant
+-- alive, so that direction is ended explicitly from the h extension.
 --
 -- Pure, so tests/ exercises it. The name is re-checked here even
 -- though every caller already validated it, because it is pasted into a shell command.
@@ -418,9 +441,8 @@ end
 -- channel before it joins and cleared once the leg has handed the conference on, so an
 -- unset one means there is nothing to end.
 --
--- Goes through the CLI socket in this container because that is the only way to reach a
--- conference from a channel that is already gone: Asterisk 16 has no dialplan application
--- that kicks one.
+-- Goes through the CLI socket in this container: by the time this runs the channel is gone,
+-- so the conference is only reachable from outside the dialplan.
 local function matrix_end_conference()
 	local conf = tostring(channel.MATRIX_CONF:get() or "")
 	local cmd, reason = matrix_kick_command(conf)
@@ -517,10 +539,9 @@ function sms_from_display(header)
 	return name
 end
 
--- A line's call plan. No line, or a table rendered before inbound_route, falls back to the
--- pre-call-plan behaviour -- ring the dialled contact -- rather than to ringing nobody.
--- The second return marks that fallback: it rings a different set for a different time, and
--- nothing else downstream can tell the two apart.
+-- A line's call plan. No line, or a line with no plan, rings the dialled contact rather
+-- than nobody. The second return marks that fallback: it rings a different set for a
+-- different time, and nothing else downstream can tell the two apart.
 function inbound_stages(tbl, line, extension)
 	local l = routing_line(tbl, line)
 	if type(l) == "table" and type(l.inbound_route) == "table" and #l.inbound_route > 0 then
@@ -548,21 +569,20 @@ function inbound_legs(stage, from, conf, caller)
 	end
 	local with_matrix = wants_matrix and conf ~= nil and caller ~= nil
 	if with_matrix then
-		legs[#legs + 1] = "SIP/" .. bridge_peer .. "/" .. caller
+		legs[#legs + 1] = "PJSIP/" .. caller .. "@" .. bridge_peer
 	end
 	if #legs == 0 then return nil, false end
 	return table.concat(legs, "&"), with_matrix
 end
 
--- Rewrite an inbound call's From to <sip:user@line>, the rewrite the two comments at its
--- call site describe. The line occupies the slot the trunk host used to, so the caller
--- appears as "+49...#office" and dialling that back resolves through resolve_destination.
--- Pure, so tests/ can hold it against the message path's sms_inbound_from: the two must
--- agree, or one human is two portal rooms.
+-- Rewrite an inbound call's From to <sip:user@line>, so the caller appears as
+-- "+49...#office" and dialling that back resolves through resolve_destination. Pure, so
+-- tests/ can hold it against the message path's sms_inbound_from: the two must agree, or one
+-- human is two portal rooms.
 --
 -- No line (the carrier stopped echoing our contact and the peer has no default) falls back
--- to the trunk host, which is what this did before lines: degraded identity, but the call
--- still connects and the label still dials back.
+-- to the trunk host: degraded identity, but the call still connects and the label still
+-- dials back.
 function call_from_uri(from_header, peername, line)
 	local label = (type(line) == "string" and line ~= "" and line)
 		or (peername and trunks[tostring(peername):lower()])
@@ -588,12 +608,12 @@ end
 -- ID, a short code, or anything normalize_e164 declined.
 --
 -- The host is rewritten to the LINE, never left as the carrier sent it: the call path does
--- the same from CHANNEL("peername"), which does not exist on a Message channel, so without
+-- the same from CHANNEL("endpoint"), which does not exist on a Message channel, so without
 -- this one human is +49...#home for a call and +49...#<sbc-ip> for an SMS.
 --
 -- `extension` is the dialled contact, the same per-DID discriminator the call path passes.
--- Whether a carrier echoes our Contact on a MESSAGE is untested -- one that does not falls
--- back to the host's default registration, which is what this did before.
+-- Whether a carrier echoes our Contact on a MESSAGE is untested; one that does not falls
+-- back to the host's default registration.
 function sms_inbound_from(from_header, extension)
 	local uri = sms_strip_uri(from_header)
 	local user, host = uri:match("^([^@]+)@(.+)$")
@@ -611,16 +631,18 @@ end
 
 -- Where an inbound message goes on the bridge leg, or nil to leave the bridge out.
 --
--- The host is the PEER NAME: chan_sip resolves a peer before DNS, which is what picks up
--- its TCP transport and port. The "+" in `from` is load-bearing -- the bridge rejects a
--- number without one and then drops the message WHILE ANSWERING 200 OK, invisible on both
--- sides. The To is informational to the bridge; our own DID is the honest value.
+-- The endpoint before the slash is what carries the TCP transport; the URI after it is the
+-- Request-URI, so its host is the Service and not the endpoint name. The "+" in `from` is
+-- load-bearing -- the bridge rejects a number without one and then drops the message WHILE
+-- ANSWERING 200 OK, invisible on both sides. The To is informational to the bridge; our own
+-- DID is the honest value.
 function sms_bridge_message(from_uri, digits, reg)
 	if not digits or digits == "" then return nil end
 	local did = type(reg) == "table" and tostring(reg.did or "") or ""
 	if did == "" then did = normalize_e164(os.getenv("SIP_USER") or "") end
 	if did == "" then did = bridge_peer end
-	return "sip:" .. did .. "@" .. bridge_peer, "sip:" .. from_uri
+	return "pjsip:" .. bridge_peer .. "/sip:" .. did .. "@" .. bridge_host,
+		"sip:" .. from_uri
 end
 
 -- True when a MESSAGE is the bridge asking us to send an SMS, rather than the carrier
@@ -666,7 +688,7 @@ local function sms_deliver_inbound(extension, from_header)
 		app.MessageSend(to, from)
 		bridge_status = tostring(channel.MESSAGE_SEND_STATUS:get() or "")
 	end
-	-- chan_sip answers 202 before any of this runs and the bridge answers 200 for a message
+	-- Asterisk answers 202 before any of this runs and the bridge answers 200 for a message
 	-- it drops, so these lines are the entire record that a message existed. Do not trim.
 	app.log("NOTICE", "sms inbound from=[" .. tostring(from_uri) .. "] exten=["
 		.. tostring(extension) .. "] digits=[" .. tostring(digits)
@@ -676,85 +698,75 @@ end
 
 -- A Matrix user's reply, on its way to the trunk. Correct, and dead on the PSTN trunk: PSTN
 -- answers outbound MESSAGE with 501 Sip Gw only. MESSAGE_SEND_STATUS does not carry that
--- refusal -- chan_sip answered the sender before this ran -- so the NOTICE below is the only
+-- refusal -- Asterisk answered the sender before this ran -- so the NOTICE below is the only
 -- place it shows.
 --
--- No `from` argument: chan_sip then applies
--- the peer's fromuser/fromdomain, already pinned to our own number on both trunks, which is
--- how the call path gets its caller ID too. Passing one here would present the Matrix user.
+-- No `from` argument: the stack then applies the endpoint's own from_user/from_domain,
+-- already pinned to our own number on both trunks, which is how the call path gets its
+-- caller ID too. Passing one would present the Matrix user.
 local function sms_deliver_outbound(extension, from_header)
 	-- The sender rides the From display name: the user part is the bridge's peer name, which
-	-- is what chan_sip matches the request on, so it cannot carry anything else.
+	-- is what identify_by=username matches the request on, so it cannot carry anything else.
 	local caller = matrix_caller_uri(sms_from_display(from_header))
 	local peer, num, reason = sms_outbound_route(extension, caller)
 	if not peer then
 		app.log("NOTICE", "sms outbound rejected: " .. tostring(reason))
 		return
 	end
-	app.MessageSend("sip:" .. num .. "@" .. peer)
+	app.MessageSend(message_target(sip_routing, peer, num))
 	app.log("NOTICE", "sms outbound num=[" .. tostring(num) .. "] peer=[" .. tostring(peer)
 		.. "] caller=[" .. tostring(caller)
 		.. "] status=[" .. tostring(channel.MESSAGE_SEND_STATUS:get() or "") .. "]")
 end
 
+-- The endpoint this inbound call was matched on, which is the section routing.lua carries
+-- as `peer`. A Message channel has none, so this is nil there and inbound_registration
+-- falls back to the host; see sms_inbound_from.
+local function inbound_peername()
+	return channel.CHANNEL("endpoint"):get()
+end
+
+-- The caller as "<sip:user@host>". CALLERID, not SIP_HEADER: chan_pjsip fills it from the
+-- From header, and the host is replaced by the line immediately afterwards, so the endpoint
+-- name is enough.
+local function inbound_from_header()
+	return "<sip:" .. tostring(channel.CALLERID("num"):get() or "")
+		.. "@" .. tostring(channel.CHANNEL("endpoint"):get() or "") .. ">"
+end
+
 extensions = {
 	public = {
+		-- pbx_config is noloaded and there is no `default` context to hand off to, so the
+		-- special extensions end the call here.
 		["i"] = function(context, extension)
-			app.goto("default", "i", 1)
+			app.hangup()
 		end;
 
 		["h"] = function(context, extension)
-			-- app.goto unwinds through a Lua error, so it stays outside the pcall or
-			-- the pcall swallows the goto along with anything else.
 			pcall(matrix_end_conference)
-			app.goto("default", "h", 1)
 		end;
 
 		["t"] = matrix_ignore;
 
 		["_."] = function(context, extension)
-			local from = channel.SIP_HEADER("From"):get()
+			local from = inbound_from_header()
 			channel.original_extension = extension
-			-- The extension BEFORE the decoding below rewrites it: it is the contact this
-			-- registration gave the carrier, and therefore which of our DIDs was dialled.
+			-- The contact this registration gave the carrier, and therefore which of our
+			-- DIDs was dialled. It has to be a legal SIP user part, so the endpoint is the
+			-- stronger discriminator; see inbound_registration.
 			local dialled_contact = extension
 
-			if not extension:match("[^0-9]") then
-				from = from:gsub("^[^<]*<sip:", ""):gsub(">.*$", "")
-				extension = textBase10Decode(extension)
-				if from:match("^%+?[0-9]*@") then
-					if not extension:match("@cheogram%.com$") then
-						extension = jid_escape(extension) .. "@cheogram.com"
-					end
-					if from:byte(1) ~= 43 then
-						from = "+" .. from
-					end
-				end
-				from = "<sip:" .. from .. ">"
-			end
-
-			if not extension:find("%.") then
-				app.log("NOTICE", "Call from '' (" .. channel.CHANNEL("peerip"):get() .. ":0) to extension '" .. extension .. "' rejected because extension not found in context 'public'.")
-				app.goto("i", 1)
-				return
-			end
-
-			-- Name the LINE the call came in on, instead of whatever host the carrier put in
-			-- From (today an SBC IP address). Two reasons, and neither is cosmetic: it says which
-			-- of our numbers was dialled, and it makes the caller JID dialable back through the
-			-- credentialed peer rather than anonymously to a bare address, which is the path a
-			-- provider can answer with a recorded refusal. Also survives them renumbering.
-			--
-			-- Not a reverse DNS lookup: a PTR is whatever the carrier chose to publish, need not
-			-- route anywhere, and would put a resolver in the call path.
-			local peername = channel.CHANNEL("peername"):get()
+			-- Name the LINE the call came in on, not the host the carrier put in From: that is
+			-- what makes the caller JID dialable back through the credentialed peer. See the
+			-- README for the rest.
+			local peername = inbound_peername()
 			local line, _, _, how = inbound_line(sip_routing, dialled_contact, peername)
 			from = call_from_uri(from, peername, line)
 
 			-- The carrier echoing our Contact is observed behaviour, not a standard. Once it
 			-- stops, every call on this host is attributed to its default line and looks exactly
 			-- like a correct match. Silent while the contact still matches.
-			if how ~= "contact" then
+			if how ~= "contact" and how ~= "endpoint" then
 				app.log("NOTICE", "inbound fallback: contact [" .. tostring(dialled_contact)
 					.. "] matched no registration on peer [" .. tostring(peername)
 					.. "], attributed to line [" .. tostring(line)
@@ -762,9 +774,9 @@ extensions = {
 			end
 
 			if channel.CHANNEL("channeltype"):get() == "Message" then
-				-- Unreachable while sip.conf routes every out-of-call MESSAGE to
-				-- messages-in, and deliberately not a second copy of that path: the two
-				-- identities drifted apart exactly once already.
+				-- Unreachable while every endpoint sets message_context, which routes an
+				-- out-of-call MESSAGE to messages-in. Deliberately not a second copy of
+				-- that path: the two identities drifted apart exactly once already.
 				sms_deliver_inbound(extension, channel.MESSAGE("from"):get())
 				app.hangup()
 			else
@@ -793,12 +805,15 @@ extensions = {
 					local legs, with_matrix = inbound_legs(stage, from, conf, caller)
 					if legs then
 						if with_matrix then
-							-- Next Dial ONLY, so it is re-issued per stage; hoisted above the
-							-- loop it is lost from stage 2 on. The Motif legs ignore it.
-							app.SIPAddHeader("X-Conference: " .. conf)
+							-- Read back by add-conference-header off this channel. Set per
+							-- stage, as SIPAddHeader was: hoisted above the loop it is lost
+							-- from stage 2 on.
+							channel.MATRIX_CONF_PENDING:set(conf)
 						end
 						app.dial(legs, stage.timeout or 30,
-							with_matrix and "rU(matrix-answered)" or "r")
+							with_matrix
+								and "rU(matrix-answered)b(add-conference-header^s^1)"
+								or "r")
 
 						if with_matrix and channel.MATRIX_ANSWERED:get() == "1" then
 							-- A channel inside ConfBridge() cannot also Dial(), so the order is
@@ -835,10 +850,29 @@ extensions = {
 	["matrix-answered"] = {
 		["s"] = function(context, extension)
 			pcall(function()
-				if channel.CHANNEL("peername"):get() ~= "matrixbridge" then return end
+				if channel.CHANNEL("endpoint"):get() ~= bridge_peer then return end
 				-- On the caller's channel, not this leg's: this leg is about to be hung up.
 				channel.MASTER_CHANNEL("MATRIX_ANSWERED"):set("1")
 				channel.GOSUB_RESULT:set("CONTINUE")
+			end)
+		end;
+	};
+
+	-- Runs on each OUTBOUND leg before it is dialled. PJSIP_HEADER(add) writes the callee
+	-- channel only from a pre-dial handler; called in the normal flow it writes the
+	-- CALLER's channel and the bridge never sees X-Conference.
+	--
+	-- Inside pcall for the same reason as matrix-answered: an error here would drop the
+	-- whole inbound call. The endpoint guard keeps it off the Motif legs, which are not
+	-- PJSIP channels.
+	["add-conference-header"] = {
+		["s"] = function(context, extension)
+			pcall(function()
+				if channel.CHANNEL("endpoint"):get() ~= bridge_peer then return end
+				local conf = channel.MASTER_CHANNEL("MATRIX_CONF_PENDING"):get()
+				if conf and conf ~= "" then
+					channel.PJSIP_HEADER("add", "X-Conference"):set(conf)
+				end
 			end)
 		end;
 	};
@@ -860,8 +894,10 @@ extensions = {
 			-- pcall around the decision only. Hangup() unwinds through a Lua error, so
 			-- the app calls must stay outside it or the unwind is swallowed.
 			local ok, peer, num, conf, cause, reason = pcall(matrix_outbound_route,
-				extension, channel.SIP_HEADER("X-Conference"):get(),
-				matrix_caller_uri(channel.SIP_HEADER("X-Matrix-Caller"):get()))
+				-- PJSIP_HEADER, not SIP_HEADER: the latter reads nothing on a chan_pjsip
+				-- channel, which would silently drop every Matrix outbound call.
+				extension, channel.PJSIP_HEADER("read", "X-Conference"):get(),
+				matrix_caller_uri(channel.PJSIP_HEADER("read", "X-Matrix-Caller"):get()))
 			if not ok then
 				app.log("NOTICE", "matrix outbound: " .. tostring(peer))
 				app.hangup("34")
@@ -883,7 +919,8 @@ extensions = {
 			-- in the conference. Naming the conference before it blocks is what lets the
 			-- h extension clear that out.
 			channel.MATRIX_CONF:set(conf)
-			app.originate("SIP/" .. peer .. "/" .. num, "exten", "matrix-outbound", conf, "1", "45")
+			app.originate(dial_string(sip_routing, peer, num), "exten", "matrix-outbound",
+				conf, "1", "45")
 			local status = channel.ORIGINATE_STATUS:get()
 			app.log("NOTICE", "matrix outbound ORIGINATE_STATUS=[" .. tostring(status) .. "]")
 			-- pbx_lua does not abort a handler on hangup, it only offers this, so the
@@ -915,12 +952,9 @@ extensions = {
 
 	-- Where the leg Originate() placed above lands, with the conference name as its
 	-- extension -- the same shape as the livekit context, and reachable only from that
-	-- Originate. matrix_caller (end_marked) is what makes a Matrix hangup drop this leg;
-	-- the marked profile here would invert that and the call would never end.
+	-- Originate. matrix_caller, never the marked profile: see confbridge.conf.
 	["matrix-outbound"] = {
 		["_."] = function(context, extension)
-			-- As on the inbound path: end_marked drops this leg when livekit-sip goes,
-			-- and the h extension covers the opposite direction, which it cannot.
 			channel.MATRIX_CONF:set(extension)
 			app.confbridge(extension, "default_bridge", "matrix_caller")
 		end;
@@ -934,9 +968,9 @@ extensions = {
 	};
 
 	-- Every out-of-call SIP MESSAGE lands here -- both trunks and the bridge -- because
-	-- sip.conf sets outofcall_message_context globally. So this context is a DISPATCHER,
-	-- not the inbound path: routing the trunks back into `public` instead would depend on
-	-- chan_sip's peer-vs-global precedence, which no CLI exposes.
+	-- every endpoint sets message_context. So this context is a DISPATCHER, not the
+	-- inbound path: leaving message_context unset would send a trunk MESSAGE into
+	-- `public` instead, whose Message branch is a deliberately dead second copy.
 	["messages-in"] = {
 		["_."] = function(context, extension)
 			local from = channel.MESSAGE("from"):get()
@@ -962,9 +996,8 @@ extensions = {
 	livekit = {
 		["_."] = function(context, extension)
 			app.answer()
-			-- MARKED user, paired with end_marked on the caller in confbridge-matrix.conf:
-			-- the bridge ends a call by dropping livekit-sip out of the LiveKit room, and
-			-- that pairing is the only thing that then hangs the caller up.
+			-- The MARKED user: the bridge ends a call by dropping livekit-sip out of the
+			-- LiveKit room, and confbridge.conf's pairing is what then hangs the caller up.
 			app.confbridge(extension, "default_bridge", "matrix_marked")
 		end;
 
@@ -990,9 +1023,8 @@ extensions = {
 
 			-- Every reachable destination goes out a PEER, which carries the registration
 			-- credentials: either the one its label named, or the one the routing table
-			-- picked for a label-less number. Upstream's SIP/<user>@<host> fallback is gone
-			-- -- see resolve_destination's `kind`; restoring foreign SIP dialling means a
-			-- deliberate allow list, not a fall-through.
+			-- picked for a label-less number. Nothing falls through to an uncredentialed
+			-- dial; foreign SIP dialling would mean a deliberate allow list.
 			--
 			-- NOTICE so it reaches the file log and stdout; the dialplan is otherwise silent
 			-- and a wrong peer is only visible after the call has already failed.
@@ -1004,7 +1036,8 @@ extensions = {
 				.. "] line=[" .. tostring(line)
 				.. "] emergency=[" .. tostring(rule and rule.emergency or false) .. "]")
 			if peer and peer ~= "" then
-				app.dial("SIP/" .. peer .. "/" .. exten:gsub("\\", "\\\\"):gsub("&", ""))
+				app.dial(dial_string(sip_routing, peer,
+					exten:gsub("\\", "\\\\"):gsub("&", "")))
 				return
 			end
 
@@ -1018,8 +1051,8 @@ extensions = {
 	};
 
 	-- An XMPP user's message on its way to the trunk. Mirrors sms_deliver_outbound: the
-	-- routing table gates and picks the peer, and no `from` is passed so chan_sip applies
-	-- the peer's fromuser. Sending at a bare SIP URI here reached the trunk ungated.
+	-- routing table gates and picks the peer, and no `from` is passed so the endpoint's own
+	-- from_user applies.
 	--
 	-- A #label is dropped with the rest of the host part, so the table decides the line.
 	xmpp = {
@@ -1034,7 +1067,7 @@ extensions = {
 					.. " caller=[" .. tostring(caller) .. "]")
 				return
 			end
-			app.MessageSend("sip:" .. num .. "@" .. peer)
+			app.MessageSend(message_target(sip_routing, peer, num))
 			app.log("NOTICE", "xmpp outbound num=[" .. tostring(num) .. "] peer=[" .. tostring(peer)
 				.. "] caller=[" .. tostring(caller)
 				.. "] status=[" .. tostring(channel.MESSAGE_SEND_STATUS:get() or "") .. "]")

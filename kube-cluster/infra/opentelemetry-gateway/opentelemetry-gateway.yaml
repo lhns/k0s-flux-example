@@ -7,8 +7,8 @@
 #   * the Kafka brokers move from the Swarm service name to the in-cluster bootstrap,
 #   * the kafkametrics receiver is split into its own singleton collector — running it
 #     in both gateway replicas would double-count every broker/topic/consumer metric,
-#   * the syslog receiver is split into syslog/tcp + syslog/udp (see the comment there —
-#     the single-receiver form silently accepts UDP config and never listens on it).
+#   * syslog is received by tcplog + udplog with an explicit parser chain, because the
+#     syslog receiver cannot read the frames the routers send (see the comment there).
 #
 # The Kafka exporter's `topic` moved into per-signal blocks (logs:/metrics:/traces:)
 # in a contrib release after the Swarm config was written — the old top-level `topic:`
@@ -50,23 +50,45 @@ receivers:
       thrift_http:
         endpoint: 0.0.0.0:14268
 
-  # TWO receivers, not one with both tcp: and udp: — the only deviation from the Swarm
-  # config that is a behaviour FIX rather than a port. The syslog receiver's Build()
-  # returns on the first transport it finds:
-  #     if c.TCP != nil { ...; return }   // wins
-  #     if c.UDP != nil { ...; return }   // unreachable when tcp is also set
-  # It logs nothing and passes config validation, so the Swarm collector has been
-  # silently dropping every UDP syslog datagram for as long as it has been deployed.
-  # Verified in phase 3 by sending to both transports: tcp landed, udp vanished.
-  syslog/tcp:
-    tcp:
-      listen_address: "0.0.0.0:54526"
-    protocol: rfc5424
+  # Port 54526 carries two frame shapes, so the parser is picked per frame.
+  #
+  # A standard sender prefixes a priority, `<134>1 ...`, and takes the syslog branch --
+  # the only one that yields facility and severity.
+  #
+  # The routers send `<ISO-8601> <host> <message>`: no priority, no version digit. The
+  # syslog parser cannot read that, and its on_error default is `send`, so it would
+  # forward every such frame unparsed rather than fail. The regex branch handles them.
+  #
+  # Both branches must set attributes.message: transform/syslog-cef reads it.
+  tcplog/syslog:
+    listen_address: "0.0.0.0:54526"
+    operators: &syslog_operators
+      - type: router
+        routes:
+          - expr: 'body matches "^<[0-9]{1,3}>"'
+            output: rfc5424
+        default: headerless
+      - id: rfc5424
+        type: syslog_parser
+        protocol: rfc5424
+        # Without this the chain falls through into `headerless`.
+        output: done
+      - id: headerless
+        type: regex_parser
+        regex: '^(?P<timestamp>\d{4}-\d{2}-\d{2}T\S+) (?P<hostname>\S+) (?P<message>.*)$'
+        timestamp:
+          parse_from: attributes.timestamp
+          layout_type: gotime
+          layout: "2006-01-02T15:04:05.999999999Z07:00"
+      # parse_from does not consume the field, and only this branch sets it.
+      - type: remove
+        field: attributes.timestamp
+      - id: done
+        type: noop
 
-  syslog/udp:
-    udp:
-      listen_address: "0.0.0.0:54526"
-    protocol: rfc5424
+  udplog/syslog:
+    listen_address: "0.0.0.0:54526"
+    operators: *syslog_operators
 
   prometheus/feedback:
     config:
@@ -111,6 +133,21 @@ processors:
           # Swarm-specific by design: the fluentforward senders ARE Docker hosts and
           # stay that way. Revisit only if container logs ever arrive from elsewhere.
           - replace_pattern(resource.attributes["service.name"], "^/(.*)\\.[^.]+\\.[^.]+", "$$1")
+
+  # MikroTik sends CEF as the syslog MSG, which the receiver's parser chain leaves opaque
+  # in the `message` attribute — log.body keeps the whole raw frame. Do NOT parse
+  # log.body: the marker is found mid-string, so it also "succeeds" on frames the parser
+  # chain REJECTED and hides a framing regression behind populated cef.* fields.
+  # Anchored on the version digit, so a line merely mentioning CEF is left alone.
+  transform/syslog-cef:
+    # ignore, not silent: a malformed CEF line stays in the pipeline but is logged.
+    error_mode: ignore
+    log_statements:
+      - context: log
+        conditions:
+          - log.attributes["message"] != nil and IsMatch(log.attributes["message"], "^CEF:[0-9]")
+        statements:
+          - merge_maps(log.attributes, ParseCEF(log.attributes["message"]), "upsert")
 
   deltatorate/count:
     metrics:
@@ -272,7 +309,11 @@ service:
       processors: [deltatocumulative, interval/count]
       exporters: [forward/meta_metrics]
     logs/receive:
-      receivers: [otlp, syslog/tcp, syslog/udp]
+      receivers: [otlp]
+      exporters: [forward/logs]
+    logs/receive-syslog:
+      receivers: [tcplog/syslog, udplog/syslog]
+      processors: [transform/syslog-cef]
       exporters: [forward/logs]
     logs/receive-fluentforward:
       receivers: [fluentforward]

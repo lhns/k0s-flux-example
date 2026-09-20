@@ -178,7 +178,7 @@ spec:
               memory: 12Gi
       containers:
         - name: runner
-          image: code.forgejo.org/forgejo/runner:13.1.0
+          image: code.forgejo.org/forgejo/runner:13.2.0
           # The image's CMD is a bare `/bin/forgejo-runner`, which prints help and
           # exits — so the subcommand has to be given explicitly or the pod
           # CrashLoops on something that looks like success.

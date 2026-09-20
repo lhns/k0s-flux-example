@@ -16,9 +16,37 @@ import tempfile
 
 APP = pathlib.Path(__file__).resolve().parent.parent
 CHART = APP / "routing"
-SIP_CONF = APP / "sip.conf"
 RESOURCES = APP / "resources.yaml"
+KUSTOMIZATION = APP / "kustomization.yaml"
+DIALPLAN = APP / "extensions.lua"
 ENV = APP / "cheogram-sip.env"
+
+# The ConfigMap key the chart generates pjsip.conf into. Asterisk reads the file once at
+# start, so where it lands is checked as well as what is in it.
+PJSIP_KEY = "pjsip.conf"
+
+# The two hand-written in-cluster endpoints. Neither registers, so neither is in the routing
+# table and the per-registration checks below skip them -- these are their own invariants.
+# `aor` is None for one that must NOT have an AOR contact.
+IN_CLUSTER = {
+    "livekit": {
+        "context": "livekit",
+        # Only ever the caller, and nothing dials it, so an AOR would be an address for a
+        # call that is never placed -- and one more thing to keep right.
+        "aor": None,
+        # We challenge its INVITE. auth=, not outbound_auth=: we never authenticate to it.
+        "auth": True,
+    },
+    "matrixbridge": {
+        "context": "matrixbridge",
+        # STATIC: it never REGISTERs, so its address has to be the Service, over TCP -- a
+        # multi-part MESSAGE over UDP overflows the datagram and is dropped silently.
+        "aor": "sip:matrix-sip-bridge.matrix.svc.cluster.local:5060;transport=tcp",
+        # Nothing to challenge: the bridge digest-authenticates only REGISTER, which it
+        # never sends. identify_by=username on the From user part is the whole match.
+        "auth": False,
+    },
+}
 
 
 def fail(msg):
@@ -41,27 +69,318 @@ def env_value(key):
     return m.group(1).strip() if m else None
 
 
-def sip_sections():
-    """Every [name] section in sip.conf, mapped to its body. The image's entrypoint appends
-    one more peer named after SIP_HOST at startup, which this cannot see -- callers add it."""
-    text = SIP_CONF.read_text(encoding="utf-8")
-    out, cur = {}, None
+def pjsip_objects(text):
+    """The RENDERED pjsip.conf as {(name, type): body}. Section names REPEAT there -- one per
+    object type for the same trunk is the canonical pjsip layout -- so the type is half the
+    key."""
+    out = []
+    cur, body = None, []
     for line in text.splitlines():
         m = re.match(r"^\[([^\]]+)\]$", line.strip())
         if m:
-            cur = m.group(1)
-            out[cur] = []
+            if cur:
+                out.append((cur, "\n".join(body)))
+            cur, body = m.group(1), []
             continue
-        if cur:
-            out[cur].append(line)
-    return {k: "\n".join(v) for k, v in out.items()}
+        if cur is not None:
+            body.append(line)
+    if cur:
+        out.append((cur, "\n".join(body)))
+    typed = {}
+    for name, b in out:
+        m = re.search(r"(?m)^type=(\w+)$", b)
+        if not m:
+            fail("pjsip.conf section %r declares no type=; sorcery would skip it silently"
+                 % name)
+        if (name, m.group(1)) in typed:
+            fail("pjsip.conf declares %r as type=%s twice" % (name, m.group(1)))
+        typed[(name, m.group(1))] = b
+    return typed
 
 
-# registrations.tsv field each $var in the peer printf stands for. rpw is the password, which
-# is read from /sip-secrets at runtime and exists nowhere in git -- it is substituted with a
-# placeholder here so that the rest of the section can still be checked.
-PEER_PRINTF_FIELDS = {"rname": "name", "ruser": "user", "rhost": "host",
-                      "rcontact": "contact_user"}
+# Per-endpoint settings with no global default under pjsip: there is no [general], so an
+# endpoint that omits one fails quietly rather than loudly. from_user/from_domain are checked
+# against the registration instead, further down.
+PJSIP_ENDPOINT_SETTINGS = {
+    "context": "public",
+    "message_context": "messages-in",
+    "force_rport": "yes",
+    "rtp_symmetric": "yes",
+    "direct_media": "no",
+    "disallow": "all",
+    # pjsip rejects the old rfc2833 spelling, leaving the endpoint's DTMF at the default.
+    "dtmf_mode": "rfc4733",
+}
+
+# The same settings on an in-cluster endpoint, minus the two it sets differently: `context`
+# is its own, and it is not in the messages-in dispatcher unless it sends MESSAGEs.
+IN_CLUSTER_SETTINGS = {k: v for k, v in PJSIP_ENDPOINT_SETTINGS.items()
+                       if k not in ("context", "message_context")}
+
+
+def check_asterisk_image():
+    """Both containers run the same digest-pinned image from our Asterisk fork.
+
+    Asterisk 22 is what makes every pjsip object here loadable at all, and the fork is what
+    can do DTLS-SRTP over Jingle. On a stock or older image the pod starts, answers, and
+    gets Jingle encryption wrong; nothing else would say so. render-config must match, so
+    what renders the config is what parses it.
+    """
+    res = RESOURCES.read_text(encoding="utf-8")
+    found = {}
+    for container in ("render-config", "asterisk"):
+        m = re.search(r"(?m)^(\s*)- name: %s$\n(?:\1  .*\n|\1  \n)*?\1  image: (\S+)$"
+                      % re.escape(container), res)
+        if not m:
+            fail("resources.yaml has no container %r with an image:" % container)
+        found[container] = m.group(2)
+    for container, image in found.items():
+        if not re.fullmatch(r"ghcr\.io/lhns/asterisk:\S+@sha256:[0-9a-f]{64}", image):
+            fail("container %r runs %r; it has to be our asterisk fork, pinned by digest "
+                 "(ghcr.io/lhns/asterisk:<tag>@sha256:...)" % (container, image))
+    if found["render-config"] != found["asterisk"]:
+        fail("render-config runs %r and asterisk runs %r; the config has to be rendered by "
+             "the binary that parses it" % (found["render-config"], found["asterisk"]))
+    if "singpolyma/cheogram-sip" not in res:
+        fail("resources.yaml no longer references the upstream image at all; the "
+             "cheogram-sip container is the XEP-0114 component and stays on it")
+
+
+def check_transport(objects, peer, ep):
+    """The transport an endpoint names, and the port it binds.
+
+    5060, on both protocols: that is what everything pointing at this Asterisk expects --
+    apps/matrix's sip-bridge-config and livekit-sip, and the cheogram-sip-internal Service
+    in resources.yaml. A transport on another port is reachable from nothing.
+    """
+    m = re.search(r"(?m)^transport=(\S+)$", ep)
+    if not m:
+        fail("pjsip endpoint %r names no transport" % peer)
+    tr = objects.get((m.group(1), "transport"))
+    if tr is None:
+        fail("pjsip endpoint %r names transport %r, which pjsip.conf does not define"
+             % (peer, m.group(1)))
+    bind = re.search(r"(?m)^bind=\S+:(\d+)$", tr)
+    if not bind:
+        fail("pjsip transport %r has no bind=<address>:<port>" % m.group(1))
+    if bind.group(1) != "5060":
+        fail("pjsip transport %r binds %s, but everything that reaches this Asterisk is "
+             "pointed at 5060 -- apps/matrix and the cheogram-sip-internal Service"
+             % (m.group(1), bind.group(1)))
+
+
+def check_in_cluster(objects):
+    """livekit and matrixbridge: hand-written, in no routing table, and each wrong in its own
+    way if a line goes missing."""
+    for peer, want in sorted(IN_CLUSTER.items()):
+        ep = objects.get((peer, "endpoint"))
+        if ep is None:
+            fail("pjsip.conf has no type=endpoint %r; the in-cluster peer it stands for "
+                 "would be an unidentified caller and rejected" % peer)
+        check_transport(objects, peer, ep)
+        for opt, val in sorted(IN_CLUSTER_SETTINGS.items()):
+            if not re.search(r"(?m)^%s=%s$" % (opt, re.escape(val)), ep):
+                fail("pjsip endpoint %r does not set %s=%s; pjsip has no global default for "
+                     "it and the endpoint is wrong about it silently" % (peer, opt, val))
+        if not re.search(r"(?m)^context=%s$" % re.escape(want["context"]), ep):
+            fail("pjsip endpoint %r is not context=%s; its calls would land in a context "
+                 "that is not its own" % (peer, want["context"]))
+        # THE WHOLE MATCH. Neither peer registers and neither is at the AOR address it sends
+        # from, so the From user part against the endpoint name is all there is. Anything
+        # else -- ip, or a version-dependent default -- makes every call from it anonymous.
+        if not re.search(r"(?m)^identify_by=username$", ep):
+            fail("pjsip endpoint %r is not identify_by=username; it sends from a pod "
+                 "address that matches nothing, so its calls would be anonymous" % peer)
+        aor = objects.get((peer, "aor"))
+        if want["aor"] is None:
+            if aor is not None:
+                fail("pjsip.conf gives %r a type=aor; nothing dials it, so that is an "
+                     "address for a call never placed and one more thing to keep right"
+                     % peer)
+            if re.search(r"(?m)^aors=", ep):
+                fail("pjsip endpoint %r names an aor it does not have" % peer)
+        else:
+            if aor is None or not re.search(
+                    r"(?m)^contact=%s$" % re.escape(want["aor"]), aor):
+                fail("pjsip aor %r does not have contact=%s; a typo here leaves it "
+                     "UNREACHABLE with the far end perfectly healthy" % (peer, want["aor"]))
+            if not re.search(r"(?m)^aors=%s$" % re.escape(peer), ep):
+                fail("pjsip endpoint %r does not name its aor, so dialling it reaches "
+                     "nothing" % peer)
+        auth = objects.get((peer, "auth"))
+        if want["auth"]:
+            if auth is None or not re.search(r"(?m)^auth=%s$" % re.escape(peer), ep):
+                fail("pjsip endpoint %r has no INBOUND auth=; its INVITE would be accepted "
+                     "on the From user part alone" % peer)
+            # outbound_auth is what a trunk uses to authenticate TO a carrier. Here it would
+            # be silently inert, and reads as if the INVITE were challenged when it is not.
+            if re.search(r"(?m)^outbound_auth=", ep):
+                fail("pjsip endpoint %r sets outbound_auth; nothing here authenticates "
+                     "outbound, and it does not challenge an inbound INVITE" % peer)
+        elif auth is not None or re.search(r"(?m)^auth=", ep):
+            fail("pjsip endpoint %r has an auth; it never sends credentials, so the "
+                 "challenge would refuse every call it makes" % peer)
+
+    # The dialplan addresses a MESSAGE to the bridge by Request-URI, which is routed as
+    # written, so its host is spelled in extensions.lua as well as in the AOR here.
+    host = IN_CLUSTER["matrixbridge"]["aor"].split(":")[1].split(";")[0]
+    if ('or "%s"' % host) not in DIALPLAN.read_text(encoding="utf-8"):
+        fail("extensions.lua's bridge_host default is not %s, the [matrixbridge] aor "
+             "contact host; an outbound SMS would be addressed to a name that does not "
+             "resolve" % host)
+
+
+def check_pjsip(registrations, rows, pjsip_conf):
+    """The res_pjsip object set behind every registration, and the two in-cluster endpoints.
+
+    pjsip has no [general], so every line below is one an endpoint that omitted it would be
+    silently wrong about. It runs on the GENERATED file, so a template that drops a line is
+    caught as well as a bad table.
+    """
+    objects = pjsip_objects(pjsip_conf)
+    peer_file = {r["name"]: r["peer"] for r in rows}
+
+    for regname, reg in sorted(registrations.items()):
+        peer = reg["peer"]
+        # A pjsip trunk is FOUR objects under one name and a missing one fails differently
+        # every time: no auth is a trunk with no password, no aor is an outbound dial with
+        # no address, no registration is a trunk that never registers, no endpoint is an
+        # inbound call matched to nothing. Named together so a copied block that lost one is
+        # one failure rather than four unrelated ones.
+        missing = [ty for ty in ("auth", "aor", "registration", "endpoint")
+                   if (peer, ty) not in objects]
+        if missing:
+            fail("registration %r: %r has no type=%s in "
+                 "pjsip.conf; the object set is incomplete"
+                 % (regname, peer, ", type=".join(missing)))
+        ep = objects.get((peer, "endpoint"))
+        if ep is None:
+            fail("registration %r: %r is no type=endpoint in "
+                 "pjsip.conf" % (regname, peer))
+        for opt, want in sorted(PJSIP_ENDPOINT_SETTINGS.items()):
+            if not re.search(r"(?m)^%s=%s$" % (opt, re.escape(want)), ep):
+                fail("pjsip endpoint %r does not set %s=%s; pjsip has no global default for "
+                     "it and the endpoint is wrong about it silently" % (peer, opt, want))
+        # The per-endpoint default has moved between Asterisk versions, so an endpoint that
+        # leaves it implicit can start matching inbound calls by IP without anything changing
+        # here.
+        if not re.search(r"(?m)^identify_by=\S+$", ep):
+            fail("pjsip endpoint %r does not set identify_by; the default is version "
+                 "dependent and decides what an inbound INVITE is matched on" % peer)
+        # Whatever identifies the endpoint has to actually exist, or every inbound call is
+        # anonymous. identify_by=ip means a type=identify, and nothing else does.
+        if re.search(r"(?m)^identify_by=ip$", ep):
+            ident = objects.get((peer, "identify"))
+            if ident is None or not re.search(r"(?m)^endpoint=%s$" % re.escape(peer), ident):
+                fail("pjsip endpoint %r is identify_by=ip with no type=identify naming it; "
+                     "inbound calls would be anonymous" % peer)
+        # A codec list, and only ones the RTP path already carries.
+        if not re.search(r"(?m)^allow=[a-z0-9,]+$", ep):
+            fail("pjsip endpoint %r sets no allow= codec list" % peer)
+        # Caller ID. Nothing else pins the presented From: the dialplan never sets it.
+        for opt, want in (("from_user", reg["user"]), ("from_domain", reg["host"])):
+            if not re.search(r"(?m)^%s=%s$" % (opt, re.escape(want)), ep):
+                fail("pjsip endpoint %r does not pin %s=%s, so a call on registration %r "
+                     "would present another number" % (peer, opt, want, regname))
+        # An endpoint with no AOR contact has no address, so an outbound dial fails.
+        aor = objects.get((peer, "aor"))
+        if aor is None or not re.search(r"(?m)^contact=sip:", aor):
+            fail("pjsip endpoint %r has no type=aor with a contact=, so PJSIP/<exten>@%s "
+                 "reaches nothing" % (peer, peer))
+        if not re.search(r"(?m)^aors=%s$" % re.escape(peer), ep):
+            fail("pjsip endpoint %r does not name its aor" % peer)
+        check_transport(objects, peer, ep)
+        # The registration, which REPLACES the rendered register line. Both would be one
+        # account REGISTERing twice.
+        rg = objects.get((peer, "registration"))
+        if rg is None:
+            fail("registration %r: pjsip.conf has no "
+                 "type=registration for %r, so it never registers" % (regname, peer))
+        # line=yes tags our Contact with a generated ;line= and matches a call echoing it
+        # back to THIS registration. With several DIDs on one host it is the only per-DID
+        # discriminator pjsip has of its own, and endpoint= is what it matches them to.
+        for opt, want in (("client_uri", "sip:%s@%s" % (reg["user"], reg["host"])),
+                          ("server_uri", "sip:%s" % reg["host"]),
+                          ("contact_user", reg["contact_user"]),
+                          ("line", "yes"),
+                          ("endpoint", peer)):
+            if not re.search(r"(?m)^%s=%s$" % (opt, re.escape(want)), rg):
+                fail("pjsip registration %r does not set %s=%s, which registration %r in "
+                     "the routing table says it is" % (peer, opt, want, regname))
+        # MEASURED on the pinned image: pjsip parses the Contact URI it builds, so an "@"
+        # here makes the whole registration object fail to load -- one sorcery error at
+        # startup and then silence.
+        if "@" in reg["contact_user"]:
+            fail("registration %r has contact_user %r; an at-sign there "
+                 "is not a legal SIP user part and the registration object would not load"
+                 % (regname, reg["contact_user"]))
+        # pjsip treats a 401/403 as permanent by default, so a credential problem would
+        # register once and then go quiet.
+        if not re.search(r"(?m)^auth_rejection_permanent=no$", rg):
+            fail("pjsip registration %r does not set auth_rejection_permanent=no; an auth "
+                 "failure would stop it retrying with nothing to say why" % peer)
+        # The password, rendered by the initContainer as `password=` into the file this
+        # entry's peer_secret_file names.
+        auth = objects.get((peer, "auth"))
+        if auth is None or not re.search(r"(?m)^username=%s$" % re.escape(reg["user"]), auth):
+            fail("pjsip endpoint %r has no type=auth with username=%s"
+                 % (peer, reg["user"]))
+        if not re.search(r"(?m)^outbound_auth=%s$" % re.escape(peer), ep + "\n" + rg):
+            fail("pjsip endpoint or registration %r does not name its outbound_auth" % peer)
+        inc = peer_file.get(regname)
+        if not inc:
+            fail("registration %r names no peer_secret_file, so its password is written "
+                 "nowhere" % regname)
+        if ("#include " + inc) not in pjsip_conf:
+            fail("registration %r writes %s, which pjsip.conf does not #include; the trunk "
+                 "would authenticate with no password" % (regname, inc))
+
+    # MEASURED on the pinned image: an "@" in a contact_user makes the whole registration
+    # object fail to load, and the check above only sees the ones the table describes. This
+    # one sees every contact_user in the file, hand-written objects included.
+    for bad in re.findall(r"(?m)^contact_user=(.*@.*)$", pjsip_conf):
+        fail("pjsip.conf has contact_user=%s; an '@' is not a legal SIP user part and the "
+             "registration object would not load" % bad)
+
+    # THE INBOUND FALLBACK, and the one place two objects can silently disagree. A call the
+    # carrier does not tag with our ;line= is matched by source address, so every host needs
+    # exactly ONE type=identify -- on its default registration, which is what the dialplan
+    # reports as the fallback. Two on one address and which endpoint answers is undefined;
+    # none and such a call is anonymous.
+    pj = dict(registrations)
+    for host in sorted({r["host"] for r in pj.values()}):
+        on_host = sorted(n for n, r in pj.items() if r["host"] == host)
+        default = [n for n in on_host if pj[n]["entrypoint"]] or (
+            on_host if len(on_host) == 1 else [])
+        if not default:
+            fail("pjsip host %r has %d registrations and no entrypoint, so an inbound call "
+                 "the carrier does not tag has no defined endpoint" % (host, len(on_host)))
+        identified = [n for n in on_host if (pj[n]["peer"], "identify") in objects]
+        if identified != default:
+            fail("pjsip host %r has its type=identify on %s, but its default registration "
+                 "is %s; exactly the default may carry one, or a call matched by source "
+                 "address lands on an endpoint the dialplan calls a per-DID match"
+                 % (host, ", ".join(identified) or "nothing", ", ".join(default)))
+        # identify_by=ip without an identify is checked above; this is the other half, and
+        # the one that makes a DID endpoint reachable ONLY by its own ;line=.
+        for n in on_host:
+            if n in default:
+                continue
+            if re.search(r"(?m)^identify_by=ip$", objects[(pj[n]["peer"], "endpoint")]):
+                fail("pjsip endpoint %r is identify_by=ip but is not %s's default "
+                     "registration; it would match inbound calls meant for another DID"
+                     % (pj[n]["peer"], host))
+
+    # An object under a name nothing claims answers calls, or registers, with nothing to
+    # attribute it by -- the shape a half-finished rename leaves. The transports and the two
+    # in-cluster endpoints are claimed by being named here; everything else is a trunk.
+    claimed = ({r["peer"] for r in pj.values()} | set(IN_CLUSTER)
+               | {n for (n, ty) in objects if ty == "transport"})
+    for name in sorted({n for n, _ in objects} - claimed):
+        fail("pjsip.conf defines %r, which is neither a transport, an in-cluster peer, nor a "
+             "registration's peer in the routing table; an inbound call matched to it could "
+             "not be attributed to a line" % name)
+
 
 # The ring-address forms inbound_legs understands, asserted on the RENDERED table.
 RING_ADDRESS = re.compile(r"^(xmpp:|matrix:)")
@@ -72,62 +391,6 @@ GLOB = re.compile(r"^(\*|xmpp:\*|matrix:\*|xmpp:(\*|[^@]+)@[^@]+|matrix:@(\*|[^:
 # What an emergency to_pattern may contain, once anchored: digits and character classes.
 # It is the one rule that bypasses the caller gate, so ".*" there is an open trunk.
 EMERGENCY_PATTERN = re.compile(r"^\^\((?:[0-9]|\[[0-9]+\])+\)\$$")
-
-# The peer-writing printf in resources.yaml: its single-quoted format string, then the
-# line-continued argument list, then the file it appends to.
-PEER_PRINTF_RE = re.compile(
-    r"""(?m)^\s*printf '(\[%s\][^']*)' \\\n\s*((?:"\$\w+" ?)+)>> /render/peers\.conf$""")
-
-
-def generated_peer_sections(rows):
-    """The peer sections the render-config initContainer writes into peers.conf.
-
-    A registration that names a peer_secret_file already has a hand-written peer in sip.conf,
-    named after its host; every other one gets a peer named after the ENTRY, because fromuser
-    is pinned per peer and several registrations share one host.
-
-    The format string is READ OUT of resources.yaml rather than restated here. Restating it
-    would let this file keep asserting a fromuser pin that the initContainer had stopped
-    writing -- the exact shape of failure the pin exists to prevent.
-    """
-    m = PEER_PRINTF_RE.search(RESOURCES.read_text(encoding="utf-8"))
-    if not m:
-        fail("resources.yaml has no recognisable peer printf writing /render/peers.conf; "
-             "either it stopped rendering peers or this check can no longer read it")
-    fmt, args = m.group(1), re.findall(r'"\$(\w+)"', m.group(2))
-    out = {}
-    for r in rows:
-        if r["peer"]:
-            continue
-        vals = []
-        for a in args:
-            if a == "rpw":
-                vals.append("<secret>")
-            elif a in PEER_PRINTF_FIELDS:
-                vals.append(r[PEER_PRINTF_FIELDS[a]])
-            else:
-                fail("the peer printf passes $%s, which registrations.tsv does not carry" % a)
-        rendered = fmt.replace(chr(92) + "n", "\n")
-        if rendered.count("%s") != len(vals):
-            fail("the peer printf has %d conversions but %d arguments"
-                 % (rendered.count("%s"), len(vals)))
-        for v in vals:
-            rendered = rendered.replace("%s", v, 1)
-        head, body = rendered.split("\n", 1)
-        head = head.strip()
-        if not (head.startswith("[") and head.endswith("]")):
-            fail("the peer printf does not open with a section header: %r" % head)
-        out[head[1:-1]] = body
-    for name, body in sorted(out.items()):
-        # Which peer chan_sip attributes an unauthenticated inbound INVITE to is not
-        # predictable once several share one address, so a peer here that is not in `public`
-        # would send an inbound call into a context that rings nobody.
-        if not re.search(r"(?m)^context=public$", body):
-            fail("rendered peer %r is not context=public; an inbound call attributed to it "
-                 "would land in a context that rings nobody" % name)
-        if not re.search(r"(?m)^type=peer$", body):
-            fail("rendered peer %r is not type=peer" % name)
-    return out
 
 
 def extract_block(manifest, key):
@@ -144,24 +407,104 @@ def extract_block(manifest, key):
     return "\n".join(out)
 
 
+def check_pjsip_is_generated(manifest):
+    """Find the rendered pjsip.conf, and assert it lands where a trunk change can apply.
+
+    Asterisk parses pjsip.conf ONCE, at start. In cheogram-sip-routing -- which is annotated
+    reloader.stakater.com/ignore because pbx_lua re-reads routing.lua per call -- an edited
+    trunk would reach the ConfigMap, never the running Asterisk, and nothing would say so.
+    """
+    docs = [d for d in manifest.split("\n---") if ("\n  %s: |\n" % PJSIP_KEY) in d]
+    if len(docs) != 1:
+        fail("the chart renders %s into %d ConfigMaps; exactly one owns it"
+             % (PJSIP_KEY, len(docs)))
+    doc = docs[0]
+    m = re.search(r"(?m)^  name: (\S+)$", doc)
+    if not m:
+        fail("the ConfigMap holding %s has no metadata.name" % PJSIP_KEY)
+    name = m.group(1)
+    if re.search(r'(?m)^\s*reloader\.stakater\.com/ignore: "true"$', doc):
+        fail("%s is generated into ConfigMap %r, which is reloader-ignored; Asterisk reads it "
+             "once at start, so a trunk change would never reach a running pod"
+             % (PJSIP_KEY, name))
+
+    # The other half: a ConfigMap nothing mounts rolls nothing either.
+    res = RESOURCES.read_text(encoding="utf-8")
+    m = re.search(r"(?m)^\s*- name: (\S+)\n\s*configMap:\n\s*name: %s$" % re.escape(name), res)
+    if not m:
+        fail("resources.yaml mounts no ConfigMap %r, so the generated %s reaches no pod -- "
+             "and `reloader.stakater.com/auto` only rolls for what the pod mounts"
+             % (name, PJSIP_KEY))
+    volume = m.group(1)
+    if not re.search(r"(?m)^\s*- \{name: %s, mountPath: (\S+?), readOnly: true\}$"
+                     % re.escape(volume), res):
+        fail("no container mounts the %r volume; the ConfigMap would be declared and unread"
+             % volume)
+    if not re.search(r"(?m)^\s*cp \S*/%s /render/$" % re.escape(PJSIP_KEY), res):
+        fail("render-config no longer copies %s into /render; Asterisk would read the "
+             "image's own, or none" % PJSIP_KEY)
+
+    # A stale hand-written copy would win: render-config overlays /config last.
+    if (APP / PJSIP_KEY).exists():
+        fail("%s is both generated by the chart and present in the component directory; the "
+             "hand-written one is what the pod would get" % PJSIP_KEY)
+    if re.search(r"(?m)^\s*- %s$" % re.escape(PJSIP_KEY), KUSTOMIZATION.read_text("utf-8")):
+        fail("kustomization.yaml still ships %s in cheogram-sip-config" % PJSIP_KEY)
+    return extract_block(doc, PJSIP_KEY)
+
+
+# The initContainer's `while IFS="$tab" read -r ...` variable list. Read out of
+# resources.yaml rather than restated: a field added to the TSV without a variable here is
+# glued onto the last one, silently.
+TSV_READ_RE = re.compile(r'(?m)^\s*while IFS="\$tab" read -r ((?:\w+ )+)\|\|')
+
+TSV_FIELDS = ("name", "user", "host", "contact_user", "peer")
+# The `read` variable each field is named by, which is not always the field name.
+TSV_VARS = {"name": "name", "user": "user", "host": "host", "contact_user": "contact",
+            "peer": "peer"}
+
+
 def parse_registrations_tsv(tsv):
-    """The register table as /bin/sh reads it: TAB separated, five fields, the first of
-    which is also the name of the Secret key holding that entry's password."""
+    """The register table as /bin/sh reads it: TAB separated, one field per TSV_FIELDS, the
+    first of which is also the name of the Secret key holding that entry's password."""
+    m = TSV_READ_RE.search(RESOURCES.read_text(encoding="utf-8"))
+    if not m:
+        fail("resources.yaml has no recognisable `while read` over registrations.tsv; "
+             "either it stopped reading the table or this check can no longer find it")
+    read_vars = m.group(1).split()
+    if len(read_vars) != len(TSV_FIELDS):
+        fail("registrations.tsv carries %d fields but the initContainer reads %d variables "
+             "(%s); `read` puts every field past the last variable into it"
+             % (len(TSV_FIELDS), len(read_vars), " ".join(read_vars)))
+    # ORDER, not just count. TAB is IFS whitespace, so `read` collapses a run of them: a
+    # swapped pair puts every value in the wrong variable, and the loop would then write a
+    # trunk's password into a file named after its contact.
+    want_vars = ["r" + TSV_VARS[f] for f in TSV_FIELDS]
+    if read_vars != want_vars:
+        fail("the initContainer reads registrations.tsv as (%s), but the chart renders it as "
+             "(%s); the fields would be read into the wrong variables"
+             % (" ".join(read_vars), " ".join(want_vars)))
     rows = []
     for n, line in enumerate(tsv.splitlines(), 1):
         if not line.strip():
             continue
         f = line.split("\t")
-        if not 4 <= len(f) <= 5:
-            fail("registrations.tsv line %d has %d fields, not 4 or 5: %r" % (n, len(f), line))
-        name, user, host, contact = f[:4]
-        peer = f[4] if len(f) == 5 else ""
-        for label, v in (("name", name), ("user", user), ("host", host), ("contact_user", contact)):
-            if not v or v.split() != [v]:
-                fail("registrations.tsv line %d has an empty or whitespace %s: %r"
-                     % (n, label, line))
-        rows.append({"name": name, "user": user, "host": host,
-                     "contact_user": contact, "peer": peer})
+        # An empty LAST field may arrive as a trailing tab or as nothing at all -- the
+        # renderer drops it on the final line -- and `read` leaves its variable empty either
+        # way. Anything shorter than that is a field the loop would misread.
+        if len(f) == len(TSV_FIELDS) - 1:
+            f.append("")
+        if len(f) != len(TSV_FIELDS):
+            fail("registrations.tsv line %d has %d fields, not %d: %r"
+                 % (n, len(f), len(TSV_FIELDS), line))
+        row = dict(zip(TSV_FIELDS, f))
+        # TAB is IFS whitespace, so `read` collapses a run of them: an empty field anywhere
+        # but the last shifts every later one into the wrong variable.
+        for label in TSV_FIELDS[:-1]:
+            if not row[label] or row[label].split() != [row[label]]:
+                fail("registrations.tsv line %d has an empty or whitespace %s, and only the "
+                     "last field may be empty: %r" % (n, label, line))
+        rows.append(row)
     if not rows:
         fail("could not read any registration out of the rendered registrations.tsv")
     return rows
@@ -185,7 +528,6 @@ def sops_keys():
 
 def check_registrations_tsv(rows, registrations):
     """The register lines: everything about one that can be wrong silently."""
-    sip = SIP_CONF.read_text(encoding="utf-8")
     keys = sops_keys()
 
     for r in rows:
@@ -198,34 +540,24 @@ def check_registrations_tsv(rows, registrations):
             fail("registration %r has no Secret key of that name in this component's "
                  "secret*.yaml; the initContainer would refuse to start the pod" % r["name"])
 
-        # A peer's secret= line has to land under the exact filename sip.conf #includes, or
-        # the peer registers with no secret and fails auth silently.
-        if r["peer"] and ("#include " + r["peer"]) not in sip:
-            fail("registration %r writes %s, which sip.conf does not #include"
-                 % (r["name"], r["peer"]))
+    # A trunk's REGISTER is its type=registration object, so all the initContainer writes is
+    # the password -- and it has to land under the exact filename pjsip.conf #includes, or
+    # the account authenticates with nothing and fails auth silently.
+    res = RESOURCES.read_text(encoding="utf-8")
+    if not re.search(r"(?m)^\s*printf 'password=%s\\n'", res):
+        fail("the initContainer no longer renders a password= line, so a trunk would "
+             "authenticate with nothing")
 
-    # The entrypoint builds its own register line; a second one for the same account would
-    # fight it, and the entry has no Secret key of its own to render one from.
+    # Every registration is rendered, the entrypoint one included: a row missing here is an
+    # account whose password is written nowhere, and which therefore never registers.
     rendered = {r["name"] for r in rows}
-    for name, reg in registrations.items():
-        if reg["entrypoint"] and name in rendered:
-            fail("registration %r is the entrypoint's own and must not be rendered into "
-                 "registrations.tsv" % name)
-        if not reg["entrypoint"] and name not in rendered:
-            fail("registration %r rendered no register line, so it never registers" % name)
-
-    if "#include registrations.conf" not in sip:
-        fail("sip.conf does not #include registrations.conf, so nothing here registers")
+    for name in registrations:
+        if name not in rendered:
+            fail("registration %r is in no registrations.tsv row, so its password is written "
+                 "nowhere and it never registers" % name)
 
     host = env_value("SIP_HOST")
     if host:
-        # The inverse of the initContainer's own assertion, and the trap that costs the
-        # most: the entrypoint guards its whole setup with `grep "@$SIP_HOST" sip.conf`, so
-        # a single occurrence -- a comment is enough -- skips the register line, the peer
-        # and the dialplan edit, silently.
-        if "@" + host in sip:
-            fail("sip.conf mentions @%s; the image entrypoint would skip its whole setup"
-                 % host)
         if not any(r["host"] == host for r in rows):
             fail("no registration is at %s, the trunk the extra DIDs live on" % host)
 
@@ -302,54 +634,57 @@ def parse_lua(lua):
     return registrations, lines, outbound
 
 
-def check(registrations, lines, outbound, rows):
+def check(registrations, lines, outbound, rows, pjsip_conf):
     """Invariants a JSON Schema cannot express, against the rendered table."""
-    sections = sip_sections()
-    generated = generated_peer_sections(rows)
-    clash = sorted(set(sections) & set(generated))
-    if clash:
-        fail("peers.conf would redefine %s, which sip.conf already defines"
-             % ", ".join(clash))
-    # Every peer by name, whichever file writes it, for the fromuser check further down.
-    bodies = dict(sections)
-    bodies.update(generated)
-    # A registration that renders no register line renders no peer either, so its peer is the
-    # host-named one: the entrypoint's own, or a hand-written section.
-    has_own = {r["name"]: bool(r["peer"]) for r in rows}
-    # The image's entrypoint appends one peer named after SIP_HOST at startup, so that host
-    # is a legitimate peer even though sip.conf never mentions it. See the app README.
     sip_host, sip_user = env_value("SIP_HOST"), env_value("SIP_USER")
-    sip_jid = env_value("SIP_JID")
-    peers = set(sections) | ({sip_host} if sip_host else set())
-    real = sorted(p for p in peers if p != "general")
+    # The endpoint is the peer for every purpose below: the dialplan dials it, an inbound
+    # call is attributed by it, and check_pjsip holds its own shape.
+    pjsip_bodies = {n: b for (n, t), b in pjsip_objects(pjsip_conf).items()
+                    if t == "endpoint"}
+    peers = set(pjsip_bodies)
+    real = sorted(peers)
+
+    # FIRST, because `entrypoint` is what the generator gives the host's single
+    # type=identify: a host with none, or with two, has no defined inbound fallback and
+    # everything below would be reading a file built on that.
+    for host in sorted({r["host"] for r in registrations.values()}):
+        on_host = sorted(n for n, r in registrations.items() if r["host"] == host)
+        entry = [n for n in on_host if registrations[n]["entrypoint"]]
+        if len(entry) > 1:
+            fail("host %r has more than one entrypoint registration (%s); the inbound "
+                 "fallback would be undefined" % (host, ", ".join(entry)))
+        if len(on_host) > 1 and not entry:
+            fail("host %r has %d registrations and none marked entrypoint, so an inbound "
+                 "call whose contact matches nothing has no defined line"
+                 % (host, len(on_host)))
 
     for name, reg in registrations.items():
-        # `peer` is the section an outbound call on this registration leaves by. It is not
-        # always the host: fromuser is pinned per peer, so each DID a line may present needs
-        # one of its own. The two renderers derive it from the same values and must agree, or
-        # the dialplan dials a peer nothing writes and the call is refused.
-        want_peer = reg["host"] if (reg.get("entrypoint") or has_own.get(name, True)) else name
-        if reg.get("peer") != want_peer:
-            fail("registration %r rendered peer %r into routing.lua, but the initContainer "
-                 "writes its peer as %r" % (name, reg.get("peer"), want_peer))
+        # `peer` is the section an outbound call on this registration leaves by, and what an
+        # inbound one is attributed by. ALWAYS the entry name: fromuser -- from_user on a
+        # pjsip endpoint -- is pinned per section, so each DID a line may present needs one of
+        # its own, and a section named after the host three of them share could not.
+        if reg.get("peer") != name:
+            fail("registration %r rendered peer %r into routing.lua; every registration's "
+                 "section is named after the entry" % (name, reg.get("peer")))
         for field in ("user", "host", "peer", "contact_user", "did", "line"):
             if not reg.get(field):
                 fail("registration %r rendered without a %s" % (name, field))
-        # A host that matches no peer would be dialled with no credentials, which a carrier
-        # may answer with a recorded refusal -- a connected call, not an error.
-        if reg["host"] not in peers:
-            fail("registration %r is at host %r, which is not a peer in sip.conf (have: %s)"
-                 % (name, reg["host"], ", ".join(real)))
+        # The endpoint the call actually leaves by has to exist, or it would be dialled with
+        # no credentials -- which a carrier may answer with a recorded refusal, i.e. a
+        # connected call rather than an error. check_pjsip holds the rest of its shape.
+        if reg["peer"] not in peers:
+            fail("registration %r leaves by %r, which is no endpoint in pjsip.conf "
+                 "(have: %s)" % (name, reg["peer"], ", ".join(real)))
         if reg["line"] not in lines:
             fail("registration %r belongs to line %r, which the table does not define"
                  % (name, reg["line"]))
-        # The entrypoint's row describes a register line built by the IMAGE, so it is the
-        # one row nothing here renders and nothing here can correct. If it disagrees with
-        # the env the image reads, every identity derived from it is wrong.
+        # The `entrypoint` row is also cheogram-sip.env's SIP_USER at SIP_HOST -- the trunk
+        # the component appends to a bare number -- and the two are written in different
+        # files. If they disagree the number the table routes by is not the one that can be
+        # reached, and nothing downstream could correct it.
         if reg["entrypoint"]:
             for field, want, key in (("user", sip_user, "SIP_USER"),
-                                     ("host", sip_host, "SIP_HOST"),
-                                     ("contact_user", sip_jid, "SIP_JID")):
+                                     ("host", sip_host, "SIP_HOST")):
                 if want is not None and reg[field] != want:
                     fail("registration %r is the entrypoint's own but its %s is %r, while "
                          "%s is %r" % (name, field, reg[field], key, want))
@@ -372,17 +707,6 @@ def check(registrations, lines, outbound, rows):
             fail("registrations %r and %r both claim DID %r"
                  % (dids[reg["did"]], name, reg["did"]))
         dids[reg["did"]] = name
-    for host in sorted({r["host"] for r in registrations.values()}):
-        on_host = sorted(n for n, r in registrations.items() if r["host"] == host)
-        entry = [n for n in on_host if registrations[n]["entrypoint"]]
-        if len(entry) > 1:
-            fail("host %r has more than one entrypoint registration (%s); the inbound "
-                 "fallback would be undefined" % (host, ", ".join(entry)))
-        if len(on_host) > 1 and not entry:
-            fail("host %r has %d registrations and none marked entrypoint, so an inbound "
-                 "call whose contact matches nothing has no defined line"
-                 % (host, len(on_host)))
-
     # A line name and a trunk host both appear after "#" in an XMPP destination, so one that
     # is both is ambiguous in resolve_destination.
     trunk_hosts = {t.strip() for t in (env_value("SIP_TRUNKS") or "").split(",") if t.strip()}
@@ -464,21 +788,18 @@ def check(registrations, lines, outbound, rows):
             if r.get("line") not in lines:
                 fail("outbound rule %d selects unknown line %r" % (i, r.get("line")))
             presented = lines[r["line"]]["primary"]
-        # Presenting a number means the peer the call leaves by pins fromuser to it. The
-        # entrypoint's peer is written by the image and pins SIP_USER, which the entrypoint
-        # row above is already held to; every other one is a section here.
+        # Presenting a number means the endpoint the call leaves by pins from_user to it,
+        # which is why every endpoint carries the same values as its registration.
         reg = registrations[presented]
-        if not reg["entrypoint"]:
-            peer = reg.get("peer") or reg["host"]
-            body = bodies.get(peer)
-            if body is None:
-                fail("outbound rule %d presents registration %r, whose peer %r is neither a "
-                     "section in sip.conf nor rendered into peers.conf"
-                     % (i, presented, peer))
-            if not re.search(r"(?m)^fromuser=%s$" % re.escape(reg["user"]), body):
-                fail("outbound rule %d presents registration %r, but the peer %r does not pin "
-                     "fromuser=%s -- the call would present another number"
-                     % (i, presented, peer, reg["user"]))
+        peer = reg.get("peer") or reg["host"]
+        body = pjsip_bodies.get(peer)
+        if body is None:
+            fail("outbound rule %d presents registration %r, whose peer %r is no endpoint "
+                 "in pjsip.conf" % (i, presented, peer))
+        if not re.search(r"(?m)^from_user=%s$" % re.escape(reg["user"]), body):
+            fail("outbound rule %d presents registration %r, but the endpoint %r does not "
+                 "pin from_user=%s -- the call would present another number"
+                 % (i, presented, peer, reg["user"]))
 
 
 def reject(values, what, expect):
@@ -512,8 +833,12 @@ def check_schema_is_enforced():
            "a registration with no host", "host")
     reject("registrations:\n  pstn-02012345671: {contact_user: 'a b'}\n",
            "a registration whose contact_user contains a space", "contact_user")
-    # The line half. Each of these is a shape the old `numbers` model could not express, so
-    # a schema that silently stopped being read would let all three through.
+    # The object set is hand-written, so peer_secret_file is the only place a password can
+    # land: an entry without one authenticates with nothing.
+    reject("registrations:\n  broken: {user: '1234', host: h, contact_user: 'x', did: '1234',"
+           " line: home}\n",
+           "a registration with no peer_secret_file", "peer_secret_file")
+    # The line half. A schema that silently stopped being read would let all three through.
     reject("lines:\n  back_office: {primary: pstn-02012345671, inbound_route:"
            " [{ring: ['xmpp:a@b.example'], timeout: 25}]}\n",
            "a line name with an underscore", "lines")
@@ -537,7 +862,7 @@ def check_schema_is_enforced():
     reject("lines:\n  home: {callers: ['not-an-address'], primary: pstn-02012345678,"
            " inbound_route: [{ring: ['xmpp:a@b.example'], timeout: 25}]}\n",
            "a caller that is not an address pattern", "callers")
-    # from_glob is a list now; a bare string would silently narrow nothing.
+    # from_glob is a list; a bare string would silently narrow nothing.
     reject("outbound:\n  - {to_pattern: '.*', from_glob: 'xmpp:a@b.example', line: home}\n",
            "a from_glob that is still a bare string", "from_glob")
 
@@ -554,8 +879,12 @@ def main():
     lua = extract_block(out, "routing.lua")
     tsv = parse_registrations_tsv(extract_block(out, "registrations.tsv"))
     registrations, lines, outbound = parse_lua(lua)
-    check(registrations, lines, outbound, tsv)
+    pjsip_conf = check_pjsip_is_generated(out)
+    check(registrations, lines, outbound, tsv, pjsip_conf)
     check_registrations_tsv(tsv, registrations)
+    check_pjsip(registrations, tsv, pjsip_conf)
+    check_in_cluster(pjsip_objects(pjsip_conf))
+    check_asterisk_image()
     check_schema_is_enforced()
     if args.write_lua:
         with open(args.write_lua, "w", encoding="utf-8", newline="\n") as fh:

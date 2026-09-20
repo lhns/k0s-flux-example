@@ -54,6 +54,16 @@
       "matchStrings": [
         "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+FROM\\s+(?<depName>[^:\\s]+):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"
       ]
+    },
+    {
+      "description": "PyPI pins in an ImageBuild's inline Dockerfile (apps/matrix/images.yaml). Same blind spot as the FROM manager above: a pip command inside a YAML string is invisible to every built-in manager, so these pins would silently never move. The package name is read off the install line rather than a depName= in the comment, so one package per RUN. They are pinned at all because the spec hash is the tag and push.onConflict is Fail -- an unpinned dep can change the content under an unchanged tag and wedge the build.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/kube-cluster/.*\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>pypi)\\s+RUN pip install[^\\n]*?\\s(?<depName>[A-Za-z0-9._-]+)==(?<currentValue>[^\\s\"']+)"
+      ]
     }
   ],
   "packageRules": [
@@ -94,6 +104,11 @@
       "description": "Do not let Renovate touch ghcr.io/lhns/mautrix-discord. It is our own fork of mautrix-discord v0.7.7 carrying the backfill throttle + retry patch (branch backfill-throttle-retry), tagged v<upstream>-throttle.<n>. No upstream release stream maps onto that tag scheme, so anything Renovate could offer would either be an unrelated build or silently drop the patch. Rebasing onto a newer upstream is a deliberate act: re-apply the four diffs (documented in apps/matrix/README.md), rebuild via the fork's build-image workflow, bump the pin by hand. Discord initial backfill is a ONE-SHOT per portal, so running an accidentally un-patched image is not a recoverable mistake — it truncates channels permanently.",
       "matchPackageNames": ["ghcr.io/lhns/mautrix-discord"],
       "enabled": false
+    },
+    {
+      "description": "Review every ghcr.io/lhns/asterisk bump by hand. It is our own fork (branch 22.11.0-cheogram-dtls) carrying the chan_motif DTLS-SRTP patches, and the tag is that branch: it MOVES whenever the fork rebuilds, so a digest update here is an unreviewed rebuild of the patch series rather than an upstream release. Without this it would fall under the blanket docker-digest automerge. See apps/cheogram-sip/README.md.",
+      "matchPackageNames": ["ghcr.io/lhns/asterisk"],
+      "automerge": false
     },
     {
       "description": "openthread/otbr needs a human and a Thread network, so it waits on the dependency dashboard instead of opening PRs. Upstream ships only `latest`, so every update is a digest update, and a digest update here is not a software bump in the usual sense: the image's otbr-agent has to agree with the RCP firmware on the SLZB-MR5U, which lives outside the cluster and outside this repo, so nothing in CI can tell whether a given digest works. It bit on 2026-08-06 (PR #104, digest 58a44e6c): otbr-agent aborted on otPlatRadioSetMacKey InvalidArgument right after the RCP reset, taking Thread down — and because only the readiness probe failed while the pod stayed Running, nothing announced it. Approve these from the dashboard when there is time to watch the border router come back.",
@@ -140,6 +155,22 @@
       }
     },
     {
+      "description": "A GitRepository pin and every oci-composer `revision:` naming it must move together; Renovate sees only the pin. The task rewrites them and check-source-pins.py fails the lint if it did not.",
+      "matchFileNames": ["kube-cluster/apps/freshrss/*.yaml", "kube-cluster/apps/jetkvm/images.yaml"],
+      "postUpgradeTasks": {
+        "commands": ["python3 scripts/check-source-pins.py --fix"],
+        "fileFilters": ["kube-cluster/**/*.yaml"],
+        "executionMode": "branch"
+      }
+    },
+    {
+      "description": "matrixdotorg/synapse is pinned twice and the two must move together: the Deployment's image, and the FROM of the synapse-pymods ImageBuild whose /pymods is imported by that interpreter. Two managers (kubernetes, and the inline-Dockerfile custom one) see them as unrelated deps and would otherwise merge them apart. scripts/validate.sh fails the lint if they ever disagree.",
+      "matchFileNames": ["kube-cluster/apps/matrix/*.yaml"],
+      "matchPackageNames": ["matrixdotorg/synapse"],
+      "groupName": "synapse",
+      "automerge": false
+    },
+    {
       "description": "One PR for all VictoriaMetrics images. Mixed versions across the cluster are unsupported.",
       "matchPackageNames": [
         "victoriametrics/victoria-metrics",
@@ -149,6 +180,14 @@
       ],
       "groupName": "victoriametrics",
       "automerge": false
+    },
+    {
+      "description": "MariaDB non-patch bumps wait on the dependency dashboard (standardnotes-db, teamspeak-db). Both StatefulSets run MARIADB_AUTO_UPGRADE=1, so merging one of these is a deploy that rewrites the system tables in place on the next pod start -- irreversible, since an in-place downgrade is only supported before mariadb-upgrade runs. The entrypoint triggers that on any major OR minor change, so 13.0 -> 13.1 is as one-way as 12 -> 13; patch bumps do not trigger it and stay on the blanket automerge. We are on the 13.0 rolling line by choice, which means this fires every few months: approve from the dashboard when there is time to snapshot both datadir PVCs first and to read the pod log for `Finished mariadb-upgrade` afterwards -- the readiness probe goes green either way.",
+      "matchPackageNames": ["mariadb"],
+      "matchUpdateTypes": ["major", "minor"],
+      "dependencyDashboardApproval": true,
+      "automerge": false,
+      "addLabels": ["mariadb-datadir"]
     }
   ]
 }

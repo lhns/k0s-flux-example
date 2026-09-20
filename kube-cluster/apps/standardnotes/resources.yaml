@@ -59,7 +59,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: mariadb
-          image: mariadb:12.3.3
+          image: mariadb:13.0.2
           resources:
             requests:
               memory: 128Mi
@@ -68,6 +68,9 @@ spec:
           ports:
             - {name: mysql, containerPort: 3306}
           env:
+            # Without this the entrypoint starts a newer server against the old
+            # system tables and only logs it; the readiness probe stays green.
+            - {name: MARIADB_AUTO_UPGRADE, value: "1"}
             # MariaDB honours MARIADB_* (and legacy MYSQL_*) on first init. The
             # secret key is still named MYSQL_ROOT_PASSWORD (unchanged on disk).
             - {name: MARIADB_DATABASE, value: standard_notes_db}

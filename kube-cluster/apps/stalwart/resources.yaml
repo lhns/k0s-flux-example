@@ -195,7 +195,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: bulwark
-          image: ghcr.io/bulwarkmail/webmail:1.9.2
+          image: ghcr.io/bulwarkmail/webmail:1.10.0
           env:
             - name: APP_NAME
               value: Mail

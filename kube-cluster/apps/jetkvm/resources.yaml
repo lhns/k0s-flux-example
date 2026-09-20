@@ -127,7 +127,8 @@ spec:
                   name: jetkvm
                   key: GOOGLE_CLIENT_SECRET
             # R2_* and CLOUDFLARE_TURN_* are deliberately unset; see the README on what that
-            # costs (firmware release hosting, and the browser's TURN credentials).
+            # costs (firmware release hosting, and the browser's TURN credentials) and on the
+            # half-hourly [sync-releases] error that unset R2_* leaves in the log.
           ports:
             - name: http
               containerPort: 3000

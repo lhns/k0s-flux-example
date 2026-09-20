@@ -117,7 +117,12 @@ host candidates only. Sessions succeed only where the browser can reach one of t
 candidates directly. Adding a `turn:` URL to `ICE_SERVERS` does not fix this (see above);
 upstream PR #53 exists to add coturn support and is unmerged.
 
-`R2_*` is also unset, so firmware release hosting is not available.
+`R2_*` is also unset, so firmware release hosting is not available. The API syncs R2 releases on
+start and every 30 minutes with no flag to turn it off, so every tick logs
+`[sync-releases] scheduled run failed` and stops there — `R2_BUCKET` is undefined, the first
+list call is rejected before any network I/O, and `scheduleReleaseSync` catches it. Expected
+noise, not a fault. `POST /releases/sync` is registered only when `RELEASE_SYNC_TOKEN` is set,
+so it is not exposed here.
 
 coturn itself needs no change: it already answers unauthenticated STUN on 3478 —
 `use-auth-secret` gates allocations, not binding requests — and `external-ip` plus

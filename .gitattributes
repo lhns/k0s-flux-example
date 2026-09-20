@@ -1,0 +1,3 @@
+# LF on every platform: a CRLF checkout silently breaks the golden diff and makes
+# run-tests.sh skip tests rather than fail them.
+* text=auto eol=lf
