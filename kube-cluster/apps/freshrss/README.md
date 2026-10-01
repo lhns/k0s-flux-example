@@ -44,16 +44,16 @@ were copied over via OPML); the two are independent.
   `replicas: 1`.
 - **Extensions**: **one composed OCI artifact each**, mounted read-only as image volumes.
   FreshRSS has no declarative installer — it only scans the directory — so each
-  `extension-*.yaml` holds a pinned `GitRepository` and the `ImageComposition` that turns it into
-  an artifact, and `infra/oci-composer` builds and serves them. Directory names must be
+  `artifacts/extension-*.yaml` holds a pinned `GitRepository` and the `ImageComposition` that turns
+  it into an artifact, and `infra/oci-composer` builds and serves them. Directory names must be
   `xExtension-<entrypoint from metadata.json>`, which is what the mount paths supply. Enable each
   one per-account under *Configuration → Extensions*.
 
   **One file per extension, self-contained.** Adding an extension is copying a file and changing
-  four lines; removing one is deleting it. The generator finds compositions by KIND, so filenames
-  are free and the count is unbounded. ImageProxy and LlmClassification come from the same
-  FreshRSS/Extensions monorepo and each declares its own `GitRepository` for it — a second clone
-  in source-controller, bought so that repinning one cannot move the other's hash.
+  four lines, plus the volume and mount in `resources.yaml`; removing one is deleting them.
+  ImageProxy and LlmClassification come from the same FreshRSS/Extensions monorepo and each
+  declares its own `GitRepository` for it — a second clone in source-controller, bought so that
+  repinning one cannot rebuild the other.
 
   **Mounted per-subdirectory, not over the whole directory.** Four mounts at
   `extensions/xExtension-*` rather than one at `extensions/`. That leaves the image's own
@@ -70,29 +70,10 @@ were copied over via OPML); the two are independent.
   old extensions directory since the day it was populated, and extension *configuration* lives in
   `data/extensions-data/`, not here.
 
-  **Nothing here names a tag, and nothing should.** Each volume holds a bare placeholder equal to
-  its ImageComposition's name, and no composition names a tag. The root generator hashes each
-  composition spec **plus the spec of every object its layers point at** — for all four
-  extensions here that is the `GitRepository` in the same file — and drives both ends from that
-  one value: a kustomize `images:` entry rewriting the volume reference, and a patch setting that
-  composition's `publish.tags`. Repin a source and the hash moves, so artifact and pod template
-  change in the same commit and a rollout follows.
-
-  **The referenced source has to be in the hash**, and originally was not. A `sourceRef` layer
-  *names* its input instead of containing it, so the pin that decides the content lives in the
-  `GitRepository`, not in the composition spec. Hashing the composition alone therefore could not
-  see it: on 2026-08-08 bumping `freshrss-ext-autottl` from `v0.6.2` to `v0.6.4` left the tag
-  identical while the artifact changed. `publish.immutable` (on by default) caught it and the
-  composition went `Failed` rather than moving a spec-hash tag onto different content — the guard
-  doing exactly its job, but it should never have been reached. The two `FreshRSS/Extensions`
-  extensions had bumped the same monorepo commit without their `subpath` content changing, so
-  their artifacts were byte-identical and nothing tripped.
-
-  The app carries no kustomize config for this. The composition side could instead be a
-  `configurations:` fieldSpec pointing the images transformer at the CRD's `spec/publish/ref` —
-  that works, but kustomize only reads such config from a file in the kustomization being built,
-  so it would mean the same file copied into every app that owns a composition. The generator's
-  patch replaces it.
+  **Nothing here names a tag.** Each volume's reference is `${FRESHRSS_EXT_*_REF}`, the
+  digest-pinned ref its composition exports after every publish. Repin a source and the
+  composition rebuilds, exports the new digest, and the pod rolls. See
+  [`infra/oci-composer`](../../infra/oci-composer/README.md#how-a-workload-names-an-artifact).
 - **kube-vnet**: `net.traefik.traefik: ingress` + `net.postgres.postgres: egress`
   (feed fetching is external egress). `TRUSTED_PROXY` is the pod CIDR — keep it narrow,
   anything inside it could spoof `Remote-User`.

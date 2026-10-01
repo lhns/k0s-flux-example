@@ -21,8 +21,8 @@ network:
         # pod's. Also the host resolved once at startup for the SDP c= line.
         public_address: matrix-sip-bridge.matrix.svc.cluster.local:5060
         # Identity is sip:<username>@<domain>, and the user part MUST equal the
-        # peer name in apps/cheogram-sip/sip.conf: chan_sip matches our
-        # unauthenticated requests on the From user part.
+        # endpoint name in apps/cheogram-sip's pjsip.conf: that endpoint is
+        # identify_by=username, so it matches us on the From user part.
         username: matrixbridge
         domain: example.com
         media_address: ""
@@ -31,8 +31,8 @@ network:
         # Who placed the call, for the dialplan to apply its own policy to. It is a claim,
         # trusted only as far as this peer is; extensions.lua builds the scheme itself.
         caller_header: X-Matrix-Caller
-        # Static peer, per the bridge README's SIP server contract. sip.conf
-        # pins host= to our Service, so there is nothing to register.
+        # Static endpoint, per the bridge README's SIP server contract. Its AOR
+        # contact is our Service, so there is nothing to register.
         register:
             enabled: false
             server: ""

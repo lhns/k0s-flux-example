@@ -34,13 +34,13 @@ listeners** (admin UI / config) or every mail connection fails parsing a missing
 - Umleiter: `ceph-rbd` `umleiter-state` (2Gi) → `/state` (SQLite `umleiter.db`, copied — **RBD not
   CephFS**, per the syncthing SQLite-fsync lesson). Config (`umleiter.yaml`, IMAP creds) from `secret/umleiter`.
 
-## Cutover
-Ships all three Deployments at `replicas: 0`.
+## Cutover (done)
+How the state got here:
 
 1. Confirm applied: ns; CNPG `stalwart` role/db; `stalwart-db` + `lhns-de` reflected into `stalwart`;
    `stalwart-lb` = `10.20.2.8`; RBD PVCs bound.
 2. **Stop the Swarm stalwart stack.**
-3. **DB**: `pg_dump -h 10.20.2.10 -p 5436 -U stalwart stalwart` (pw `Mexo5mJdhoIvCxHS`) → restore into
+3. **DB**: `pg_dump` the Swarm Postgres → restore into
    `postgres-rw…/stalwart` (`--no-owner --no-acl`, ~1.5G).
 4. **Copy** Bulwark `/app/data` + Umleiter `umleiter.db` into their PVCs (tar-pipe from the swarm node's
    kernel CephFS mount → RBD; chown to each image's uid).

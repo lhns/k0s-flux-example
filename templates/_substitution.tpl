@@ -26,3 +26,23 @@ key the later entry wins.
 {{- end }}
 {{- toYaml $out }}
 {{- end }}
+{{- /*
+generators.refExports derives substituteFrom entries from a component's artifacts/
+subdirectory. Takes dict "root" $ "dir" <component dir>.
+
+One per ImageComposition or ImageBuild whose push.writeRefTo targets flux-system (the
+rule above), named as oci-composer names its ConfigMap, which is not configurable:
+<lowercased kind>-<namespace>-<name>.
+*/ -}}
+{{- define "generators.refExports" -}}
+{{- $out := list }}
+{{- range $file, $_ := .root.Files.Glob (printf "%s/artifacts/*.yaml" .dir) }}
+{{- range $doc := regexSplit "(?m)^---[[:space:]]*$" ($.root.Files.Get $file) -1 }}
+{{- $obj := fromYaml $doc }}
+{{- if and (has (dig "kind" "" $obj) (list "ImageComposition" "ImageBuild")) (eq (dig "spec" "push" "writeRefTo" "namespace" "" $obj) "flux-system") }}
+{{- $out = append $out (dict "kind" "ConfigMap" "name" (printf "%s-%s-%s" (lower $obj.kind) $obj.metadata.namespace $obj.metadata.name)) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- toYaml $out }}
+{{- end }}

@@ -17,11 +17,11 @@ app: a huge mounted media library plus a dedicated Postgres.
   | `/sftpgo` | appdata | `/docker/sftpgo/data/data` | RO (external library) |
   Runs as **root, no fsGroup** (fsGroup would recursively chown the whole library on every start).
 - **Dedicated Postgres.** The shared CNPG (plain PG18) can't host immich's `vectorchord`/`pgvecto.rs`
-  extensions, so immich runs its **own** `ghcr.io/immich-app/postgres:14-vectorchord…` on a new
+  extensions, so immich runs its **own** `ghcr.io/immich-app/postgres:*-vectorchord…` on a new
   **ceph-rbd** PVC (`immich-db`, 15Gi) — the sole standalone DB in the repo. The DB (~1.8G) is copied
   in via `pg_dump`/restore. `PGDATA` is a subdir so a fresh RBD volume's `lost+found` doesn't block
   initdb.
-- **Redis/valkey** (`valkey:8`) — ephemeral emptyDir (job queue/cache; matches Swarm's no-volume).
+- **Redis/valkey** — ephemeral emptyDir (job queue/cache; matches Swarm's no-volume).
 - **kube-vnet**: `net.traefik.traefik: ingress` (frontend :2283) + intra-namespace vnets for
   postgres/redis. ML + OIDC are external egress.
 - **Auth/OIDC**: immich's own login; the Authelia OIDC client + immich's provider settings already

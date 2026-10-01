@@ -122,10 +122,14 @@ spec:
               if [ -d custom_components/hacs ]; then
                 echo "== hacs present"
               else
-                echo "== installing hacs @ 2.0.5"
+                # renovate: datasource=github-releases depName=hacs/integration
+                url=https://github.com/hacs/integration/releases/download/2.0.5/hacs.zip
+                digest=sha256:97be6b824a4f38e683728cc6dd72367f6b8bad0a43428b1b3b987a3087adf413
+                echo "== installing hacs from $url"
+                wget -qO /tmp/hacs.zip "$url"
+                [ "sha256:$(sha256sum /tmp/hacs.zip | cut -d' ' -f1)" = "$digest" ] \
+                  || { echo "hacs.zip does not match $digest" >&2; exit 1; }
                 mkdir -p custom_components/hacs
-                wget -qO /tmp/hacs.zip \
-                  https://github.com/hacs/integration/releases/download/2.0.5/hacs.zip
                 unzip -q /tmp/hacs.zip -d custom_components/hacs
                 rm -f /tmp/hacs.zip
               fi
@@ -176,7 +180,7 @@ spec:
               mountPath: /config
       containers:
         - name: homeassistant
-          image: ghcr.io/home-assistant/home-assistant:2026.9.3
+          image: ghcr.io/home-assistant/home-assistant:2026.9.4
           env:
             - name: TZ
               value: Europe/Berlin

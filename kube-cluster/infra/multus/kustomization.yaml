@@ -6,4 +6,44 @@ kind: Kustomization
 # No `namespace:` transformer — the objects are cluster-scoped or pin kube-system, which is
 # what the RBAC subject references expect.
 resources:
-- resources.yaml
+# Upstream's deployments/multus-daemonset.yml, unmodified: Renovate re-downloads it for the tag
+# below (renovate.json). Upstream calls it a quickstart that ignores upgrades, hence the
+# patches. A `test` op fails the build if upstream moves what a `remove` targets.
+- upstream.yaml
+images:
+# Upstream ships the floating `:snapshot`.
+- name: ghcr.io/k8snetworkplumbingwg/multus-cni
+  newTag: v4.3.0
+patches:
+# Upstream's multus-cni-config is a flannel example, unused under --multus-conf-file=auto and
+# misleading in a kube-router cluster.
+- patch: |
+    $patch: delete
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: multus-cni-config
+      namespace: kube-system
+- target:
+    kind: DaemonSet
+    name: kube-multus-ds
+  patch: |
+    - op: test
+      path: /spec/template/spec/containers/0/volumeMounts/2/name
+      value: multus-cfg
+    - op: remove
+      path: /spec/template/spec/containers/0/volumeMounts/2
+    - op: test
+      path: /spec/template/spec/volumes/2/name
+      value: multus-cfg
+    - op: remove
+      path: /spec/template/spec/volumes/2
+    # On SIGTERM each pod deletes its node's 00-multus.conf, so removing the DaemonSet returns
+    # every node to plain kube-router; without it a revert leaves every node unable to create
+    # pods. Also regenerates 00-multus.conf if kube-router rewrites its conflist.
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --cleanup-config-on-exit=true
+    # Memory limits only: CFS throttling in the pod-creation path slows pod starts cluster-wide.
+    - op: remove
+      path: /spec/template/spec/containers/0/resources/limits/cpu

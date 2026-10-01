@@ -71,6 +71,9 @@ spec:
   podSelector:
     matchLabels:
       cnpg.io/cluster: postgres
+      # Pooler pods carry cnpg.io/cluster too; without this they'd be ingress here and egress
+      # via pg-pooler-to-db, which resolves to no membership at all.
+      cnpg.io/podRole: instance
 ---
 # ── Pooler client-facing channel ────────────────────────────────────────────
 # The pgbouncer Pooler (pooler.yaml) is a separate pod identity. Apps that want

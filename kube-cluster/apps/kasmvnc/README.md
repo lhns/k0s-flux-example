@@ -1,7 +1,7 @@
 # kasmvnc
 
-A full Linux desktop in a browser tab (`kasmweb/ubuntu-noble-desktop`, XFCE on Ubuntu, powered by
-**KasmVNC**). Public at `kasmvnc.example.com`, gated by **Authelia forwardAuth**;
+A Linux session in a browser tab (`kasmweb/core-ubuntu-noble`, powered by **KasmVNC**). The core
+image carries no desktop and no browser — see *Notes*. Public at `kasmvnc.example.com`, gated by **Authelia forwardAuth**;
 `kasmvnc.kube.example.com` redirects here.
 
 Deployed alongside [`../webtop`](../webtop/README.md) to compare the two remote-desktop stacks.
@@ -52,8 +52,8 @@ never going to have here.
   self-signed HTTPS, where `httpGet` would need `scheme: HTTPS` and still only check a login
   page), while the sidecar has a real `httpGet /` — a 200 there proves proxy, credential and
   KasmVNC together.
-- **Version**: pinned to a real tag (`1.17.0`), so Renovate tracks it natively — the one place
-  this stack is tidier than webtop, which has only rolling tags.
+- **Version**: pinned to a real tag, so Renovate tracks it natively — the one place this stack is
+  tidier than webtop, which has only rolling tags.
 - **kube-vnet**: only `net.traefik.traefik: ingress`, same as webtop.
 - **One gate, not two — via an auth-injecting `proxy` sidecar.** nginx sits in front of KasmVNC,
   adds the `Authorization: Basic` header it insists on, and Traefik talks plain HTTP to that. The
@@ -121,6 +121,6 @@ touched disk on either machine.
 
 ## Notes
 - Anything installed with `apt` outside `/home/kasm-user` does not survive a restart. For durable
-  tooling, build a custom image on `kasmweb/core-ubuntu-noble`.
+  tooling — a desktop or a browser, neither of which the core image ships — build a custom image.
 - There is no GPU passthrough, so KasmVNC's DRI3 acceleration is not in play — CPU encoding on
   both sides of this comparison.

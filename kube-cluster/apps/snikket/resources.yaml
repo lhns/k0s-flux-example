@@ -132,7 +132,7 @@ spec:
               mountPath: /etc/prosody/modules/mod_auth_lldap.lua
               subPath: mod_auth_lldap.lua
               readOnly: true
-            # lualdap, which the image does not ship (lualdap.yaml). This exact path is already
+            # lualdap, which the image does not ship (artifacts/lualdap.yaml). This exact path is already
             # in prosody's package.cpath, so nothing has to be told where to look. Mounting the
             # `lib` level rather than lua/5.4 keeps the package's relative symlink resolvable:
             # lua/5.4/lualdap.so points at ../../liblua5.4-ldap.so.0.0.0, which is only inside
@@ -198,13 +198,10 @@ spec:
         - name: ldap-module
           configMap:
             name: snikket-ldap-module
-        # The reference is the ImageComposition's own name; the root generator rewrites it to the
-        # serving host and the spec-hash tag (templates/kustomizations.yaml). IfNotPresent is right
-        # on a tag here because the tag is derived from the spec, so it names content and a cached
-        # copy cannot be stale.
+        # Exported by artifacts/lualdap.yaml; see infra/oci-composer/README.md.
         - name: lualdap
           image:
-            reference: snikket-lualdap
+            reference: ${SNIKKET_LUALDAP_REF}
             pullPolicy: IfNotPresent
         - name: certs
           secret:

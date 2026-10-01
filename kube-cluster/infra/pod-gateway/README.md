@@ -63,17 +63,15 @@ get their own namespace instead, which is why seerr is not in there.
 **This namespace must differ from the routed namespace** — a chart requirement, and why
 `arr` is a separate namespace rather than running the apps here.
 
-## The `arr` namespace is declared here
+## Routed namespaces own themselves
 
-Deliberate, and explained at length in `namespace.yaml`. Short version: the chart renders its
-settings ConfigMap *into* `arr`, so that namespace must exist before this HelmRelease
-installs; and `app-arr` must not create pods before the webhook exists, because a missing
-webhook does not block pod creation, it silently fails to mutate — the apps would come up with
-their default route intact. Both constraints point the same way, so this component owns the
-namespace and `app-arr` dependsOn it.
+`routed_namespaces` is deliberately empty: the chart's own copy mechanism renders the settings
+ConfigMap *into* each routed namespace, which would force this component to own those namespaces
+so they exist at install time. Reflector copies it instead, so `apps/arr` keeps its own namespace
+and there is no ordering knot.
 
-`routed_namespaces` in `release.yaml` and the `routed-gateway` label in `namespace.yaml` must
-always name the same set.
+`app-arr` still `dependsOn` this component, because a missing webhook does not block pod creation
+— it silently fails to mutate, and the apps would come up with their default route intact.
 
 ## MTU
 

@@ -11,8 +11,8 @@ yamllint .
 
 echo
 echo "== helm template (generator chart) =="
-# The generator decides every component's dependsOn, substitution sources and image
-# tags, so a template regression is a cluster-wide one. tests/fixtures/ exercises it
+# The generator decides every component's dependsOn and substitution sources,
+# so a template regression is a cluster-wide one. tests/fixtures/ exercises it
 # on inputs the real tree does not have; the golden pins the OUTPUT.
 # Intentional change -> bash scripts/update-golden.sh, and review that diff.
 if ! diff -u tests/golden/fixtures.yaml <(bash scripts/render.sh fixtures); then
@@ -38,25 +38,31 @@ echo "== substitution: no credential in a ConfigMap, no unreachable name =="
 
 echo
 echo "== oci-composer: every sourceRef pins the revision its source is pinned at =="
-# A mismatch leaves the composition Pending forever; an absent one lets it publish stale
-# content under a fresh spec-hash tag and wedge. See kube-cluster/infra/oci-composer/README.md.
+# A mismatch leaves the composition Pending forever; an absent one lets it build and roll
+# out the previous revision's content. See kube-cluster/infra/oci-composer/README.md.
 "$py" scripts/check-source-pins.py
+
+echo
+echo "== oci-composer: every fetch digest matches what its url serves =="
+# Renovate bumps a fetch url, not its digest, and a mismatch is terminal in the composer.
+# Downloads each new url+digest pair once; .cache/fetch-digests remembers the verified ones.
+"$py" scripts/check-fetch-digests.py
 
 echo
 echo "== matrix: synapse-pymods FROM matches the synapse image =="
 # The modules in /pymods are resolved against the base image's interpreter, and two
 # different renovate managers see the two pins as unrelated deps. A split bump is an
 # ImportError at synapse startup pointing nowhere near the cause.
-from_tag="$(grep -oE 'FROM matrixdotorg/synapse:[^@[:space:]]+' kube-cluster/apps/matrix/images.yaml | sed 's/.*://' | sort -u)"
+from_tag="$(grep -ohE 'FROM matrixdotorg/synapse:[^@[:space:]]+' kube-cluster/apps/matrix/artifacts/*.yaml | sed 's/.*://' | sort -u)"
 img_tag="$(grep -oE 'image: matrixdotorg/synapse:[^@[:space:]]+' kube-cluster/apps/matrix/resources.yaml | sed 's/.*://' | sort -u)"
 if [ -z "$from_tag" ] || [ -z "$img_tag" ]; then
-  echo "no matrixdotorg/synapse pin found in images.yaml or resources.yaml" >&2
+  echo "no matrixdotorg/synapse pin found in artifacts/ or resources.yaml" >&2
   exit 1
 fi
 if [ "$from_tag" != "$img_tag" ]; then
   echo "== synapse tag drift ==" >&2
-  echo "  images.yaml FROM: $from_tag" >&2
-  echo "  resources.yaml:   $img_tag" >&2
+  echo "  artifacts/ FROM: $from_tag" >&2
+  echo "  resources.yaml:  $img_tag" >&2
   exit 1
 fi
 echo "synapse $from_tag OK"
@@ -76,9 +82,15 @@ mkdir -p "$cache"
 
 # kube-vnet publishes its CRD schemas per release. Pin the schema-location to the
 # exact version this repo deploys — single source of truth is the component's
-# OCIRepository tag, so it can't drift and needs no separate bump here.
-kvver="$(grep -oE 'tag: *"[0-9][0-9.]*"' kube-cluster/infra/kube-vnet/release.yaml | grep -oE '[0-9][0-9.]*' | head -1)"
-kvschema="https://raw.githubusercontent.com/lhns/kube-vnet/v${kvver}/schemas/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
+# OCIRepository tag, so it can't drift and needs no separate bump here. A release
+# X.Y.Z is git tag vX.Y.Z; a dev build 0.0.0-dev.SHA (no `g`, unlike oci-composer)
+# carries the commit.
+kvver="$(grep -oE 'tag: *"[^"]+"' kube-cluster/infra/kube-vnet/release.yaml | head -1 | grep -oE '"[^"]+"' | tr -d '"')"
+case "$kvver" in
+  0.0.0-dev.*) kvref="${kvver#0.0.0-dev.}" ;;
+  *)           kvref="v${kvver}" ;;
+esac
+kvschema="https://raw.githubusercontent.com/lhns/kube-vnet/${kvref}/schemas/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json"
 
 # Same idea for oci-composer's ImageComposition/ImageBuild. Without this they fall through
 # -ignore-missing-schemas and are never validated at all -- a CRD schema change then surfaces as
@@ -99,7 +111,9 @@ ocschema="https://raw.githubusercontent.com/lhns/kube-oci-composer/${ocref}/sche
 # would not survive. Without this the build error prints, kubeconform still summarises the
 # components that did build, and the script exits 0 -- CI green on a broken component.
 buildfail="$(mktemp)"
-trap 'rm -f "$buildfail"' EXIT
+# The same stream, kept for check-coverage.py so nothing is built twice.
+rendered="$(mktemp)"
+trap 'rm -f "$buildfail" "$rendered"' EXIT
 
 run() {
   : > "$buildfail"   # truncate: run() is retried, and stale entries would fail a healthy repo
@@ -114,10 +128,10 @@ run() {
     kustomize build "$(dirname "$k")" || echo "$(dirname "$k")" >> "$buildfail"
   done
   # No kustomization.yaml in these by design (kustomize-controller synthesizes one), and
-  # the component build above deliberately excludes them. Plain Secret manifests -- feed
-  # them to kubeconform as-is.
-  for f in kube-cluster/apps/*/substitution-secrets/*.yaml \
-           kube-cluster/infra/*/substitution-secrets/*.yaml; do
+  # the component build above deliberately excludes them. Plain manifests -- feed them to
+  # kubeconform as-is.
+  for f in kube-cluster/{apps,infra,rbac}/*/substitution-secrets/*.yaml \
+           kube-cluster/{apps,infra,rbac}/*/artifacts/*.yaml; do
     [ -f "$f" ] || continue
     echo "---"
     cat "$f"
@@ -131,8 +145,9 @@ run() {
     echo "---"
     bash scripts/render.sh "$mode" || echo "generator-chart ($mode)" >> "$buildfail"
   done
-  } | kubeconform \
+  } | tee "$rendered" | python3 scripts/strip-sops-metadata.py | kubeconform \
     -ignore-missing-schemas \
+    -strict \
     -cache "$cache" \
     -schema-location default \
     -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
@@ -168,6 +183,10 @@ fi
 [ "${errors:-0}" -gt 0 ] && \
   echo "note: ${errors} resource(s) unchecked (schema download throttled); cache fills next run." >&2
 echo "kubeconform OK"
+
+echo
+echo "== coverage: every CSI StorageClass has a snapshot class, every CNPG Cluster a backup =="
+"$py" scripts/check-coverage.py "$rendered"
 
 echo
 echo "== per-component tests =="

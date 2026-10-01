@@ -12,11 +12,11 @@ Eclipse Mosquitto MQTT broker with the `mosquitto-go-auth` plugin, migrated from
   router) → `mosquitto:9001`. `mqtt.example.com` stays the canonical broker host (not switched to `.kube`
   — clients are configured with it). `mqtt.example.net` was dropped (not in the `*.example.com` cert).
 - **Auth**: every client is authenticated against **LDAP (lldap)** via `mosquitto-go-auth`
-  (`ldap://10.20.2.10:3890`, users in `memberOf=mqtt`, superusers `mqtt_superuser`). Auth is at the MQTT
+  (`ldap://lldap.lldap.svc.cluster.local:3890`, users in `memberOf=mqtt`, superusers `mqtt_superuser`). Auth is at the MQTT
   protocol layer, so there is no HTTP auth middleware on the WS route.
-- **Config** (`config-secret.yaml`, SOPS): the whole `mosquitto.conf` — it carries the LDAP bind
-  password — mounted read-only at `/etc/mosquitto`. The only change from the Swarm file is
-  `auth_opt_ldap_url` (was the overlay `auth_lldap:3890`).
+- **Config**: the whole `mosquitto.conf`, a `configMapGenerator` source patched to a Secret, mounted
+  read-only at `/etc/mosquitto`. The LDAP bind password arrives by substitution as
+  `${MOSQUITTO_LDAP_BIND_PASSWORD}` — never put a literal there.
 - **State**: persistence file `mosquitto.db` on a dedicated Ceph RBD volume (`/var/lib/mosquitto`),
   copied once from `fastappdata:/docker/mosquitto/data`. No external database.
 - Single replica, `strategy: Recreate` (RWO). OTEL traces to the in-cluster gateway

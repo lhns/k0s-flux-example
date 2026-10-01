@@ -40,5 +40,4 @@ both configured in `infra/traefik`.
 
 `dependsOn: app-authelia` (Traefik CRDs + plugin, and the Authelia middlewares).
 Runs as root (`user: root` in Swarm) so both volumes are accessible.
-`image: deluan/navidrome:latest` — pin to a released tag/digest if you want
-reproducibility.
+`image: deluan/navidrome:latest`, digest-pinned.

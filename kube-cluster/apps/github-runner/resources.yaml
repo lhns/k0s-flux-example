@@ -71,8 +71,7 @@ spec:
       terminationGracePeriodSeconds: 3600
       containers:
         - name: runner
-          # ImageBuild placeholder; the root generator rewrites this to the spec-hash tag.
-          image: github-runner
+          image: ${GITHUB_RUNNER_REF}
           securityContext:
             allowPrivilegeEscalation: false
             seccompProfile:
@@ -110,11 +109,8 @@ spec:
               value: example-repo
             - name: REMOTE_DOCKER_WORKSPACE
               value: k8s
-            # Never let the session exit. It is started once by the entrypoint and nothing
-            # restarts it, so the default 30m idle teardown removed the socket out from
-            # under an idle runner -- `docker` then failed with "no such file or directory"
-            # on /run/rd/docker.sock until the pod was restarted. Negative disables it;
-            # zero would mean the 30m default, not "off".
+            # Never let the session exit: nothing restarts it, and its exit removes
+            # /run/rd/docker.sock. Negative is never; zero means the client default.
             - name: REMOTE_DOCKER_DAEMON_IDLE
               value: "-1s"
             - name: REMOTE_DOCKER_STATE_DIR
@@ -152,3 +148,120 @@ spec:
               - key: example-repo-id_ed25519
                 path: id_ed25519
             defaultMode: 0400
+---
+# ===========================================================================
+# GitHub Actions runner for lhns/k0s-flux: Lint and Renovate. Docker is apps/remote-docker-ci, a
+# workspace of its own; see the README for why not the shared one.
+#
+# EPHEMERAL: one job per registration; the README says when the container restarts between them. A
+# StatefulSet so each replica has an ordinal to pick its own remote-docker key by; two, so a long
+# Renovate run does not hold up the Lint of its PRs.
+# ===========================================================================
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: runner-k0s-flux
+  namespace: github-runner
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 2
+  podManagementPolicy: Parallel
+  serviceName: runner-k0s-flux
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: runner-k0s-flux
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: runner-k0s-flux
+        app.kubernetes.io/instance: github-runner
+        kube-vnet/net.remote-docker-ci.remote-docker-ci: egress
+    spec:
+      serviceAccountName: github-runner
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      containers:
+        - name: runner
+          image: ${GITHUB_RUNNER_REF}
+          # The image's with-remote-docker, but looping over /entrypoint.sh; see the README. 660s is
+          # past 2x the kubelet's maxContainerRestartPeriod (5m), after which a restart is not held.
+          command: [/usr/bin/dumb-init, --, bash, -ec]
+          args:
+            - |
+              install -m 0600 -D "/keys/id_ed25519-$(hostname | sed 's/.*-//')" /run/rd/state/id_ed25519
+              remote-docker remote create "$REMOTE_DOCKER_WORKSPACE" \
+                --host "$REMOTE_DOCKER_HOST" --user "$REMOTE_DOCKER_USER" --no-context || true
+              remote-docker remote start
+              trap 'exit 0' TERM INT
+              start=$(date +%s)
+              while :; do
+                find /tmp -mindepth 1 -maxdepth 1 ! -name renovate -exec rm -rf {} +
+                find /_work -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+                /entrypoint.sh ./bin/Runner.Listener run --startuptype service
+                [ $(($(date +%s) - start)) -lt 660 ] || exit 0
+              done
+          # Root, as in runner-example-repo: jobs apt-get their own tools, as on ubuntu-latest.
+          securityContext:
+            allowPrivilegeEscalation: false
+            seccompProfile:
+              type: RuntimeDefault
+          env:
+            - name: TZ
+              value: Europe/Berlin
+            - name: RUNNER_SCOPE
+              value: repo
+            - name: REPO_URL
+              value: https://github.com/example/k0s-flux
+            # Workflows select on this; self-hosted, Linux and X64 are added by default.
+            - name: LABELS
+              value: k0s-flux
+            # A random suffix follows, so each registration is unique.
+            - name: RUNNER_NAME_PREFIX
+              value: k8s-k0s-flux
+            - name: EPHEMERAL
+              value: "true"
+            - name: DISABLE_AUTO_UPDATE
+              value: "true"
+            - name: ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: github-runner-k0s-flux
+                  key: ACCESS_TOKEN
+            # runner-example-repo explains these.
+            - name: REMOTE_DOCKER_HOST
+              value: ws://remote-docker-ci.remote-docker-ci.svc.cluster.local:2280
+            - name: REMOTE_DOCKER_USER
+              value: k0s-flux
+            - name: REMOTE_DOCKER_WORKSPACE
+              value: k8s
+            - name: REMOTE_DOCKER_DAEMON_IDLE
+              value: "-1s"
+            - name: REMOTE_DOCKER_STATE_DIR
+              value: /run/rd/state
+            - name: REMOTE_DOCKER_ENDPOINT
+              value: /run/rd/docker.sock
+            - name: DOCKER_HOST
+              value: unix:///run/rd/docker.sock
+          # No volume at /run/rd, unlike runner-example-repo: each restart starts a fresh session.
+          volumeMounts:
+            - name: keys
+              mountPath: /keys
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 4Gi
+      volumes:
+        - name: keys
+          secret:
+            secretName: github-runner-k0s-flux-ssh
+            defaultMode: 0400
+        # Outlives the ephemeral restarts, for /tmp/renovate; lost on reschedule, which is fine.
+        - name: tmp
+          emptyDir:
+            sizeLimit: 5Gi

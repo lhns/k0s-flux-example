@@ -10,8 +10,9 @@ Migrated from the Swarm compose service that served `docker.example.com`.
 ## Who uses it
 
 - **People**, from machines that need not have Docker installed at all.
-- **`apps/github-runner`**, whose runner pods are consequently unprivileged — the daemon they use
-  is here.
+- **`apps/github-runner`**'s `runner-example-repo`, whose pod is consequently unprivileged — the
+  daemon it uses is here. `runner-k0s-flux` uses `apps/remote-docker-ci`, a second workspace, so a
+  pod-level egress policy can confine its jobs without confining everyone here.
 
 `apps/gitea-runner` and `apps/forgejo-runner` deliberately still run their own dind sidecars.
 Their `config.yaml` sets `valid_volumes: []` and `network: ""`, so each job gets a docker *volume*
@@ -48,9 +49,9 @@ sops round-trip instead of a one-line reviewable diff. The chart renders them in
 the object kind is a Secret only because `templates/statefulset.yaml` hardcodes `secretName:`.
 
 **The graph volume holds every account's images.** Per-account daemons keep their `/var/lib/docker`
-as named volumes on this one, so 10Gi is shared by humans and both runners. `ceph-rbd` has
-`allowVolumeExpansion`, so growing it is a values bump with no migration — but a full graph stalls
-builds, so notice before it bites.
+as named volumes on this one, so it is shared by humans and `runner-example-repo`. Grow it by
+patching the PVC (`ceph-rbd` has `allowVolumeExpansion`), not the values: see `release.yaml`. A
+full graph stalls builds, so notice before it bites.
 
 ## Prerequisite: the NFS client module
 

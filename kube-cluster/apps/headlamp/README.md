@@ -3,7 +3,7 @@
 [Headlamp](https://headlamp.dev) — a Kubernetes dashboard, at
 `headlamp.kube.example.com` (traefik ingress, wildcard TLS).
 
-- `release.yaml` — HelmRepository `headlamp` + HelmRelease `headlamp` `0.44.0`.
+- `release.yaml` — HelmRepository `headlamp` + HelmRelease `headlamp`.
   Plugins are managed declaratively via `pluginsManager`: **helm**, **flux**, and
   **cert-manager**. The `kube-vnet/net.traefik.traefik: ingress` pod label lets
   traefik reach it.

@@ -1,0 +1,128 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: nats
+  namespace: nats
+spec:
+  interval: 1h0m0s
+  url: https://nats-io.github.io/k8s/helm/charts/
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: nats
+  namespace: nats
+spec:
+  interval: 10m0s
+  # A rolling restart waits out lame duck mode and JetStream catch-up on each server.
+  timeout: 10m
+  chart:
+    spec:
+      chart: nats
+      version: "2.15.0"
+      interval: 1h0m0s
+      sourceRef:
+        kind: HelmRepository
+        name: nats
+  values:
+    # Names the StatefulSet, the headless service in the route cert's SANs and the PVCs
+    # (nats-js-nats-N). Changing it orphans the JetStream volumes: README.md.
+    fullnameOverride: nats
+
+    config:
+      cluster:
+        enabled: true
+        replicas: 3
+        tls:
+          enabled: true
+          secretName: nats-route-tls
+          merge:
+            ca_file: /etc/nats-certs/cluster/ca.crt
+            verify: true
+
+      jetstream:
+        enabled: true
+        fileStore:
+          pvc:
+            size: 10Gi
+            storageClassName: ceph-rbd
+          # Headroom below the PVC: a full filesystem corrupts the store, a full quota only
+          # rejects writes.
+          maxSize: 8Gi
+        memoryStore:
+          enabled: true
+          maxSize: 256Mi
+        merge:
+          sync_interval: always
+
+      # Static auth. The server requires auth only when at least one user exists, so NOBODY
+      # holds a user whose private key was never generated: without it every client would
+      # connect anonymously into the global account. Keep it when adding real users.
+      merge:
+        system_account: SYS
+        accounts:
+          SYS: {}
+          NOBODY:
+            users:
+              - nkey: UD6WWADTBS7MWK6VPKVK5PVQJDDVSE5HXA6JBV7CFQK3CWUKZAZBLDFD
+                permissions:
+                  publish:
+                    deny: [">"]
+                  subscribe:
+                    deny: [">"]
+
+    container:
+      env:
+        GOMEMLIMIT: 800MiB
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 1Gi
+
+    reloader:
+      merge:
+        resources:
+          requests:
+            cpu: 5m
+            memory: 16Mi
+          limits:
+            memory: 64Mi
+
+    promExporter:
+      enabled: true
+      merge:
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 128Mi
+
+    podTemplate:
+      merge:
+        metadata:
+          annotations:
+            prometheus.io/scrape: "true"
+            prometheus.io/port: "7777"
+            prometheus.io/path: /metrics
+          labels:
+            kube-vnet/net.nats.nats: ingress
+            kube-vnet/net.nats.nats-cluster: both
+        spec:
+          # One server per worker: two on one node would lose JetStream quorum with it.
+          affinity:
+            podAntiAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                - topologyKey: kubernetes.io/hostname
+                  labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: nats
+                      app.kubernetes.io/instance: nats
+                      app.kubernetes.io/component: nats
+
+    # No credentials for it yet: README.md "Adding users".
+    natsBox:
+      enabled: false

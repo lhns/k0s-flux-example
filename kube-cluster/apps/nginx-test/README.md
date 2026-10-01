@@ -4,10 +4,10 @@ A throwaway `nginx:alpine` Pod — a scratch workload for poking at the cluster.
 A Service but no Ingress: reachable in-cluster, not from outside. Drop the
 whole component when you don't need it.
 
-It doubles as the canary for `postBuild.substituteFrom`: `probe.yaml` is a plaintext
-Secret holding `${NGINX_TEST_VALUE}`. If it ever reads back as that literal string
+It doubles as the canary for `postBuild.substituteFrom`: `probe/probe.conf` is a plaintext
+`configMapGenerator` source holding `${NGINX_TEST_VALUE}`, patched to a Secret. If it ever reads back as that literal string
 instead of a value, substitution ordering is broken cluster-wide.
 
 - `resources.yaml` — the `nginx-test` namespace + the pod.
-- `probe.yaml` — the substitution canary.
+- `probe/probe.conf` — the substitution canary.
 - `substitution-secrets/` — the value it substitutes.

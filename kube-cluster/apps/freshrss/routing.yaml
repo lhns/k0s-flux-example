@@ -68,6 +68,9 @@ kind: Middleware
 metadata:
   name: freshrss-kube-redirect
   namespace: freshrss
+  annotations:
+    # ${1} is a regex group, not a Flux variable.
+    kustomize.toolkit.fluxcd.io/substitute: disabled
 spec:
   redirectRegex:
     regex: "^https://freshrss.kube.example.com/(.*)"

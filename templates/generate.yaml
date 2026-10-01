@@ -23,6 +23,9 @@ kind: GitRepository
 metadata:
   name: {{ $genName }}
   namespace: flux-system
+  labels:
+    # Refreshed by the GitHub push Receiver (infra/flux-webhook).
+    flux.example.com/push-receiver: github
 spec:
   interval: {{ $interval }}
   url: {{ $src.url | quote }}
@@ -39,8 +42,9 @@ spec:
     *
     !/Chart.yaml
     !/templates/**
-    !/{{ $dir }}/*.yaml
+    !/{{ $dir }}/kustomization.yaml
     !/{{ $dir }}/substitution-secrets/*.yaml
+    !/{{ $dir }}/artifacts/*.yaml
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -76,8 +80,6 @@ spec:
         {{- if hasKey $group "wait" }}
         wait: {{ $group.wait }}
         {{- end }}
-    ociComposer:
-      publicHost: {{ $.Values.ociComposer.publicHost | quote }}
 {{- end }}
 {{- end }}
 {{- end }}

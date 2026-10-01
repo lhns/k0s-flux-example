@@ -30,14 +30,14 @@ deep chapters and the per-service appendix as needed.
 | Orchestrator | **k0s** + **Flux** GitOps | repo = `k0s-flux`; a generator HelmRelease renders one Kustomization per component dir |
 | Ingress | **Traefik** DaemonSet via **MetalLB** | HTTPS VIP **`10.20.2.15`** — the address all `*.example.com` DNS points at; `websecure` (443) default entrypoint |
 | TLS | **cert-manager** wildcard | `*.example.com` / `*.kube.example.com` cert + `TLSStore/default` → routes just write `tls: {}` |
-| Network policy | **kube-vnet `0.7.1`** | default-**deny** ingress everywhere (even same-namespace); membership by pod label |
+| Network policy | **kube-vnet** | default-**deny** ingress everywhere (even same-namespace); membership by pod label |
 | SSO | **Authelia** forwardAuth | reflected `Middleware` `authelia`; attach per-route, or skip for apps that own auth |
 | Block storage | Ceph **RBD** → SC `ceph-rbd` | RWO, pool `rbd.kube`; **databases, SQLite** |
-| Shared FS | Ceph **CephFS** → SC `cephfs` | RWX, filesystems `fastappdata` (SSD) / `appdata` (HDD); media/config/**mount-in-place** |
+| Shared FS | Ceph **CephFS** → SC `cephfs` (fs `fastappdata`, SSD) and `cephfs-appdata` (fs `appdata`, HDD, its own CSI driver) | RWX; media/config/**mount-in-place** |
 | Object store | Ceph **RGW** S3 | `https://s3.example.com` (path-style, region placeholder `us-east-1`); admin via `radosgw-admin` on the mgr nodes |
-| Shared Postgres | **CloudNativePG** | `infra/postgres` Cluster, service `postgres-rw.postgres.svc.cluster.local:5432`, PG **18.4** |
+| Shared Postgres | **CloudNativePG** | `infra/postgres` Cluster, default entry point `postgres-pooler.postgres.svc.cluster.local` (pgbouncer); `postgres-rw` only for session-scoped features |
 | Secrets | **SOPS + age** | single recipient; encrypt on the jumphost |
-| Jumphost | `admin@10.20.5.15` (a.k.a. `debian-01`) | has `sops 3.13.2` + `age`, `kubectl`, `flux`; SSH to hosts |
+| Jumphost | `admin@10.20.5.15` (a.k.a. `debian-01`) | has `sops` + `age`, `kubectl`, `flux`; SSH to hosts |
 | Swarm host (source) | `10.20.2.10` | **read-only**; dumped over the network into the cluster |
 | Ceph mgr / RGW nodes | `10.20.2.101/102/103` | `ceph`, `radosgw-admin` here; **read-only, never destructive** |
 
@@ -208,7 +208,7 @@ Notesnook needs multi-document transactions → a replica set (even of one). **F
 presents as a *standalone* and doesn't support `rs.initiate()`/replSet semantics. So run real Mongo:
 ```yaml
 # headless Service (clusterIP: None) → stable DNS <name>-0.<name>.<ns>.svc.cluster.local
-# StatefulSet: image mongo:7.0.12 ; args ["--replSet","rs0","--bind_ip_all"] ; ceph-rbd volumeClaimTemplate
+# StatefulSet: image mongo:<pinned> ; args ["--replSet","rs0","--bind_ip_all"] ; ceph-rbd volumeClaimTemplate
 readinessProbe:
   exec:
     command:
@@ -264,7 +264,8 @@ Not a homogeneous dump. Two done here:
 | SC | Access | Backing | Use for |
 |---|---|---|---|
 | `ceph-rbd` | **RWO** block | pool `rbd.kube` (ext4) | databases, SQLite, anything wanting real block semantics |
-| `cephfs` | **RWX** file | fs `fastappdata` (SSD) / `appdata` (HDD), `Retain` | media, config, and **mounting existing data in place** |
+| `cephfs` | **RWX** file | fs `fastappdata` (SSD), `Retain` | media, config, and **mounting existing data in place** |
+| `cephfs-appdata` | **RWX** file | fs `appdata` (HDD), `Retain`, separate CSI driver | bulk — media, repository trees, archives |
 | `local-path` | RWO | node-local disk | throwaway/node-pinned only |
 
 CNPG explicitly advises **against** a shared FS for PGDATA → databases go on `ceph-rbd`. RWO ⇒ single-node
@@ -431,8 +432,8 @@ Reference from a Deployment with `secretKeyRef` per env var (or a projected volu
 reads `{{ secret "/secrets/…" }}`).
 
 ### 7.2 The generator & the app file set
-`templates/kustomizations.yaml` globs `kube-cluster/{apps,infra}/*/kustomization.yaml` and emits one Flux
-`Kustomization` per dir, named **`app-<dir>`** / **`infra-<dir>`**. So the standard app dir is:
+`templates/kustomizations.yaml` globs `kube-cluster/{apps,infra,rbac}/*/kustomization.yaml` and emits one
+Flux `Kustomization` per dir, named **`app-<dir>`** / **`infra-<dir>`** / **`rbac-<dir>`**. So the standard app dir is:
 ```
 resources.yaml       # Namespace + Deployments/StatefulSets/Services/PVCs
 routing.yaml         # Traefik IngressRoutes (web-fronted apps)
@@ -471,9 +472,8 @@ Conventions & footguns:
 - **Moving a component between `apps/` and `infra/`** is dangerous — the generator names by dir, so a naive
   `git mv` is *delete (prune everything) + create*. Use the **`prune: disabled` dance** documented in the
   repo `README.md` ("Moving a component between groups") — do not improvise.
-- **`.sh` files must be committed LF** [CURRENT]: there is no `.gitattributes`, and this repo is edited on
-  Windows, so `git` warns "LF will be replaced by CRLF". A `.sh` with CRLF breaks the container's `bash`.
-  Add `*.sh text eol=lf` (and verify `git show HEAD:path | grep -c $'\r'` is 0) for any script a container execs.
+- **Everything is committed LF**, enforced by the repo-root `.gitattributes` (`* text=auto eol=lf`).
+  A `.sh` with CRLF breaks the container's `bash`, and a CRLF checkout breaks the golden diff.
 
 ---
 
@@ -489,7 +489,7 @@ Conventions & footguns:
 | 6 | `busybox nc -z` false BLOCKED | `[CURRENT]` | verify paths with `nc -zv -w3 host port` or `wget`, not `nc -z` |
 | 7 | Image publishes only `:latest` | `[CONVENTION]` | digest-pin `:latest@sha256:…`; Renovate tracks the digest |
 | 8 | `configMapGenerator` hash-suffix breaks a hardcoded ref | `[CONVENTION]` | reference the generator name; it auto-rolls on change |
-| 9 | `.sh` committed CRLF breaks container bash | `[CURRENT]` | force LF (`.gitattributes: *.sh text eol=lf`) |
+| 9 | `.sh` committed CRLF breaks container bash | `[FIXED]` | repo-root `.gitattributes` forces LF |
 | 10 | StorageClass/PV params immutable | `[CURRENT]` | delete+recreate SC, re-provision PVC |
 | 11 | MongoDB aborts without **AVX** | `[ENV-SPECIFIC]` | set worker VM CPU type `IvyBridge` + full power-cycle (below) |
 | 12 | DB/store stuck "opening storage"; heavy queries 422 | `[ENV-SPECIFIC]` | check `ceph -s` **first** — `HEALTH_ERR`/`backfill_toofull`/`nearfull` HDD tier stalls it, not k8s |
@@ -541,9 +541,6 @@ restart umleiter to clear its backoff. Also: its GHCR image was private → 403 
 target vnet's `allowedNamespaces.names` **and** label grafana `kube-vnet/net.victoriatraces.victoriatraces:
 egress` (mirrors its existing postgres egress).
 
-**dashy.** An old comment claimed "no version tags" and pinned a digest, blocking Renovate — but `4.4.0` is a
-real published tag. Fix the pin + comment so Renovate tracks it.
-
 **notesnook (E2E notes).** Mongo replSet + stateless identity/sync/sse + S3/RGW attachments; **no Authelia**
 (owns auth); `SELF_HOSTED=1` grants Believer/Pro server-side. Web-client footguns (multi-layer): no official
 web image exists. `dyw770/notesnook-web` is stale and reads config from **`urls.json`** (its `NN_*` env vars
@@ -573,7 +570,8 @@ the `sed` targets can't drift, with `grep` guards that fail the pod if a target 
 - *spliit:* CNPG app; its RGW bucket needs **both** CORS (presigned PUT) **and** a public-read policy (plain
   `<img>` URLs) — Notesnook needs only the CORS.
 - *guacamole:* image supports Postgres (`initdb.sh --postgresql`); MariaDB schema differs → start fresh.
-- *mosquitto:* raw TCP 1883 (+ WS 9001) via LB; auth = LDAP (mosquitto-go-auth → lldap `:3890`).
+- *mosquitto:* raw TCP 1883 via a Traefik `IngressRouteTCP` on the shared VIP (+ WS 9001 via a normal
+  `IngressRoute`); auth = LDAP (mosquitto-go-auth → in-cluster lldap `:3890`).
 - *msmtpd:* internal relay on `:2500` → Gmail; keeps the app-password in one SOPS secret so Authelia's config
   is secret-free.
 - *barman-cloud/velero:* both need an S3 target — created a `kube-barman` RGW bucket (Velero reused it under a
@@ -597,10 +595,10 @@ the `sed` targets can't drift, with `grep` guards that fail the pod if a target 
 | Workers | `10.20.2.72` / `.73` / `.74` |
 | Ceph mgr / RGW nodes | `10.20.2.101` / `.102` / `.103` (`ceph`, `radosgw-admin`) |
 | Swarm host (source, read-only) | `10.20.2.10` |
-| Jumphost | `admin@10.20.5.15` (`sops` 3.13.2, `age`, `kubectl`, `flux`) |
+| Jumphost | `admin@10.20.5.15` (`sops`, `age`, `kubectl`, `flux`) |
 | age recipient | `age1exampleexampleexampleexampleexampleexampleexampleexamplexxxxx` |
-| StorageClasses | `ceph-rbd` (RWO), `cephfs` (RWX), `local-path` |
-| kube-vnet | chart `oci://ghcr.io/lhns/charts/kube-vnet` tag `0.7.1`, `ingressIsolationLevel: pod` |
+| StorageClasses | `ceph-rbd` (RWO), `cephfs` / `cephfs-appdata` (RWX), `local-path` |
+| kube-vnet | chart `oci://ghcr.io/lhns/charts/kube-vnet`, `ingressIsolationLevel: pod` |
 
 ### `infra/` modules — when to `dependsOn`
 | Need | dependsOn |

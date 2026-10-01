@@ -10,7 +10,7 @@ changing anything here.
 
 One StatefulSet, `replicas: 1`, one Pod with two containers:
 
-- **`dind`** — `docker:29.7.1-dind`, `privileged: true`, a **native sidecar**
+- **`dind`** — `docker:*-dind`, `privileged: true`, a **native sidecar**
   (`initContainers` entry with `restartPolicy: Always`) so the daemon is up before `act_runner`
   starts and terminates after it exits, letting in-flight jobs drain.
 - **`act-runner`** — `gitea/act_runner:0.6.1`, no privileges at all
@@ -103,7 +103,7 @@ What is actually done here, in descending order of value:
    | check | result |
    | --- | --- |
    | DNS | resolves |
-   | `https://gitea.example.com/api/v1/version` | `{"version":"1.27.1"}` |
+   | `https://gitea.example.com/api/v1/version` | the deployed tag |
    | `docker pull alpine:3.22` | succeeds |
    | Ceph mon `10.20.2.101:6789` | blocked |
    | API server `10.20.2.50:6443` | blocked |

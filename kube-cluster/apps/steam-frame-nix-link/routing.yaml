@@ -1,0 +1,30 @@
+# A typeable hostname for the steam-frame-nix install script. Public: no Authelia.
+# `curl -fsSL https://steam-frame-nix.example.com | bash -s -- install` follows the 302.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: install-script
+  namespace: steam-frame-nix-link
+spec:
+  redirectRegex:
+    regex: ^.*$
+    replacement: https://raw.githubusercontent.com/lhns/steam-frame-nix/main/install.sh
+    permanent: false
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: steam-frame-nix-link
+  namespace: steam-frame-nix-link
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`steam-frame-nix.example.com`)
+      middlewares:
+        - name: install-script
+      services:
+        # The redirect answers before any backend is hit.
+        - name: noop@internal
+          kind: TraefikService
+  tls: {}

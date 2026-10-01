@@ -28,8 +28,8 @@ sftpgo is dual-natured, so it uses two ingress paths:
 Runs as **root** (compose parity — the served library is root-owned), **no fsGroup** (avoids a recursive
 chown of the 249G library). Single-writer → `Recreate`, `replicas: 1` (never two).
 
-## Cutover
-The Deployment ships with `replicas: 0`. To go live:
+## Cutover (done)
+How the state got here:
 
 1. Confirm the manifests are applied (ns, PVCs bound, `sftpgo-lb` has `10.20.2.17`).
 2. **Stop the Swarm sftpgo stack** — frees `sftpgo.db` and the served dirs so the final db can be copied.

@@ -71,6 +71,8 @@ spec:
     isWALArchiver: true
     parameters:
       barmanObjectName: postgres-store
+      # The S3 prefix. Bump on every new incarnation: README.md "serverName".
+      serverName: postgres
   bootstrap:
     initdb:
       database: app

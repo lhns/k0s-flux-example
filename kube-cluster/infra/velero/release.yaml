@@ -28,7 +28,7 @@ spec:
     # (>=1.14), so only the AWS plugin is needed as an initContainer.
     initContainers:
       - name: velero-plugin-for-aws
-        image: velero/velero-plugin-for-aws:v1.14.2
+        image: velero/velero-plugin-for-aws:v1.14.4
         imagePullPolicy: IfNotPresent
         volumeMounts:
           - mountPath: /target
@@ -40,6 +40,9 @@ spec:
       # EnableCSI = snapshot volumes via CSI VolumeSnapshotClasses (the Ceph ones,
       # labeled velero.io/csi-volumesnapshot-class). No native VolumeSnapshotLocation.
       features: EnableCSI
+      # API rate limit (default 20/30); GC of backups with many snapshots queues behind it.
+      clientQPS: 50
+      clientBurst: 100
       backupStorageLocation:
         - name: default
           provider: aws
@@ -69,9 +72,18 @@ spec:
         template:
           ttl: 72h0m0s
           snapshotVolumes: true
+          # Default 10m equals ceph-csi's SlowGRPCRestart watchdog; rbd CreateSnapshot can exceed
+          # both (rbd_list_children over retained snapshots).
+          csiSnapshotTimeout: 30m
+          # Skips the static rootPath volumes, which cannot be snapshotted and
+          # otherwise make every run PartiallyFailed: volume-policy.yaml.
+          resourcePolicy:
+            kind: configmap
+            name: velero-volume-policy
           excludedNamespaces:
             - postgres
             - opentelemetry-gateway
+            - nats
       daily:
         disabled: false
         schedule: "0 3 2-31 * *"
@@ -80,12 +92,18 @@ spec:
           # TTL only; no retainCount: https://github.com/vmware-tanzu/velero/issues/7804
           ttl: 720h0m0s
           snapshotVolumes: true
+          csiSnapshotTimeout: 30m
+          resourcePolicy:
+            kind: configmap
+            name: velero-volume-policy
           # postgres is fully managed by CNPG (its own snapshot + WAL backups), so
           # skip it here to avoid redundant/crash-consistent snapshots of its PVCs.
           excludedNamespaces:
             - postgres
             # Telemetry buffer: constant rewrites pinned ~20Gi per broker per day.
             - opentelemetry-gateway
+            # JetStream: a crash-consistent snapshot of a raft member is not a restore point.
+            - nats
       monthly:
         disabled: false
         schedule: "0 3 1 * *"
@@ -94,6 +112,11 @@ spec:
           # 6 months
           ttl: 4320h0m0s
           snapshotVolumes: true
+          csiSnapshotTimeout: 30m
+          resourcePolicy:
+            kind: configmap
+            name: velero-volume-policy
           excludedNamespaces:
             - postgres
             - opentelemetry-gateway
+            - nats

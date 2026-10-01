@@ -1,11 +1,11 @@
 # postgres
 
-A CloudNativePG `Cluster` — a 2-instance HA PostgreSQL (1 primary + 1 hot
-standby) on the `ceph-rbd` (Ceph RBD block) StorageClass. Requires the operator
+A CloudNativePG `Cluster` — a 3-instance HA PostgreSQL (1 primary + 2 hot
+standbys) on the `ceph-rbd` (Ceph RBD block) StorageClass. Requires the operator
 (`infra/cloudnative-pg`), so `kustomization.yaml` carries
 `dependsOn: infra-cloudnative-pg`.
 
-- `cluster.yaml` — the `Cluster` (2 instances, ceph-rbd 20Gi, `initdb` db/owner `app`).
+- `cluster.yaml` — the `Cluster` (3 instances, ceph-rbd 20Gi, `initdb` db/owner `app`).
   CNPG generates the `postgres-app` secret (user + password) in-cluster. Also wires
   backups (`spec.backup.volumeSnapshot` + the Barman Cloud Plugin as WAL archiver) and
   tuning (`max_connections: 500`, `shared_buffers: 512MB`, 1Gi/2Gi memory) — see
@@ -46,6 +46,15 @@ go to **Ceph RGW** (`s3://kube-barman`, 30d) through the plugin's `ObjectStore`:
   `scheduledbackup.yaml` records why.
 - **WAL** — continuously archived by the same plugin. That is what makes PITR possible.
 - Restore: a new `Cluster` with `spec.bootstrap.recovery` (base + WAL replay).
+
+### serverName
+
+WAL and base backups land under `s3://kube-barman/<serverName>/`, set in the Cluster's
+barman-cloud plugin `parameters`. On every new incarnation (re-init, restore into a new cluster,
+major upgrade) bump it to `<name>-g<yyyymmdd>`, e.g. `postgres-g20261001`. Reusing a prefix that
+holds the old incarnation's WAL makes barman refuse with `Expected empty archive`, archiving
+stalls and `pg_wal` fills the disk. The recovery source (`externalClusters[].plugin.parameters`)
+must then name the **old** `serverName`.
 
 `spec.backup.volumeSnapshot` in `cluster.yaml` is retained only so an ad-hoc
 `method: volumeSnapshot` `Backup` still works; nothing schedules one.

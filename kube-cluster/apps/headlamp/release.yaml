@@ -60,7 +60,7 @@ spec:
       # Enables the Helm plugin in the UI — browse charts, install/upgrade/rollback
       enableHelm: true
       watchPlugins: true
-      # Load our own plugin from a *separate* dir (see initContainers below).
+      # Load our own plugin from a *separate* dir (the image volume below).
       extraArgs:
         - "-user-plugins-dir=/headlamp/user-plugins"
         # The chart wires only client-id, client-secret and issuer-url as flags, so every

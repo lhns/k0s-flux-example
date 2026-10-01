@@ -13,7 +13,10 @@ rtc:
     tcp_port: 7881
     port_range_start: 50100
     port_range_end: 50120
-    use_external_ip: true
+    # Egress may leave via DS-Lite CGNAT rather than the tunnel, so STUN discovery
+    # can return an unreachable address. The tunnel's static address is the reachable one.
+    use_external_ip: false
+    node_ip: 203.0.113.10
 room:
     auto_create: false
 turn:

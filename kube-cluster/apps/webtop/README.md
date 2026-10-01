@@ -1,6 +1,6 @@
 # webtop
 
-A full Linux desktop in a browser tab (`lscr.io/linuxserver/webtop`, XFCE on Ubuntu). Public at
+A full Linux desktop in a browser tab (`lscr.io/linuxserver/webtop`, KDE on Ubuntu). Public at
 `webtop.example.com`, gated by **Authelia forwardAuth**; `webtop.kube.example.com` redirects here.
 
 Deployed alongside [`../kasmvnc`](../kasmvnc/README.md) to compare the two remote-desktop stacks

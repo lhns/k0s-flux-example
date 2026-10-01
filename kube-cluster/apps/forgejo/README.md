@@ -1,7 +1,7 @@
 # forgejo
 
 [Forgejo](https://forgejo.org) — git forge at `forgejo.example.com` (traefik ingress, wildcard TLS).
-Image `codeberg.org/forgejo/forgejo:16.0.2`. Runs **alongside** [`../gitea`](../gitea/README.md)
+Image `codeberg.org/forgejo/forgejo`. Runs **alongside** [`../gitea`](../gitea/README.md)
 until the repositories move across; see *The migration from Gitea* below for why they cannot simply
 share a database.
 

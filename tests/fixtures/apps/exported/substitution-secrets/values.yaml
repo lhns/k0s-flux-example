@@ -1,0 +1,6 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: exported-values
+  namespace: flux-system
+data: {}

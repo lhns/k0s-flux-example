@@ -53,7 +53,7 @@ spec:
         # service and gates the app on it, so that gate becomes this. Same image: its final
         # stage inherits node_modules from the packages stage, so the Prisma CLI is present.
         - name: migrate
-          image: jetkvm-cloud-api
+          image: ${JETKVM_CLOUD_API_REF}
           command: [npm, run, prisma-migrate]
           env:
             - name: JETKVM_DB_PASSWORD
@@ -65,9 +65,8 @@ spec:
               value: postgresql://jetkvm:$(JETKVM_DB_PASSWORD)@postgres-rw.postgres.svc.cluster.local:5432/jetkvm?sslmode=disable&schema=public
       containers:
         - name: cloud-api
-          # Placeholder rewritten by the root generator to the registry reference plus the
-          # spec-hash tag of the ImageBuild of this name. See images.yaml.
-          image: jetkvm-cloud-api
+          # Built in artifacts/images.yaml.
+          image: ${JETKVM_CLOUD_API_REF}
           env:
             # $(VAR) interpolation requires the referenced variable to be declared FIRST.
             - name: JETKVM_DB_PASSWORD
@@ -79,24 +78,35 @@ spec:
               value: postgresql://jetkvm:$(JETKVM_DB_PASSWORD)@postgres-rw.postgres.svc.cluster.local:5432/jetkvm?sslmode=disable&schema=public
             - name: PORT
               value: "3000"
-            # The device connects to wss://API_HOSTNAME/ -- the root, "for legacy reasons" per
+            # The device connects to wss://jetkvm-api.example.com/ -- the root, "for legacy reasons" per
             # the source. This is why the API owns its own hostname rather than a subpath of
             # the SPA's, and why no ForwardAuth may sit on / (it would strip the device's
             # Authorization header).
+            # URL prefixes, not hostnames: src/oidc.ts builds `${API_HOSTNAME}/oidc/callback`
+            # (the Google redirect URI) and `${APP_HOSTNAME}/devices` from them.
             - name: API_HOSTNAME
-              value: jetkvm-api.example.com
+              value: https://jetkvm-api.example.com
             - name: APP_HOSTNAME
-              value: jetkvm.example.com
-            # Must be set explicitly: see the .env note in images.yaml. Left unset it is not
+              value: https://jetkvm.example.com
+            # Must be set explicitly: see the .env note in artifacts/images.yaml. Left unset it is not
             # empty, it is upstream's app.jetkvm.com default, which blocks our own SPA.
             - name: CORS_ORIGINS
               value: https://jetkvm.example.com
-            # toICEServers() filters to entries starting with "stun:" and silently drops
-            # everything else -- a turn: URL here does nothing. coturn already answers
-            # unauthenticated STUN on 3478 (use-auth-secret gates allocations, not binding
-            # requests), so this needs no change on that side.
+            # The DEVICE's list. toICEServers() keeps only "stun:" entries, so a turn: URL here
+            # does nothing; the browser's TURN comes from COTURN_* below. use-auth-secret gates
+            # allocations, not binding requests, so this STUN needs no credential.
             - name: ICE_SERVERS
               value: stun:turn.example.com:3478
+            # Read only by the fork's coturn-turn branch (README.md): POST /webrtc/ice_config
+            # mints coturn REST-API credentials from these. No connection to coturn is made.
+            - name: COTURN_TURN_URLS
+              value: turn:turn.example.com:3478?transport=udp,turn:turn.example.com:3478?transport=tcp,turns:turn.example.com:5349?transport=tcp
+            - name: COTURN_TURN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  # Reflected from the coturn ns (apps/coturn/secret.yaml).
+                  name: coturn-shared-secret
+                  key: secret
             # LOWERCASE, and deliberately not x-forwarded-for. The lookup is
             # req.headers[process.env.REAL_IP_HEADER] with no toLowerCase(), and Node
             # lower-cases every header key -- so "X-Real-IP", which upstream's own .env.example
@@ -108,9 +118,10 @@ spec:
             - name: REAL_IP_HEADER
               value: x-real-ip
             # SECURITY-CRITICAL. Upstream's comment is "leave empty to allow all" -- unset,
-            # anyone with a Google account can enrol a device against this instance.
+            # anyone with a Google account can enrol a device against this instance. A device
+            # share's invitee must be listed here too, or they cannot log in.
             - name: ALLOWED_IDENTITIES
-              value: admin@example.com
+              value: admin@example.com,user@example.com
             - name: COOKIE_SECRET
               valueFrom:
                 secretKeyRef:
@@ -119,16 +130,16 @@ spec:
             - name: GOOGLE_CLIENT_ID
               valueFrom:
                 secretKeyRef:
-                  name: jetkvm
+                  name: jetkvm-google
                   key: GOOGLE_CLIENT_ID
             - name: GOOGLE_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: jetkvm
+                  name: jetkvm-google
                   key: GOOGLE_CLIENT_SECRET
-            # R2_* and CLOUDFLARE_TURN_* are deliberately unset; see the README on what that
-            # costs (firmware release hosting, and the browser's TURN credentials) and on the
-            # half-hourly [sync-releases] error that unset R2_* leaves in the log.
+            # R2_* is deliberately unset; see the README on what that costs and the half-hourly
+            # [sync-releases] error it leaves in the log. CLOUDFLARE_TURN_* must stay unset:
+            # set, it takes precedence over COTURN_*.
           ports:
             - name: http
               containerPort: 3000
@@ -183,7 +194,7 @@ spec:
     spec:
       containers:
         - name: ui
-          image: jetkvm-ui
+          image: ${JETKVM_UI_REF}
           ports:
             - name: http
               containerPort: 8080

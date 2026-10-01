@@ -57,7 +57,7 @@ pty, and `forkpty` is the hook for it: `otbr-agent` forks the named program with
 speaks HDLC over it.
 
 ```
-RADIO_URL=spinel+hdlc+forkpty:///opt/socat/socat.sh?forkpty-arg=-&forkpty-arg=tcp:10.20.1.50:7638,nodelay
+RADIO_URL=spinel+hdlc+forkpty:///opt/socat-bin/socat.sh?forkpty-arg=-&forkpty-arg=tcp:10.20.1.50:7638,nodelay
 ```
 
 Home Assistant's own OTBR add-on bridges networked coordinators with socat the same way, so this is
@@ -78,7 +78,7 @@ Two things about it are settled rather than assumed:
   container that created it, so a shared `emptyDir` would carry the symlink but not the device.
   Same container, or nothing.
 
-### Why socat arrives via an initContainer
+### Where socat comes from
 
 `openthread/otbr` ships **no socat, no netcat, no curl**. It is also **Ubuntu 18.04, glibc 2.27** —
 too old for any current prebuilt socat binary. (Confusingly, the source tree copied into the image
@@ -86,12 +86,13 @@ at `/app` contains a 2025 Dockerfile describing an Ubuntu 24.04 + s6-overlay ima
 `ENTRYPOINT ["/init"]`. That is *not* what is published: `latest` is the legacy 18.04 image driven
 by `/app/script/server`. Trust the running container, not `/app`.)
 
-So the initContainer copies socat **plus the musl loader and its four libraries** out of
-`alpine/socat` and drops in a two-line wrapper that runs them under that loader, bypassing the host
-libc entirely. Verified in this exact image, including a binary round-trip through the relay.
+So `alpine/socat` is mounted as an **image volume** at `/opt/socat`, and a wrapper ConfigMap at
+`/opt/socat-bin/socat.sh` runs its socat under the musl loader that ships alongside it, bypassing
+the host libc entirely.
 
-socat is pinned to **1.8.0.3**, deliberately not 1.8.0.2 — [ot-br-posix#2719](https://github.com/openthread/ot-br-posix/issues/2719)
-blames that version for border-router crashes after a few hours.
+The socat pin carries a tag **and** a digest: [ot-br-posix#2719](https://github.com/openthread/ot-br-posix/issues/2719)
+blames 1.8.0.2 for border-router crashes after a few hours, so which version a Renovate PR moves to
+has to be legible, and a bare digest bump is not.
 
 ## Shape
 

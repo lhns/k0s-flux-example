@@ -5,8 +5,8 @@
 # volumeName. capacity 1Gi is a dummy, ignored for static cephfs.
 #
 # One PV per filesystem root; each workload takes what it needs with subPath.
-# NEVER delete these PVs -- pv-reaper reclaims the underlying volume even with
-# reclaimPolicy Retain (see CLAUDE.md).
+# staticVolume PVs, so pv-reaper skips them and deleting one removes a pointer, not
+# data -- but the PVC goes Lost and every workload here stops. See README.md.
 ---
 # Swarm ${DATA_PATH} -- every app's /config lives under here.
 apiVersion: v1

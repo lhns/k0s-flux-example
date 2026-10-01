@@ -5,7 +5,7 @@ because Matter cannot work any other way in a pod.
 
 ## Shape
 
-- **Image** — `ghcr.io/matter-js/matterjs-server:1.3.3`, the successor to
+- **Image** — `ghcr.io/matter-js/matterjs-server`, the successor to
   python-matter-server (EOL at 8.1.2). See *Why matterjs-server* below.
 - **Two interfaces** — `eth0` on the pod network for the control channel, `net1` on the LAN
   (macvlan, `10.20.3.8/16`) for device traffic.

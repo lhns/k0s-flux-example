@@ -34,7 +34,9 @@ spec:
   chart:
     spec:
       chart: ceph-csi-cephfs
-      version: "3.17.1"
+      # Moves with the image below: Renovate reads both from its tags.
+      # renovate: datasource=docker depName=ghcr.io/lhns/ceph-csi-x86-64-v2
+      version: "3.18.0"
       interval: 1h0m0s
       sourceRef:
         kind: HelmRepository
@@ -55,6 +57,11 @@ spec:
     # third driver 8092. The nodeplugin is hostNetwork, so this is a real host
     # port and MUST NOT collide with the other two.
     nodeplugin:
+      plugin:
+        # Also the provisioner's image. x86-64-v2 build of upstream: see ../ceph-csi-cephfs/README.md.
+        image:
+          repository: ghcr.io/lhns/ceph-csi-x86-64-v2
+          tag: v3.18.0@sha256:96dae99b2ed1d1d8f4a6f7d0ed0ff5a651878ce1b1f07a5d5bdb823c2d5e016e
       httpMetrics:
         containerPort: 8092
         service:

@@ -71,10 +71,9 @@ spec:
           emptyDir: {}
 ---
 # ===========================================================================
-# App volume — a FRESH ceph-rbd (block/SSD) PVC holding /var/www/html (the app:
-# core/lib/apps/custom_apps/config, ~1.3G). The seed initContainer copies the app
-# in once (excluding data/), giving the PHP app fast block storage instead of the
-# HDD CephFS. RWO, single writer.
+# App volume — a ceph-rbd (block/SSD) PVC holding /var/www/html (the app:
+# core/lib/apps/custom_apps/config, ~1.3G), seeded once at migration time.
+# Fast block storage for the PHP app instead of the HDD CephFS. RWO, single writer.
 # ===========================================================================
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -129,14 +128,10 @@ spec:
 ---
 # ===========================================================================
 # Nextcloud. The app on rbd, data/ mounted in place, DB in shared CNPG,
-# Redis in-ns. config.php is preserved (instanceid/secret/passwordsalt) via the
-# seed; a merged config/zz-kube.config.php repoints DB+Redis and adds proxy trust
-# (password via getenv, no secret on disk). replicas: 0 until the DB is restored
-# into CNPG (config.php has installed=true, so an empty DB would error). Image
-# starts as root then drops to www-data -> no securityContext, no fsGroup (would
-# chown 80G of data).
-# The one-time DB restore ran into CNPG (190 oc_ tables, 4 users); now live at
-# replicas: 1. The seed initContainer populates the rbd app volume on first boot.
+# Redis in-ns. config.php is preserved (instanceid/secret/passwordsalt); a merged
+# config/zz-kube.config.php repoints DB+Redis and adds proxy trust (password via
+# getenv, no secret on disk). Image starts as root then drops to www-data -> no
+# securityContext, no fsGroup (would chown 80G of data).
 # ===========================================================================
 apiVersion: v1
 kind: Service
@@ -174,7 +169,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: nextcloud
-          image: nextcloud:35.0.0-apache
+          image: nextcloud:35.0.1-apache
           ports:
             - {name: http, containerPort: 80}
           env:

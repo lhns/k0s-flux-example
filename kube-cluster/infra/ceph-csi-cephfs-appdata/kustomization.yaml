@@ -10,3 +10,4 @@ resources:
 - namespace.yaml
 - release.yaml
 - storageclass.yaml
+- volumesnapshotclass.yaml

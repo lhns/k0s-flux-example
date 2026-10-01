@@ -10,11 +10,7 @@ spec:
   ref:
     # Pinned release; bump to roll a new version. validate.sh derives the CRD schema kubeconform
     # checks against from this string.
-    #
-    # 0.4.0 -> 0.5.0 was BREAKING: serving is gone and a registry is the only publication path,
-    # so `spec.publish` became `spec.push` on every ImageComposition and ImageBuild, and
-    # registry.publish.mode below is mandatory.
-    tag: "0.5.1"
+    tag: "0.6.2"
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -30,25 +26,19 @@ spec:
     # Clean resource names: `oci-composer`, not `oci-composer-kube-oci-composer`.
     fullnameOverride: oci-composer
 
-    # One replica, down from two. The second existed only because both pods SERVED artifacts from
-    # a shared RWX volume; 0.5.0 removes serving entirely, so a second controller replica would be
-    # an idle leader-election loser. Availability of pulls is now the registry's problem, and the
-    # registry is its own Deployment below.
+    # The controller does not serve; availability of pulls is the registry Deployment's problem.
+    # A second replica would only be an idle leader-election loser.
     replicaCount: 1
 
     operator:
-      # Renamed from operator.gc.keepBuilds — GC moved out of the controller, and the builder
-      # already called it this. Retention is what keeps an older spec-hash tag resolvable, which
-      # is what a rolled-back commit names.
+      # Keeps older builds pullable, for a pod that has not yet rolled off one.
       keepBuilds: 10
 
-      # Refuse a sourceRef layer that names no `revision`; without one it can publish the
-      # previous revision's content under a fresh tag and wedge. See README.md.
+      # Refuse a sourceRef layer that names no `revision`; without one it can build and roll out
+      # the previous revision's content. See README.md.
       requirePinnedSources: true
 
-    # The second controller, alpha. Nothing in this repo declares an ImageBuild yet.
-    #
-    # Its ClusterRole can create and delete Jobs — that is the ability to run arbitrary containers
+    # The second controller, alpha. Its ClusterRole can create and delete Jobs — that is the ability to run arbitrary containers
     # — and read/write Secrets, which is why upstream made it a separate component rather than a
     # flag. Build pods permit privilege escalation and run seccomp/AppArmor unconfined. Setting
     # this false removes the controller AND its RBAC together.
@@ -94,6 +84,11 @@ spec:
         enabled: true
         storageClass: cephfs
         size: 20Gi
+
+    # push.writeRefTo targets. The label makes a new digest reconcile the consumer at once.
+    refExport:
+      namespaces: [flux-system]
+      labels: reconcile.fluxcd.io/watch=Enabled
 
     defaultRegistry:
       # A NodePort speaks plain HTTP, and this is not assumed: registry.host is just as often an

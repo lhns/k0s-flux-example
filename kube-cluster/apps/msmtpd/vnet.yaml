@@ -8,7 +8,7 @@ metadata:
   name: msmtpd
   namespace: msmtpd
 spec:
-  description: "In-cluster mail senders (Authelia) -> msmtpd :2500."
+  description: "In-cluster mail senders -> msmtpd :2500."
   allowedNamespaces:
     names:
       - authelia

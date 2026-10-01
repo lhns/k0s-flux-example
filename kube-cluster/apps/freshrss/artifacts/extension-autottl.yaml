@@ -1,0 +1,41 @@
+# xExtension-AutoTTL. One file per extension: its pinned source and the composition.
+# Pin a tag or commit, never a branch. See infra/oci-composer/README.md.
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: freshrss-ext-autottl
+  namespace: oci-composer
+spec:
+  interval: 12h
+  url: https://github.com/mgnsk/FreshRSS-AutoTTL
+  ref:
+    tag: v0.7.4
+---
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageComposition
+metadata:
+  name: freshrss-ext-autottl
+  namespace: oci-composer
+spec:
+  interval: 1h
+  layers:
+    - name: autottl
+      sourceRef:
+        kind: GitRepository
+        name: freshrss-ext-autottl
+        # Must match the ref above; scripts/check-source-pins.py enforces it.
+        revision: v0.7.4
+      # The mount path supplies the xExtension-* directory, so the content goes at the root.
+      to: /
+      # www-data in the FreshRSS image.
+      owner: {uid: 33, gid: 33}
+  # No `base`: files mounted into the upstream FreshRSS image.
+  push:
+    # No `repository`: an explicit one is pushed to as written, and oci-composer.internal does
+    # not resolve inside the cluster.
+    history: 10
+    writeRefTo:
+      namespace: flux-system
+      keys:
+        ref: FRESHRSS_EXT_AUTOTTL_REF

@@ -7,4 +7,5 @@ metadata:
 resources:
 - namespace.yaml
 - s3-secret.yaml
+- volume-policy.yaml
 - release.yaml

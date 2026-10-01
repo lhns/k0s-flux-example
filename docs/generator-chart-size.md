@@ -35,12 +35,12 @@ default) is never reached.
     templates/**, Chart.yaml
     **/kustomization.yaml                 component discovery
     **/substitution-secrets/*.yaml        postBuild.substituteFrom
+    **/artifacts/*.yaml                   postBuild.substituteFrom (oci-composer ref exports)
     kube-cluster/k0sctl.yaml              the k0s version
-    <component>/*.yaml                    _artifacts.tpl, top level only
 
-That last line is **97.1% of the payload**. `_artifacts.tpl` finds `ImageComposition` and
-`ImageBuild` *by kind*, so it must parse every top-level yaml of every component to find the 9
-that exist across 5 components. Discovery alone needs 54 KB; artifact scanning costs 1,288 KB.
+When this was measured the chart also parsed every top-level yaml of every component to find
+`ImageComposition` and `ImageBuild` by kind: **97.1% of the payload**, 1,288 KB against 54 KB for
+discovery. Those objects now live in `artifacts/`, so only that directory is read.
 
 ## Options, measured
 
@@ -142,8 +142,7 @@ Every generator is a GitRepository + HelmRelease sharing a name: `generators` at
   reconcile independently and briefly disagree.
 - Load of one GitRepository per component: 88 clones on their own intervals.
 
-## Worth adding either way
+## The guard
 
-Nothing warned. The release sat at 99.1% for an unknown period and failed silently. A check
-that packages the chart and fails above ~70% of 1 MiB would give months of notice, and runs
-offline.
+Nothing warns on its own — the release sat at 99.1% and failed silently. `scripts/check-release-size.py`
+packages the chart and fails above 70% of the 1 MiB cap; `scripts/validate.sh` runs it, offline.

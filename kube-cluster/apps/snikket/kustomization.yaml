@@ -8,15 +8,13 @@ metadata:
     # because the reflected coturn-shared-secret must exist before the pod can
     # start. Read by the root generator; inert to kustomize.
     # app-lldap because authentication now depends on the directory being up.
-    # infra-oci-composer because the pod mounts a composed artifact as an image volume and the
-    # kubelet cannot pull it until the registry is serving.
+    # infra-oci-composer: artifacts/ is built there.
     dependsOn: infra-traefik,infra-cert-manager,infra-ceph-csi-rbd,infra-reloader,app-coturn,app-lldap,infra-oci-composer
 resources:
 - resources.yaml
 - routing.yaml
 - vnet.yaml
 - ldap-secret.yaml
-- lualdap.yaml
 configMapGenerator:
 - name: snikket-env
   namespace: snikket

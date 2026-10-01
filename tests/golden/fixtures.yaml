@@ -48,26 +48,58 @@ spec:
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
-  name: app-composed
+  name: app-exported-artifacts
   namespace: flux-system
 spec:
   interval: 10m0s
-  path: ./tests/fixtures/apps/composed
+  path: ./tests/fixtures/apps/exported/artifacts
   prune: true
   wait: true
   commonMetadata:
     labels:
-      app.kubernetes.io/instance: "composed"
-  images:
-    - name: composed-built
-      newName: registry.test:5000/composed/composed-built
-      newTag: s6ba9c1a21e2dd0d6
-    - name: composed-inline
-      newName: registry.test:5000/composed/composed-inline
-      newTag: s81e8239d0e14c569
-    - name: composed-layered
-      newName: registry.test:5000/composed/composed-layered
-      newTag: se8b213863f648f26
+      app.kubernetes.io/instance: "exported"
+  dependsOn:
+    - name: infra-oci-composer
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: app-exported-substitution-secrets
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  path: ./tests/fixtures/apps/exported/substitution-secrets
+  prune: true
+  wait: true
+  commonMetadata:
+    labels:
+      app.kubernetes.io/instance: "exported"
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: app-exported
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  path: ./tests/fixtures/apps/exported
+  prune: true
+  wait: true
+  commonMetadata:
+    labels:
+      app.kubernetes.io/instance: "exported"
   patches:
     - target:
         kind: HelmRelease
@@ -89,39 +121,21 @@ spec:
         - op: move
           from: /data
           path: /stringData
-    - target:
-        kind: ImageBuild
-        name: composed-built
-      patch: |
-        apiVersion: oci.lhns.de/v1alpha1
-        kind: ImageBuild
-        metadata:
-          name: composed-built
-        spec:
-          push:
-            tags: [s6ba9c1a21e2dd0d6]
-    - target:
-        kind: ImageComposition
-        name: composed-inline
-      patch: |
-        apiVersion: oci.lhns.de/v1alpha1
-        kind: ImageComposition
-        metadata:
-          name: composed-inline
-        spec:
-          push:
-            tags: [s81e8239d0e14c569]
-    - target:
-        kind: ImageComposition
-        name: composed-layered
-      patch: |
-        apiVersion: oci.lhns.de/v1alpha1
-        kind: ImageComposition
-        metadata:
-          name: composed-layered
-        spec:
-          push:
-            tags: [se8b213863f648f26]
+  dependsOn:
+    - name: infra-oci-composer
+    - name: app-exported-artifacts
+    - name: app-exported-substitution-secrets
+  postBuild:
+    substituteFrom:
+      - kind: Secret
+        name: exported-values
+        optional: false
+      - kind: ConfigMap
+        name: imagebuild-oci-composer-exported-built
+        optional: false
+      - kind: ConfigMap
+        name: imagecomposition-oci-composer-exported-layered
+        optional: false
   sourceRef:
     kind: GitRepository
     name: flux-system
@@ -144,6 +158,50 @@ spec:
   commonMetadata:
     labels:
       app.kubernetes.io/instance: "plain"
+  patches:
+    - target:
+        kind: HelmRelease
+      patch: |
+        apiVersion: helm.toolkit.fluxcd.io/v2
+        kind: HelmRelease
+        metadata:
+          name: unused   # the target selector above chooses; this name is not matched against
+        spec:
+          upgrade:
+            crds: CreateReplace
+    - target:
+        kind: ConfigMap
+        annotationSelector: generators.example.com/as-secret=true
+      patch: |
+        - op: replace
+          path: /kind
+          value: Secret
+        - op: move
+          from: /data
+          path: /stringData
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: app-suspended
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  suspend: true
+  path: ./tests/fixtures/apps/suspended
+  prune: true
+  wait: true
+  commonMetadata:
+    labels:
+      app.kubernetes.io/instance: "suspended"
   patches:
     - target:
         kind: HelmRelease

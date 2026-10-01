@@ -1,0 +1,14 @@
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageBuild
+metadata:
+  name: exported-built
+  namespace: oci-composer
+spec:
+  dockerfile:
+    inline: |
+      FROM scratch
+  push:
+    writeRefTo:
+      namespace: flux-system
+      keys:
+        ref: EXPORTED_BUILT_REF

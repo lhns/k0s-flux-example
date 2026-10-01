@@ -101,15 +101,21 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: vmstorage
-          image: victoriametrics/vmstorage:v1.152.0-cluster
+          image: victoriametrics/vmstorage:v1.153.0-cluster
           args:
-            # 24 months. Raised from 12 for two reasons: the cluster is the long-term
-            # store now, and vmstorage DROPS any sample older than this on ingest
+            # 24 months. vmstorage DROPS any sample older than this on ingest
             # (vm_rows_ignored_total{reason="small_timestamp"}), so a backfill window
-            # wider than the retention silently loses its oldest chunks. Keep both
-            # victoriametrics stores on the same value while the migration runs -- the
-            # source ages out history that has not been copied yet.
+            # wider than the retention silently loses its oldest chunks.
             - -retentionPeriod=24
+            # Caches only. The other half of the limit is the non-cache footprint --
+            # merge buffers and the page cache behind 431G rows of mmap'd parts -- which
+            # is what the default 60% left no room for. Pinned rather than left default so
+            # the limit above can be raised without instructing VM to grow into it.
+            - -memory.allowedPercent=50
+            # VM stores identical samples as-is unless this is set, and the exporter's
+            # metrics + metrics/latest pipelines write one exact duplicate per series per
+            # minute by design. 1ms collapses exact duplicates only. Must match vmselect.
+            - -dedup.minScrapeInterval=1ms
             - -storageDataPath=/storage
           ports:
             - {name: vminsert-rpc, containerPort: 8400}
@@ -122,11 +128,15 @@ spec:
             initialDelaySeconds: 15
             periodSeconds: 10
             failureThreshold: 90 # 94G may open slowly on the HDD tier
+          # The request is what the scheduler and the eviction ranking see: at 1Gi it
+          # read worker-03 as near-empty while vmstorage alone held ~11Gi.
+          # 16Gi is a ceiling, not a target, only because -memory.allowedPercent is
+          # pinned above. Do not raise it again without moving something off worker-03.
           resources:
             requests:
-              memory: 1Gi
+              memory: 8Gi
             limits:
-              memory: 12Gi
+              memory: 16Gi
           volumeMounts:
             - name: data
               mountPath: /storage
@@ -186,7 +196,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: vminsert
-          image: victoriametrics/vminsert:v1.152.0-cluster
+          image: victoriametrics/vminsert:v1.153.0-cluster
           args:
             - -storageNode=vmstorage:8400
             - -maxLabelsPerTimeseries=50
@@ -257,11 +267,13 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: vmselect
-          image: victoriametrics/vmselect:v1.152.0-cluster
+          image: victoriametrics/vmselect:v1.153.0-cluster
           args:
             - -storageNode=vmstorage:8401
             - -search.cacheTimestampOffset=120m
             - -replicationFactor=1
+            # Query-time half of vmstorage's flag; the two must match.
+            - -dedup.minScrapeInterval=1ms
           ports:
             - {name: http, containerPort: 8481}
           readinessProbe:

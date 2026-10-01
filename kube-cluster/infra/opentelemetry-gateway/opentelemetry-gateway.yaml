@@ -149,6 +149,55 @@ processors:
         statements:
           - merge_maps(log.attributes, ParseCEF(log.attributes["message"]), "upsert")
 
+      # ParseCEF sets no record fields and these frames carry no PRI, so without this every
+      # CEF record is Unspecified. Base of each band, as syslog_parser gives the rfc5424
+      # branch (info 9, warning 13), so `severity_number >= 17` means the same on both.
+      - context: log
+        conditions:
+          - log.attributes["cef.severity"] != nil
+        statements:
+          - set(log.severity_text, log.attributes["cef.severity"])
+          - set(log.severity_number, SEVERITY_NUMBER_INFO) where log.attributes["cef.severity"] == "Low"
+          - set(log.severity_number, SEVERITY_NUMBER_WARN) where log.attributes["cef.severity"] == "Medium"
+          - set(log.severity_number, SEVERITY_NUMBER_ERROR) where log.attributes["cef.severity"] == "High"
+          - set(log.severity_number, SEVERITY_NUMBER_FATAL) where log.attributes["cef.severity"] == "Very-High"
+
+      # Must stay LOG attributes: VictoriaLogs derives _stream from RESOURCE attributes, so
+      # src there is one stream per source IP. ParseCEF emits strings; Int() is for OTLP
+      # correctness, VictoriaLogs stores text either way.
+      - context: log
+        conditions:
+          - log.attributes["cef.extensions"] != nil
+        statements:
+          - set(log.attributes["source.address"], log.attributes["cef.extensions"]["src"]) where log.attributes["cef.extensions"]["src"] != nil
+          - set(log.attributes["source.port"], Int(log.attributes["cef.extensions"]["spt"])) where log.attributes["cef.extensions"]["spt"] != nil
+          - set(log.attributes["destination.address"], log.attributes["cef.extensions"]["dst"]) where log.attributes["cef.extensions"]["dst"] != nil
+          - set(log.attributes["destination.port"], Int(log.attributes["cef.extensions"]["dpt"])) where log.attributes["cef.extensions"]["dpt"] != nil
+          # icmp is not a semconv network.transport value; it passes through verbatim.
+          - set(log.attributes["network.transport"], log.attributes["cef.extensions"]["proto"]) where log.attributes["cef.extensions"]["proto"] != nil
+          - set(log.attributes["event.name"], log.attributes["cef.name"]) where log.attributes["cef.name"] != nil
+          # _msg stops being the raw frame, so bare-word search no longer matches it.
+          - set(log.body, log.attributes["cef.extensions"]["msg"]) where log.attributes["cef.extensions"]["msg"] != nil
+          - delete_key(log.attributes["cef.extensions"], "msg")
+          - delete_key(log.attributes["cef.extensions"], "src")
+          - delete_key(log.attributes["cef.extensions"], "spt")
+          - delete_key(log.attributes["cef.extensions"], "dst")
+          - delete_key(log.attributes["cef.extensions"], "dpt")
+          - delete_key(log.attributes["cef.extensions"], "proto")
+          - delete_key(log.attributes, "message")
+          - delete_key(log.attributes, "cef.name")
+          - delete_key(log.attributes, "cef.version")
+          - delete_key(log.attributes, "cef.severity")
+
+      # Only true of RouterOS: device_event_class_id is 1:1 with the name, dvchost repeats
+      # hostname. Everything above is plain CEF and stays ungated.
+      - context: log
+        conditions:
+          - log.attributes["cef.device_vendor"] == "MikroTik" and log.attributes["cef.extensions"] != nil
+        statements:
+          - delete_key(log.attributes, "cef.device_event_class_id")
+          - delete_key(log.attributes["cef.extensions"], "dvchost")
+
   deltatorate/count:
     metrics:
       - trace.span.count

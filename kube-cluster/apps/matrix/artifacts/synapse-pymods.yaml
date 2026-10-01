@@ -1,0 +1,40 @@
+# The s3 media storage provider and its CLI extras, baked onto the synapse image so
+# /pymods can be mounted as an image volume instead of installed into a PVC at pod start.
+# Runnable, not `scratch`: the media sweep CronJob runs this image as its container.
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageBuild
+metadata:
+  name: synapse-pymods
+  namespace: oci-composer
+spec:
+  interval: 1h
+  platforms: [linux/amd64]
+  dockerfile:
+    inline: |
+      # Must be the exact tag the synapse container runs: the modules are resolved
+      # against this interpreter. scripts/validate.sh enforces it.
+      # renovate: datasource=docker
+      FROM matrixdotorg/synapse:v1.162.0@sha256:6b84a7bbac36f080b2d2e51e0289cf1b08b349598ea44a558df38d558f2c2311
+      # --no-deps is load-bearing: pip --target ignores site-packages, so a full resolve
+      # builds psycopg2 from source and there is no compiler here. psycopg2, Twisted and
+      # PyYAML are CLI-only deps of the provider and are already in the image.
+      # renovate: datasource=pypi
+      RUN pip install --no-cache-dir --target=/pymods --no-deps synapse-s3-storage-provider==1.7.0
+      # renovate: datasource=pypi
+      RUN pip install --no-cache-dir --target=/pymods boto3==1.43.106
+      # humanize and tqdm are used only by the s3_media_upload CLI the sweep runs.
+      # renovate: datasource=pypi
+      RUN pip install --no-cache-dir --target=/pymods humanize==4.16.0
+      # renovate: datasource=pypi
+      RUN pip install --no-cache-dir --target=/pymods tqdm==4.70.1
+      # chmod because synapse reads this as uid 991 off a read-only mount; pip's modes are
+      # world-readable by umask, which is not something startup should rest on.
+      RUN python -c "import sys; sys.path.insert(0,'/pymods'); import s3_storage_provider, boto3, humanize, tqdm" \
+       && test -x /pymods/bin/s3_media_upload \
+       && chmod -R a+rX /pymods
+  push:
+    history: 10
+    writeRefTo:
+      namespace: flux-system
+      keys:
+        ref: SYNAPSE_PYMODS_REF

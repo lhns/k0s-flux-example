@@ -71,6 +71,9 @@ registrations:
     did: "5552"
     line: eventpbx
     peer_secret_file: ev-secret.conf
+    # Off while its REGISTER is refused. This also switches the eventpbx line off, so
+    # short extensions below are refused rather than dialled via another trunk.
+    disabled: true
 
 # callers is the outbound gate: it refuses rather than falling through, and absent or empty
 # means nobody. Field meanings are in values.schema.json; the model is in the README.

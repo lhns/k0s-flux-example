@@ -59,7 +59,7 @@ spec:
         runAsGroup: 0
       containers:
         - name: stalwart
-          image: stalwartlabs/stalwart:v0.16.22
+          image: stalwartlabs/stalwart:v0.16.24
           env:
             - name: STALWART_PUBLIC_URL
               value: https://mail.example.com
@@ -195,7 +195,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: bulwark
-          image: ghcr.io/bulwarkmail/webmail:1.10.0
+          image: ghcr.io/bulwarkmail/webmail:1.11.2
           env:
             - name: APP_NAME
               value: Mail
@@ -293,7 +293,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: umleiter
-          image: ghcr.io/lhns/umleitung:sha-9d13eaf
+          image: ghcr.io/lhns/umleiter:0.1.1@sha256:2b937dc32bd15747cfe0f4baa42139f258218430057d80356f7b7a95140f3018
           volumeMounts:
             - name: state
               mountPath: /state

@@ -2,12 +2,13 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 metadata:
   annotations:
-    # app-remote-docker: the Docker daemon these runners use; without it they have nothing to
-    # talk to. infra-oci-composer: images.yaml is built there.
+    # app-remote-docker(-ci): the Docker daemons the runners use; without them they have nothing
+    # to talk to. infra-oci-composer: artifacts/ is built there.
     # Read by the root generator; inert to kustomize.
-    dependsOn: app-remote-docker,infra-kube-vnet,infra-oci-composer
+    dependsOn: app-remote-docker,app-remote-docker-ci,infra-kube-vnet,infra-oci-composer
 resources:
   - resources.yaml
-  - images.yaml
   - secret.yaml
+  - secret-k0s-flux.yaml
+  - secret-k0s-flux-ssh.yaml
   - networkpolicy.yaml

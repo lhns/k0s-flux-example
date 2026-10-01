@@ -11,9 +11,8 @@ here.
 - **Auth**: Uptime Kuma's own login is **disabled** (`disableAuth=true` in its DB), so the external
   **Authelia forwardAuth** (the `authelia` middleware, reflected into every namespace by
   traefik-reflector) is the sole gate. No OIDC client.
-- **Version**: pinned to the last **v1** release (`1.23.16`) — the migrated DB is a v1 schema, so we
-  stay on v1 rather than trigger v2's one-way schema upgrade. Upgrading to v2 is a separate, deliberate
-  step later.
+- **Version**: on v2. Its schema upgrade was one-way, so a rollback to v1 needs the DB restored from
+  backup, not just the tag reverted.
 - **kube-vnet**: only `net.traefik.traefik: ingress`. Monitor probes reach their targets over
   unrestricted external egress; a monitor pointing at an in-cluster service behind a kube-vnet would
   need that vnet opened separately.

@@ -18,7 +18,7 @@ return {
   inbound one is attributed by. Always the ENTRY NAME, never the host: three registrations
   share sip.example.net and the presented number is pinned per section, so a section named after
   the host could present only one of them. It is what CHANNEL(endpoint) hands the dialplan. */}}
-    [{{ include "cheogram-sip-routing.q" $name }}] = { user = {{ include "cheogram-sip-routing.q" $r.user }}, host = {{ include "cheogram-sip-routing.q" $r.host }}, peer = {{ include "cheogram-sip-routing.q" $name }}, contact_user = {{ include "cheogram-sip-routing.q" $r.contact_user }}, did = {{ include "cheogram-sip-routing.q" $r.did }}, line = {{ include "cheogram-sip-routing.q" $r.line }}{{ if $r.entrypoint }}, entrypoint = true{{ end }} },
+    [{{ include "cheogram-sip-routing.q" $name }}] = { user = {{ include "cheogram-sip-routing.q" $r.user }}, host = {{ include "cheogram-sip-routing.q" $r.host }}, peer = {{ include "cheogram-sip-routing.q" $name }}, contact_user = {{ include "cheogram-sip-routing.q" $r.contact_user }}, did = {{ include "cheogram-sip-routing.q" $r.did }}, line = {{ include "cheogram-sip-routing.q" $r.line }}{{ if $r.entrypoint }}, entrypoint = true{{ end }}{{ if $r.disabled }}, disabled = true{{ end }} },
 {{- end }}
   },
   lines = {
@@ -56,11 +56,14 @@ peer_secret_file is LAST because it is the only optional field: TAB is IFS white
 `read` collapses a run of them and an empty field anywhere else would shift every later one
 into the wrong variable.
 
+A disabled entry has no row, so its Secret key is never read and may be absent.
 */}}
 {{- define "cheogram-sip-routing.registrations" -}}
 {{- $lines := list -}}
 {{- range $name, $r := .Values.registrations -}}
+{{- if not $r.disabled -}}
 {{- $lines = append $lines (printf "%s\t%s\t%s\t%s\t%s" $name $r.user $r.host $r.contact_user ($r.peer_secret_file | default "")) -}}
+{{- end -}}
 {{- end -}}
 {{ join "\n" $lines }}
 {{- end -}}

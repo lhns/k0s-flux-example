@@ -15,5 +15,4 @@ The pod joins the `traefik` vnet (ingress) to be served. No Authelia — the
 `router.middlewares` label was commented out in the Swarm stack, so feishin is
 public (matching the original).
 
-`image: ghcr.io/jeffvli/feishin:latest` (the Swarm stack was untagged too); pin to
-a released tag/digest if you want reproducibility.
+`image: ghcr.io/jeffvli/feishin:latest`, digest-pinned — upstream cuts no release tags.

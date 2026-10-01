@@ -366,14 +366,36 @@ spec:
               readOnly: true
             - name: transcodes
               mountPath: /cache/transcodes
+          # The process stalls 0.5-5 s every ~90 s (GC after plugin tasks), so the default
+          # 1 s timeout fails single probes. First start can take minutes.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 20
             periodSeconds: 10
-            # First start can be slow (Swarm disabled healthchecks entirely).
-            failureThreshold: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          # No DB call, unlike /health: only a hung process fails this.
+          livenessProbe:
+            httpGet:
+              path: /System/Ping
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 500m
+              memory: 2Gi
+            limits:
+              memory: 4Gi
       volumes:
         - name: config
           persistentVolumeClaim:

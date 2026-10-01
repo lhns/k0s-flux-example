@@ -1,8 +1,17 @@
-# victoriametrics-cluster.example.com -> vmselect (:8481), behind the normal Authelia
-# forwardAuth (SSO) middleware. vmselect serves the query API at
-# /select/0/prometheus and the vmui at /select/0/vmui. The exporter/grafana reach
-# vmselect over the in-cluster ClusterIP, so Authelia only guards browser access.
-# No external port (ClusterIP only). TLS via the *.example.com wildcard default store.
+# victoriametrics.example.com -> vmselect (:8481), behind Authelia. vmselect serves the
+# query API at /select/0/prometheus and the vmui at /select/0/vmui/; `/` and `/vmui`
+# redirect there. In-cluster clients use the ClusterIP and bypass Authelia.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: vmui-redirect
+  namespace: victoriametrics-cluster
+spec:
+  redirectRegex:
+    regex: '^https://victoriametrics\.example\.com/.*'
+    replacement: "https://victoriametrics.example.com/select/0/vmui/"
+    permanent: false
+---
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -12,10 +21,18 @@ spec:
   entryPoints: [websecure]
   routes:
     - kind: Rule
-      match: Host(`victoriametrics-cluster.example.com`)
+      match: Host(`victoriametrics.example.com`)
       services:
         - name: vmselect
           port: 8481
       middlewares:
         - name: authelia
+    - kind: Rule
+      match: Host(`victoriametrics.example.com`) && (Path(`/`) || Path(`/vmui`) || Path(`/vmui/`))
+      services:
+        - name: vmselect
+          port: 8481
+      middlewares:
+        - name: authelia
+        - name: vmui-redirect
   tls: {}

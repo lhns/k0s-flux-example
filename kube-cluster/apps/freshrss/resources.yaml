@@ -107,7 +107,7 @@ spec:
                   name: freshrss-secrets
                   key: admin-api-password
             # Arg-strings for cli/do-install.php and cli/create-user.php. The entrypoint
-            # shell-expands ${VAR} from the container env, so the secrets above are
+            # shell-expands $VAR from the container env, so the secrets above are
             # interpolated at runtime and never appear in the repo. Both are idempotent
             # (exit 3 = already installed / user exists), so they no-op on every restart.
             # auth-type http_auth: Authelia authenticates at the proxy and forwardAuth
@@ -124,15 +124,15 @@ spec:
                 --db-host postgres-rw.postgres.svc.cluster.local:5432
                 --db-base freshrss
                 --db-user freshrss
-                --db-password ${DB_PASSWORD}
+                --db-password $DB_PASSWORD
                 --default-user admin
                 --auth-type http_auth
                 --language en
             - name: FRESHRSS_USER
               value: >-
                 --user admin
-                --password ${ADMIN_PASSWORD}
-                --api-password ${ADMIN_API_PASSWORD}
+                --password $ADMIN_PASSWORD
+                --api-password $ADMIN_API_PASSWORD
                 --language en
           ports:
             - name: http
@@ -170,37 +170,24 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: freshrss-data
-        # One composed artifact per extension, built by the extension-*.yaml files rather than
-        # cloned from GitHub at every pod start. Read-only, which is safe because FreshRSS only
-        # SCANS these directories — extension configuration is written to data/extensions-data/,
-        # not here. Verified against the running pod before the switch: nothing had been written
-        # into the old extensions directory since the day it was populated.
-        #
-        # Each reference is a bare placeholder — no registry, no version — matching the name of
-        # the ImageComposition that produces it. The root generator rewrites it to
-        # <publicHost>/<namespace>/<name>:<spec-hash> and patches the same hash into that composition's
-        # push.tags, so a volume and its artifact cannot disagree.
-        #
-        # These are the ONLY composed references here; the app container above stays an ordinary
-        # pinned upstream image.
-        #
-        # IfNotPresent is correct on a tag here for the same reason it is on a digest: the tag is
-        # derived from the spec, so it identifies content and a cached copy cannot be stale.
+        # One composed artifact per extension (artifacts/). Read-only is safe: FreshRSS only scans
+        # these, and writes extension configuration to data/extensions-data/. Each ${..._REF} is
+        # the digest-pinned ref its composition exports; see infra/oci-composer/README.md.
         - name: ext-autottl
           image:
-            reference: freshrss-ext-autottl
+            reference: ${FRESHRSS_EXT_AUTOTTL_REF}
             pullPolicy: IfNotPresent
         - name: ext-af-readability
           image:
-            reference: freshrss-ext-af-readability
+            reference: ${FRESHRSS_EXT_AF_READABILITY_REF}
             pullPolicy: IfNotPresent
         - name: ext-image-proxy
           image:
-            reference: freshrss-ext-image-proxy
+            reference: ${FRESHRSS_EXT_IMAGE_PROXY_REF}
             pullPolicy: IfNotPresent
         - name: ext-llm-classification
           image:
-            reference: freshrss-ext-llm-classification
+            reference: ${FRESHRSS_EXT_LLM_CLASSIFICATION_REF}
             pullPolicy: IfNotPresent
 ---
 apiVersion: v1

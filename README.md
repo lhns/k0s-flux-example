@@ -6,9 +6,9 @@ GitOps for a k0s Kubernetes cluster, managed by Flux.
   plane), applied with `k0sctl` (not Flux).
 - `kube-cluster/flux-system/` — Flux bootstrap (controllers, `GitRepository`, root
   `Kustomization`) plus the generator `HelmRelease`.
-- `kube-cluster/infra/`, `kube-cluster/apps/` — one directory per component. The
-  root generator chart (`Chart.yaml` + `templates/`) emits one Flux `Kustomization`
-  per directory (`infra-<name>` / `app-<name>`).
+- `kube-cluster/infra/`, `kube-cluster/apps/`, `kube-cluster/rbac/` — one directory
+  per component. The root generator chart (`Chart.yaml` + `templates/`) emits one Flux
+  `Kustomization` per directory (`infra-<name>` / `app-<name>` / `rbac-<name>`).
 - `<component>/substitution-secrets/` — optional, reserved name. SOPS Secrets in
   `flux-system` that feed `postBuild.substituteFrom`, so config stays plaintext with
   `${VAR}` placeholders. Having the directory is the whole opt-in: the generator emits
@@ -16,11 +16,12 @@ GitOps for a k0s Kubernetes cluster, managed by Flux.
   manifest in it. No `kustomization.yaml`, no annotation, no list.
   See `templates/kustomizations.yaml`.
 
-  Check `kustomize build kube-cluster/apps/<app> | grep '\${'` before adding one.
-  Substitution is not scoped to the file you meant: Flux runs envsubst over the whole
-  component build and replaces anything it cannot resolve with an empty string. Every
-  hit has to become a substitution source or be escaped as `$${VAR}`, and shell scripts
-  are the usual casualty. Bare `$var` is left alone.
+  Check `kustomize build kube-cluster/apps/<app> | grep -E '\$\{|\$\$'` before adding
+  one. Substitution is not scoped to the file you meant: Flux runs envsubst over the whole
+  component build, fails the reconcile on anything it cannot resolve, and applies `$$` as
+  `$`. Every hit has to become a substitution source, be escaped as `$${VAR}`, or sit in
+  an object annotated `kustomize.toolkit.fluxcd.io/substitute: disabled`; shell scripts
+  and regex replacements are the usual casualties. Bare `$var` is left alone.
 
   Such a config cannot come from a `secretGenerator`, which base64s it into `data:` and
   hides the `${VAR}` from envsubst. Use a `configMapGenerator` marked
@@ -37,6 +38,10 @@ GitOps for a k0s Kubernetes cluster, managed by Flux.
 
   Better still, prefer an app-native mechanism where one exists. The config then holds no
   credential at all: `apps/arr/autopulse` reads its secrets from `AUTOPULSE__*` env vars.
+- `<component>/artifacts/` — optional, reserved name. The component's `ImageComposition`
+  and `ImageBuild` objects, applied by their own `Kustomization`; each exports its
+  digest-pinned ref, which the component substitutes as `${VAR}`, so the caveats above
+  apply. See [`infra/oci-composer`](kube-cluster/infra/oci-composer/README.md).
 
 ## Namespacing (no top-level `namespace:` transformer)
 
@@ -87,9 +92,8 @@ into. Reference: `apps/headlamp`.
 **2. The content is not an image → compose one.** git repositories (including `subpath`
 selection out of a monorepo), jars fetched by URL, ConfigMaps: something has to turn these
 into OCI content, and that something is [`infra/oci-composer`](kube-cluster/infra/oci-composer/README.md).
-An app declares `ImageComposition` objects among its own resources and the root generator
-wires them to their consumers by spec-hash, so the artifact and the pod template can never
-drift. Reference: `apps/freshrss`.
+An app declares `ImageComposition` objects in its `artifacts/` directory and names each by
+the digest-pinned ref it exports. Reference: `apps/freshrss`.
 
 The line between the two is **whether the inputs are already images** — not how complex the
 result is. Wrapping an existing image in a composition only re-wraps it.
@@ -99,7 +103,7 @@ result is. Wrapping an existing image in a composition only re-wraps it.
 see — it looks for `image: <string>`. Moving a reference out of a container spec into an
 image volume therefore stops the auto-bump silently. `renovate.json` carries an
 image-volume custom manager for this, anchored on an explicit `# renovate:` comment so it
-cannot match the composed placeholders the generator rewrites (those must never be bumped).
+cannot match the substituted `${VAR}` refs of composed artifacts.
 
 ## Reconciliation intervals
 
@@ -262,11 +266,32 @@ rebooted at 00:44** -- all back roughly five hours later.
 Do not attribute a crash to the kernel bug without checking for `umount timed out` in
 `journalctl -b -1 -k` (needs sudo on the node; `lhns` is not in `adm`/`systemd-journal`).
 
+## Handing over a secret
+
+Copy the secret, then run, or let Claude run:
+
+```sh
+python3 scripts/secret-from-clipboard.py kube-cluster/apps/foo/secret-bar.yaml bar foo TOKEN
+```
+
+A dialog shows the target and a masked field that follows the clipboard until you type or
+paste into it, so the secret can also be copied after it opens. For a binary value, pick a
+file with the folder button or drop it on the dialog (natively on Windows, with
+`tkinterdnd2` on Linux); it goes in as base64 under `data:`, text under `stringData:`, at
+most 1 MiB. OK writes a SOPS-encrypted `Secret`, which you commit. The value, and a text
+value's length, never reach the chat, a terminal, a command line or a plaintext file, and
+only the cluster can decrypt the file. That makes it one Secret per
+file: adding a key to an existing encrypted file needs the cluster's key. The script needs
+`sops` and tkinter (`python3-tk`). Its tests are in `tests/secret-from-clipboard.py` and
+need `age-keygen` and a display.
+
 ## Testing the generator chart
 
-`scripts/validate.sh` renders the root chart against `tests/fixtures/` and diffs the
-result against `tests/golden/fixtures.yaml`, then renders the real tree into
-kubeconform. The fixtures cover the cases the live repo does not: a component with no
+`scripts/validate.sh` is the single entry point, for people and CI. Among other checks it
+renders the root chart against `tests/fixtures/` and diffs the result against
+`tests/golden/fixtures.yaml`, then renders the real tree into kubeconform. It also runs
+`yamllint`, the release-size, substitution, source-pin, synapse-tag-drift and SOPS checks,
+and `scripts/run-tests.sh`. The fixtures cover the cases the live repo does not: a component with no
 annotations, every annotation set, a `substitution-secrets/` dir holding a
 wrong-namespace Secret, and artifacts with and without a resolvable `sourceRef`.
 

@@ -45,6 +45,9 @@ kind: Middleware
 metadata:
   name: jetkvm-kube-redirect
   namespace: jetkvm
+  annotations:
+    # ${1} is a regex group, not a Flux variable.
+    kustomize.toolkit.fluxcd.io/substitute: disabled
 spec:
   redirectRegex:
     regex: "^https://jetkvm.kube.example.com/(.*)"

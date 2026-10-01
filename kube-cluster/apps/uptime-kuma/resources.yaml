@@ -67,9 +67,8 @@ spec:
           - name: net.ipv6.conf.default.disable_ipv6
             value: "1"
       containers:
-        # Pinned to the last v1 release: the migrated DB is a v1 schema
-        # (databasePatchedFiles / database_version), so stay on v1 rather than
-        # trigger v2's one-way schema upgrade. Uptime Kuma migrates v1->v1 forward.
+        # v2's schema upgrade is one-way: a rollback to v1 needs the DB restored
+        # from backup, not just the tag reverted.
         - name: uptime-kuma
           image: louislam/uptime-kuma:2.5.5
           env:

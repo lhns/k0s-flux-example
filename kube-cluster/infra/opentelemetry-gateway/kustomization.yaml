@@ -10,22 +10,14 @@ metadata:
     # No `namespace:` transformer — every object pins its own namespace, and
     # vnet.yaml deliberately ships a binding into the `strimzi` namespace.
     #
-    # ceph-csi-cephfs is gone from this list: it was here only for the static PV that
-    # carried the Aiven plugin jars, which is now an OCI image volume. oci-composer is
-    # NOT a replacement dependency — the artifact is pulled by the kubelet, not by any
-    # pod, so nothing here talks to it and Flux ordering has no bearing on it.
-    dependsOn: infra-strimzi,infra-metallb,infra-ceph-csi-rbd,infra-kube-vnet
+    # oci-composer: artifacts/ is built there, and publishes the ref kafka.yaml substitutes.
+    dependsOn: infra-strimzi,infra-metallb,infra-ceph-csi-rbd,infra-kube-vnet,infra-oci-composer
 resources:
 - resources.yaml
-- tiered-storage-plugin.yaml
 - secret.yaml
 - kafka.yaml
 - topics.yaml
 - vnet.yaml
-# Where Strimzi keeps an image volume's reference — the builtin fieldspecs do not cover it.
-# See the file; without it the composed placeholder in kafka.yaml is never rewritten.
-configurations:
-- kustomizeconfig.yaml
 # Content-hashed names: editing a collector config renames the ConfigMap and rolls the
 # Deployment atomically. No Reloader needed for these.
 configMapGenerator:
@@ -37,3 +29,7 @@ configMapGenerator:
   namespace: opentelemetry-gateway
   files:
   - config.yaml=opentelemetry-gateway-kafkametrics.yaml
+# The collector's own escape is $$, which Flux substitution would collapse to $.
+generatorOptions:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled

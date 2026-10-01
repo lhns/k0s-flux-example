@@ -1,19 +1,46 @@
 # oci-composer
 
 [kube-oci-composer](https://github.com/lhns/kube-oci-composer) — assembles OCI artifacts from
-content-addressed inputs and serves them from its own read-only registry, so a workload can get
-files its upstream image does not ship without a custom image build, a static PV mounted over the
-path, or an initContainer that clones something at runtime.
+content-addressed inputs and pushes them to its own registry, so a workload can get files its
+upstream image does not ship without a custom image build, a static PV mounted over the path, or
+an initContainer that clones something at runtime.
 
 First consumer: [`../../apps/freshrss`](../../apps/freshrss/README.md).
 
+## How a workload names an artifact
+
+By the digest-pinned ref the artifact exports. Nothing names a tag.
+
+- A component's `ImageComposition` and `ImageBuild` objects live in its `artifacts/` directory,
+  in namespace `oci-composer`, and each sets `push.writeRefTo` into `flux-system`.
+- After every publish the controller writes `<registry>/oci-composer/<name>@sha256:…` into
+  ConfigMap `<kind>-oci-composer-<name>` there, labelled `reconcile.fluxcd.io/watch: Enabled`
+  (`refExport` in `release.yaml`), so a new digest rolls its consumer at once.
+- The component substitutes from each of those ConfigMaps (`optional: false`) and writes the image
+  as `${KEY}`. A missing ConfigMap, or a key nobody exports, fails the reconcile: kustomize-controller
+  substitutes strictly. Nothing is applied with an empty image.
+- `artifacts/` is its own Flux Kustomization with `wait: true`, and the component depends on it.
+  The generator's comment in `templates/kustomizations.yaml` says why each of those is needed.
+
+What that costs:
+
+- **The deployed digest is state outside git.** A revert commit rebuilds rather than restores: a
+  composition usually lands on its old digest, an `ImageBuild` on a new one. `operator.keepBuilds`
+  keeps older builds pullable, but nothing points a workload back at them.
+- **A failing build holds its component back**, because the component waits for `artifacts/` to be
+  Ready. Pods keep the last digest they were given.
+- **The whole component is substituted.** Every other `${…}` or `$$` in it has to be escaped or
+  opted out; see `templates/kustomizations.yaml`.
+- **Offline rendering cannot resolve the refs.** `scripts/check-substitution.py` counts every key an
+  `artifacts/` object exports as defined, and fails an artifact that exports nothing, sits outside
+  `artifacts/`, or is not in namespace `oci-composer`.
+
 ## Every `sourceRef` must pin `revision`
 
-A pin bump moves the source and the spec-hash tag in one commit, but the composition's watch can
-fire before the `GitRepository`'s own update lands. The source is then self-consistent at the
-previous generation, so nothing about it looks wrong, and the composition publishes the OLD content
-under the NEW tag. The corrective build differs (provenance stamps the revision into the manifest),
-`onConflict: Fail` refuses, and the object is wedged until the tag changes.
+A pin bump moves the source and the composition in one commit, but the composition's watch can fire
+before the `GitRepository`'s own update lands. The source is then self-consistent at the previous
+generation, so nothing about it looks wrong: the composition builds the OLD content, exports it, and
+the consumer rolls onto it until the source catches up.
 
 `sourceRef.revision` closes it: the layer stays `Pending` until the artifact is at the named
 revision. `operator.requirePinnedSources` (and `imageBuild.`) makes it mandatory.
@@ -74,10 +101,9 @@ searched left to right:
 /etc/k0s/registries/spegel         <- Spegel clears and rewrites this on every pod start
 ```
 
-Spegel owns its directory outright and deletes anything it did not write. When the two shared one,
-this drop-in was destroyed on every Spegel restart — silently, since Spegel's peer-to-peer
-mirroring served artifacts a node already had and only a brand-new tag ever failed. It broke
-composed pulls on 17 Aug 2026 and again during testing.
+Spegel owns its directory outright and deletes anything it did not write. Sharing one root means
+this drop-in is destroyed on every Spegel restart — silently, since Spegel serves artifacts a node
+already has and only a new digest fails.
 
 **Order is load-bearing.** Spegel writes `_default`, which matches *every* registry, and containerd
 stops at the first root that matches anything. This root must stay first, and must never gain a
@@ -88,44 +114,31 @@ stops at the first root that matches anything. This root must stay first, and mu
   nodes are listed with **no `server` line**, so there is no primary: containerd tries them in
   order and falls through, and `server` would only have made one node a distinguished fallback.
 - **Node IPs never appear in an image reference.** Every reference is
-  `oci-composer.internal:30500/<namespace>/<name>:<tag>`; the addresses live only in the drop-in.
+  `oci-composer.internal:30500/oci-composer/<name>@sha256:<digest>`; the addresses live only in the
+  drop-in.
   That is what keeps references portable and reviewable.
 
 ## Availability
 
-**Both replicas serve.** `replicaCount: 2` with `operator.storage.shared: true`, so the registry is
-not a single point of failure: losing a pod, or draining the node under it, leaves the other
-answering pulls. Publishing, garbage collection and status writes stay leader-only — serving is
-read-only, so several replicas answering is safe.
+The controller does not serve; the registry Deployment does, and it is a single pod. Its NodePort
+answers on every node, so no *node* is a single point of failure, but the registry pod restarting
+or being drained stops pulls for as long as it takes to reschedule.
 
-This matters more than it first looks. Pulls are **frequent, not rare**: with spec-hash tags every
-change to a composition produces a new tag, and a new tag is a new pull on every node running the
-workload. A registry that stops answering when one pod moves is a poor dependency for something
-like Kafka, where a broker restarting mid-outage could not fetch its plugins and would fail to
-start.
+That is a real dependency, because pulls are **frequent, not rare**: every rebuild publishes a new
+digest, and a new digest is a new pull on every node running the workload.
 
-Two things make it work, and the second is easy to miss:
-
-- **Shared blobs** — the cephfs RWX PVC. Asserted with `storage.shared`, because a process handed a
-  directory cannot tell whether it is node-local or a shared mount.
-- **Shared manifests** — these live in the registry's *in-memory* map rather than the store, so
-  shared blobs alone would leave a standby answering 404 for content sitting right there. Every
-  replica refills that map from `status.history` on an interval.
-
-The chart **fails** on `replicaCount > 1` without shared storage, rather than handing over a
-standby that serves nothing.
-
-**Spegel still does not mirror this.** It manages the `_default` directory, which containerd
-consults only for registries with no directory of their own — and this one has one. So peer-to-peer
-mirroring is not a fallback here; the replicas are.
+**Spegel does not mirror this.** It manages the `_default` directory, which containerd consults
+only for registries with no directory of their own — and this one has one. So peer-to-peer
+mirroring is not a fallback here.
 
 ## Verification
 
 ```sh
-kubectl -n oci-composer get helmrelease,pod
+kubectl -n oci-composer get helmrelease,pod,imagecomposition,imagebuild
+kubectl -n flux-system get configmap -l app.kubernetes.io/managed-by=kube-oci-composer
 # from a node that is NOT running the pod — proves the NodePort hop and that containerd
 # never tried to resolve oci-composer.internal:
-k0s ctr -n k8s.io images pull --hosts-dir /etc/k0s/registries/oci-composer   oci-composer.internal:30500/<namespace>/<name>:<tag>
+k0s ctr -n k8s.io images pull --hosts-dir /etc/k0s/registries/oci-composer   oci-composer.internal:30500/oci-composer/<name>@sha256:<digest>
 # and the regression test that matters: restart that node's spegel pod, then confirm
 # /etc/k0s/registries/oci-composer/oci-composer.internal_30500_/hosts.toml still exists
 ```

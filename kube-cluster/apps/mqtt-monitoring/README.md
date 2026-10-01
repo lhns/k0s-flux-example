@@ -13,8 +13,9 @@ Migrated from Docker Swarm.
   `kube-vnet/net.mosquitto.mosquitto: egress` and joins the new `mosquitto` VirtualNetwork
   (`apps/mosquitto/vnet.yaml`).
 - **Config** — the full HOCON config (server, credentials, metric filters) holds the MQTT password, so
-  the whole `CONFIG` is a **SOPS secret** (`config-secret.yaml`), injected as the `CONFIG` env var. Edit
-  it with `sops`. (Only the broker address was changed from the Swarm config.)
+  the whole `CONFIG` is `config.json`, a `configMapGenerator` source patched to a Secret and injected as
+  the `CONFIG` env var. It is plaintext in git — the password arrives by substitution, so edit the
+  file directly, not with `sops`.
 - **OTLP** — exports to the in-cluster gateway
   (`opentelemetry-gateway.opentelemetry-gateway.svc.cluster.local:4317`). It was the Swarm
   collector at `10.20.2.10:4317`.

@@ -10,8 +10,9 @@ peers on an interval. Migrated from Docker Swarm.
   (`infra/postgres`) instead of the Swarm-bundled Postgres. The Swarm DB is **not** migrated — there
   was no prior sync state — so the db starts empty and the worker migrates its own schema in on first
   run. `database.yaml` = CRDs; `db-role-secret.yaml` = SOPS/Reflector password.
-- **Config** (`config-secret.yaml`): the peer list + API keys live in a SOPS-encrypted Secret mounted
-  read-only at `/config/config.yaml` (`IMMICH_SYNC_CONFIG`). The DB password comes from the reflected
+- **Config** (`federation-config.yaml`): the peer list + API keys, a `configMapGenerator` source patched
+  to a Secret and mounted read-only at `/config/config.yaml` (`IMMICH_SYNC_CONFIG`). API keys arrive by
+  substitution, not as literals. The DB password comes from the reflected
   db secret via env; everything else is plain env.
 - **kube-vnet**: only `kube-vnet/net.postgres.postgres: egress` (reach the CNPG primary). No traefik
   label — nothing connects *to* the worker; its HTTPS to the peers is external egress, unrestricted

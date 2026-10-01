@@ -1,7 +1,8 @@
 # multus
 
 A CNI *meta-plugin*: it lets selected pods have a **second network interface** alongside the
-normal pod network. Nothing uses it yet — this component only makes the capability available.
+normal pod network. Consumers carry `k8s.v1.cni.cncf.io/networks`: `apps/homeassistant`,
+`apps/matter-server`, `apps/otbr`.
 
 ## Why
 
@@ -112,8 +113,7 @@ gains `net1` on the LAN.
 
 ## Upgrading
 
-Re-vendor `deployments/multus-daemonset.yml` from the new tag and re-apply the four
-deviations marked `DEVIATION` in `resources.yaml` — upstream's file is a self-declared
-"quickstart" that "does not care about ... upgrade/update/uninstall scenario", so it will not
-carry them for you. Renovate bumps the pinned image tag on its own; the manifest around it is
-what needs a human.
+Renovate bumps `newTag` in `kustomization.yaml` and, in the same PR, re-downloads
+`upstream.yaml` (upstream's `deployments/multus-daemonset.yml`) for that tag. Our changes are
+kustomize patches, so they survive; a patch whose target moved fails the build. Never
+automerged: review the `upstream.yaml` diff.

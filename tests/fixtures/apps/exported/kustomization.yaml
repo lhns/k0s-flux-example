@@ -1,0 +1,9 @@
+# artifacts/ and substitution-secrets/ together: the artifacts Kustomization inherits
+# this dependsOn, the component depends on both, and substituteFrom is their union.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    dependsOn: infra-oci-composer
+resources:
+  - resources.yaml

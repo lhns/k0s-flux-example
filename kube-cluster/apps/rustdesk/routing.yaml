@@ -1,0 +1,23 @@
+---
+# WebSocket endpoints for the web client and allow-websocket clients; the paths are the
+# ones upstream's own reverse-proxy config uses. No ForwardAuth: clients authenticate
+# with the server key, and a redirect would break the upgrade.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: rustdesk
+  namespace: rustdesk
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`rustdesk.example.com`) && PathPrefix(`/ws/id`)
+      services:
+        - name: rustdesk
+          port: 21118
+    - kind: Rule
+      match: Host(`rustdesk.example.com`) && PathPrefix(`/ws/relay`)
+      services:
+        - name: rustdesk
+          port: 21119
+  tls: {}

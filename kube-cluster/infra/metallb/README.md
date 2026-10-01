@@ -1,12 +1,8 @@
 # metallb
 
-MetalLB **address configuration** (not the operator). MetalLB is installed by
-the k0s helm extension in `k0sctl.yaml`; only its `IPAddressPool` /
-`L2Advertisement` CRs live here — the same split used for cert-manager and
-traefik (operator in k0s, config in Flux).
+MetalLB, operator and address configuration both.
 
-- `pool.yaml` — `traefik-vip` pool (`10.20.2.15/32`) + its L2 advertisement.
-
-This adopts CRs that were previously applied by hand into GitOps; the content is
-identical to the live objects, so bringing it under Flux is a no-op change of
-ownership (traefik keeps `10.20.2.15`).
+- `release.yaml` — HelmRepository + HelmRelease `metallb`, adopted in place from
+  the release k0s installed, plus a `postRenderers` liveness-probe patch.
+- `pool.yaml` — every `IPAddressPool` and its `L2Advertisement`. Each pool's
+  comment says which app owns the VIP and why it needs one.

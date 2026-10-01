@@ -8,7 +8,8 @@
 --
 -- $1 is the component directory, which run.sh is itself handed; $2 the routing table as
 -- the routing/ chart RENDERS it. A fixture would drift from the chart, and the outbound
--- rules exercised below are the live ones.
+-- rules exercised below are the live ones. run.sh runs it twice: on the live table, and on
+-- the one rendered with every `disabled` entry enabled.
 
 local APP, ROUTING = ...
 if not APP or APP == "" or not ROUTING or ROUTING == "" then
@@ -18,7 +19,6 @@ end
 
 local env = {
 	SIP_HOST = "sip.example.net",
-	SIP_TRUNKS = "sip.example.net,voip.example.org",
 	SIP_ROUTING_FILE = ROUTING,
 	SIP_SHORT_MAXLEN = "5",
 	SIP_E164_COUNTRY = "49",
@@ -42,6 +42,15 @@ local routing = sip_routing
 if not routing then
 	print("FAIL: the rendered routing table at " .. ROUTING .. " did not load")
 	os.exit(1)
+end
+
+-- eventpbx is `disabled` in values.yaml. Its cases follow the table's own flag, so both
+-- runs assert their state and re-enabling it needs no edit here. ev(on, off).
+local ev_reg = routing.registrations["eventpbx-5552"]
+local EV_ON = ev_reg ~= nil and not ev_reg.disabled
+local function ev(on, off)
+	if EV_ON then return on end
+	return off
 end
 
 local failures = 0
@@ -79,9 +88,10 @@ end
 case("bare number", "015112345678",
 	"015112345678", nil, "pstn-02012345678", "015112345678", "routed")
 
--- 1b. short all-digit string stays on the internal trunk, not PSTN.
+-- 1b. short all-digit string stays on the internal trunk, not PSTN. With that line disabled
+--     it is REFUSED -- never passed on to the catch-all's PSTN trunk.
 case("short extension", "5550",
-	"5550", nil, "eventpbx-5552", "5550", "routed")
+	"5550", nil, ev("eventpbx-5552"), "5550", ev("routed", "disabled"))
 
 -- 2. roster contact on the PSTN trunk. Without the suffix strip the label reads
 --    "sip.example.net@sip.example.net", matches nothing, and is dialled as DNS. A trunk label names a
@@ -90,9 +100,11 @@ case("short extension", "5550",
 case("roster contact, pstn trunk", "+4915112345678#sip.example.net",
 	"+4915112345678@sip.example.net", "sip.example.net", "pstn-02012345678", "+4915112345678", "trunk")
 
--- 3. roster contact on the other trunk: that trunk, not the default.
+-- 3. roster contact on the other trunk: that trunk, not the default. A host with no enabled
+--    registration is no trunk of ours, so the label is refused.
 case("roster contact, other trunk", "5550#voip.example.org",
-	"5550@voip.example.org", "voip.example.org", "eventpbx-5552", "5550", "trunk")
+	"5550@voip.example.org", "voip.example.org", ev("eventpbx-5552"), "5550",
+	ev("trunk", "unknown"))
 
 -- 4. A LINE label -- the form every inbound caller is rendered as, so it is also the
 --    form dialled back. It resolves through the line's primary registration to that
@@ -102,7 +114,8 @@ case("roster contact, other trunk", "5550#voip.example.org",
 case("line label", "+4915112345678#office",
 	"+4915112345678@office", "office", "pstn-02012345671", "+4915112345678", "line")
 case("line label, other line", "+4915112345678#eventpbx",
-	"+4915112345678@eventpbx", "eventpbx", "eventpbx-5552", "+4915112345678", "line")
+	"+4915112345678@eventpbx", "eventpbx", ev("eventpbx-5552"), "+4915112345678",
+	ev("line", "disabled"))
 -- A client that upper-cased the label still reaches the line; line names are lowercase.
 case("line label case-insensitive", "+4915112345678#OFFICE",
 	"+4915112345678@OFFICE", "OFFICE", "pstn-02012345671", "+4915112345678", "line")
@@ -147,11 +160,11 @@ routed("112", "112", "admin@xmpp.example.com", "pstn-02012345678", "home", true)
 routed("0112345 is not an emergency number", "0112345", "admin@xmpp.example.com",
 	"pstn-02012345678", "home", false)
 routed("1102 is not an emergency number", "1102", "admin@xmpp.example.com",
-	"eventpbx-5552", "eventpbx", false)
+	ev("eventpbx-5552"), "eventpbx", false)
 
 -- Ordering again, at the other boundary: five digits still match the short rule, six fall
 -- past it to the catch-all.
-routed("five digits", "12345", "admin@xmpp.example.com", "eventpbx-5552", "eventpbx", false)
+routed("five digits", "12345", "admin@xmpp.example.com", ev("eventpbx-5552"), "eventpbx", false)
 routed("six digits", "123456", "admin@xmpp.example.com", "pstn-02012345678", "home", false)
 
 -- The per-person rule: same destination, different caller, different line -- and a PEER of its
@@ -218,6 +231,45 @@ check("line with a dangling primary fails closed",
 		outbound = {{to_pattern = "^(.*)$", line = "a"}}}, "5551234", nil),
 	nil)
 
+-- A DISABLED primary switches its line off, whatever values.yaml says today: the rule that
+-- selects it REFUSES, and must not fall through to the next rule's trunk.
+local off_tbl = {
+	registrations = {
+		["reg-a"] = {host = "trunk-a", peer = "reg-a", line = "a", disabled = true},
+		["reg-b"] = {host = "trunk-b", peer = "reg-b", line = "b"},
+	},
+	lines = {
+		a = {primary = "reg-a", callers = {"*"}},
+		b = {primary = "reg-b", callers = {"*"}},
+	},
+	outbound = {
+		{to_pattern = "^(%d%d?%d?%d?%d?)$", line = "a"},
+		{to_pattern = "^(.*)$", line = "b"},
+	},
+}
+sip_routing = off_tbl
+local function off(name, to, want_peer, want_kind)
+	local _, _, peer, _, _, kind = resolve_destination(to, permitted)
+	check(name .. " peer", peer, want_peer)
+	check(name .. " kind", kind, want_kind)
+end
+off("a short extension on a disabled line is refused", "5550", nil, "disabled")
+off("so is its line label", "015112345678@a", nil, "disabled")
+off("other lines are untouched", "015112345678", "reg-b", "routed")
+check("the refusal names the line", refusal_reason("disabled", "a"),
+	"line 'a' is disabled in the routing table")
+local off_peer, _, _, off_cause, off_reason = matrix_outbound_route("5550", "sip-5550", permitted)
+check("the matrix path refuses it", off_peer, nil)
+check("with 503", off_cause, 34)
+check("and says why", tostring(off_reason):find("is disabled", 1, true) ~= nil, true)
+local sms_off, _, sms_off_reason = sms_outbound_route("5550", permitted)
+check("the sms path refuses it", sms_off, nil)
+check("and says why", tostring(sms_off_reason):find("is disabled", 1, true) ~= nil, true)
+sip_routing = routing
+check("a disabled registration attributes nothing by endpoint",
+	(inbound_line(off_tbl, nil, "reg-a")), nil)
+check("nor as the sole registration on its host", (inbound_line(off_tbl, nil, "trunk-a")), nil)
+
 -- The glob forms the schema allows, including the one that must not be treated as a
 -- wildcard by accident.
 local function globbed(name, glob, addr, want)
@@ -251,10 +303,10 @@ attributed("unknown contact falls back to the entrypoint's line", "someone@examp
 attributed("the household endpoint is the household line", nil, "pstn-02012345678", "home")
 attributed("an office endpoint is the office line", nil, "pstn-02012345671", "office")
 attributed("the other office endpoint too", nil, "pstn-02012345672", "office")
-attributed("the eventpbx endpoint is its own line", nil, "eventpbx-5552", "eventpbx")
+attributed("the eventpbx endpoint is its own line", nil, "eventpbx-5552", ev("eventpbx"))
 attributed("no contact at all falls back the same way", nil, "sip.example.net", "home")
 -- A host with exactly one registration needs no entrypoint entry to be unambiguous.
-attributed("sole registration on a host", nil, "voip.example.org", "eventpbx")
+attributed("sole registration on a host", nil, "voip.example.org", ev("eventpbx"))
 attributed("unknown peer has no line", "02012345678", "pbx.example.net", nil)
 -- The endpoint OUTRANKS the dialled contact, and must: pjsip matched the call to one
 -- registration, while the Request-URI is whatever the carrier chose to send.
@@ -288,7 +340,7 @@ attribution("and says so even on its own contact only when the contact matches",
 	"02012345678", "pstn-02012345678", "contact")
 -- A host with one registration answers everything, so the fallback is invisible there too.
 attribution("the sole-registration fallback is marked", "someone@example.net",
-	"voip.example.org", "sole")
+	"voip.example.org", ev("sole"))
 -- Asking for the default outright -- the message path, which has no contact -- is a
 -- fallback like any other, and the handler NOTICEs only what carried a contact.
 attribution("no contact is the fallback too", nil, "sip.example.net", "entrypoint")
@@ -328,12 +380,12 @@ check("conference name needs a line",
 	matrix_conference_name("<sip:+4915112345678@office>", nil), nil)
 check("conference name needs e164",
 	matrix_conference_name("<sip:5551@eventpbx>", "eventpbx"), nil)
--- Whatever it produces has to survive the kick command's character class, or an answered
+-- Whatever it produces has to survive the kick's character class, or an answered
 -- Matrix call could enter a conference that can never be ended.
--- The class admits "+" for exactly this; it is not a shell metacharacter.
+-- The class admits "+" for exactly this; it does not separate application arguments.
 check("line conference is kickable",
-	matrix_kick_command(matrix_conference_name("<sip:+4915112345678@office>", "office")),
-	"asterisk -rx 'confbridge kick sip-office-+4915112345678 all'")
+	matrix_kick_conference(matrix_conference_name("<sip:+4915112345678@office>", "office")),
+	"sip-office-+4915112345678")
 
 -- What the Matrix bridge sends: E.164 with the plus in the request URI, and the
 -- conference name in X-Conference. Numbers are placeholders.
@@ -366,7 +418,7 @@ route("request uri host ignored", "+4915112345678@cheogram-sip-internal.example.
 -- A short all-digit destination keeps going to the internal trunk, exactly as the XMPP
 -- path routes it: normalize_e164 leaves it alone and resolve_destination decides.
 route("short extension keeps the short trunk", "5550", "sip-5550",
-	"eventpbx-5552", "5550", "sip-5550", nil)
+	ev("eventpbx-5552"), ev("5550"), ev("sip-5550"), ev(nil, 34))
 
 -- Not E.164 yet: normalised before the trunk is chosen, so it cannot route differently
 -- from the same number written with a plus.
@@ -402,24 +454,29 @@ check("cause nil", matrix_outbound_cause(nil), 34)
 
 -- Ending a conference when a leg hangs up. This is the whole of the fix for "the SIP
 -- caller hangs up and the Element call stays open": end_marked cannot do it, so the
--- hangup extension runs this command instead.
-check("kick command", matrix_kick_command("sip-4915112345678"),
-	"asterisk -rx 'confbridge kick sip-4915112345678 all'")
--- A leg that never joined a conference must produce no command at all, because every
+-- hangup extension kicks the conference instead.
+check("kick conference", matrix_kick_conference("sip-4915112345678"), "sip-4915112345678")
+-- A leg that never joined a conference must produce no kick at all, because every
 -- ordinary inbound call and every SIP MESSAGE passes through the same handler.
-check("kick no conference", matrix_kick_command(nil), nil)
-check("kick empty conference", matrix_kick_command(""), nil)
--- The name is pasted into a shell command line, so anything outside the class the
--- routing already enforces fails closed rather than being quoted and hoped about.
-check("kick rejects a quote", matrix_kick_command("sip-1' ; rm -rf /"), nil)
-check("kick rejects a space", matrix_kick_command("sip-1 all"), nil)
-check("kick rejects a semicolon", matrix_kick_command("sip-1;id"), nil)
-check("kick rejects a dollar", matrix_kick_command("sip-$(id)"), nil)
+check("kick no conference", matrix_kick_conference(nil), nil)
+check("kick empty conference", matrix_kick_conference(""), nil)
+-- The conference already ended this leg, so there is nothing left to kick. ENDMARKED is
+-- the normal Matrix-side hangup, and skipping it is what keeps a WARNING off every call.
+check("kick skips endmarked", matrix_kick_conference("sip-4915112345678", "ENDMARKED"), nil)
+check("kick skips kicked", matrix_kick_conference("sip-4915112345678", "KICKED"), nil)
+check("kick after a plain hangup", matrix_kick_conference("sip-4915112345678", "HANGUP"),
+	"sip-4915112345678")
+-- The name becomes an application argument, so anything outside the class the routing
+-- already enforces fails closed rather than being quoted and hoped about.
+check("kick rejects a comma", matrix_kick_conference("sip-1,participants"), nil)
+check("kick rejects a quote", matrix_kick_conference("sip-1' ; rm -rf /"), nil)
+check("kick rejects a space", matrix_kick_conference("sip-1 all"), nil)
+check("kick rejects a semicolon", matrix_kick_conference("sip-1;id"), nil)
+check("kick rejects a dollar", matrix_kick_conference("sip-$(id)"), nil)
 -- Whatever matrix_outbound_route accepts as a conference name must survive to here, or
 -- an outbound call could be placed into a conference that can never be ended.
 local _, _, routed = matrix_outbound_route("+4915112345678", "sip-4915112345678", matrix_caller)
-check("routed conference is kickable", matrix_kick_command(routed),
-	"asterisk -rx 'confbridge kick sip-4915112345678 all'")
+check("routed conference is kickable", matrix_kick_conference(routed), "sip-4915112345678")
 
 -- The JID localpart mapping both ways.
 check("sip_uri_to_local", sip_uri_to_local("alice@pbx.example.net"), "alice#pbx.example.net")
@@ -457,7 +514,7 @@ inbound("national 0 prefix", "<sip:015112345678@10.20.2.3>",
 -- A host that is already one of ours names its own line, or the other trunk would be
 -- mislabelled as the household one.
 inbound("known trunk names its line", "<sip:5551@voip.example.org>",
-	"5551@eventpbx", nil)
+	ev("5551@eventpbx", "5551@home"), nil)
 -- Neither of these normalises, so digits is nil and the bridge leg is skipped rather than
 -- keyed on something the bridge would decline.
 inbound("alphanumeric sender", "<sip:Telekom@10.20.2.3>", "Telekom@home", nil)
@@ -567,7 +624,7 @@ sms_route("e164 to default trunk", "+4915112345678", "pstn-02012345678", "+49151
 -- The request URI host is the gateway's own Service name and says nothing about routing.
 sms_route("request uri host ignored", "sip:+4915112345678@cheogram-sip-internal.example.svc:5060",
 	"pstn-02012345678", "+4915112345678")
-sms_route("short extension keeps the short trunk", "5550", "eventpbx-5552", "5550")
+sms_route("short extension keeps the short trunk", "5550", ev("eventpbx-5552"), ev("5550"))
 sms_route("00 prefix normalised", "004915112345678", "pstn-02012345678", "+4915112345678")
 -- The gate applies here too: a bridge that stopped naming its sender reaches no trunk.
 check("sms with no caller is refused", (sms_outbound_route("+4915112345678", nil)), nil)
@@ -788,7 +845,7 @@ local function dialled(name, localpart, from, want)
 		from and ("xmpp:" .. from) or permitted)
 	check(name, peer and dial_string(routing, peer, exten) or nil, want)
 end
-dialled("a short extension goes out pjsip", "5550", nil, "PJSIP/5550@eventpbx-5552")
+dialled("a short extension goes out pjsip", "5550", nil, ev("PJSIP/5550@eventpbx-5552"))
 dialled("an ordinary number goes out the household registration", "015112345678", nil,
 	"PJSIP/015112345678@pstn-02012345678")
 dialled("110 leaves by the registration the rule pins", "110", "someone@example.net",
@@ -799,38 +856,50 @@ dialled("a refused caller dials nothing", "5550", "someone@example.net", nil)
 -- pjsip cannot carry a JID in the Contact user part -- it parses the URI it builds and the
 -- registration object would not load -- so the eventpbx contact is its own number, and it
 -- is a per-DID match like any other rather than the host's fallback.
-attribution("the pjsip contact matches per-DID", "5552", "voip.example.org", "contact")
-attribution("and by endpoint on the same host", "5552", "eventpbx-5552", "contact")
+attribution("the pjsip contact matches per-DID", "5552", "voip.example.org", ev("contact"))
+attribution("and by endpoint on the same host", "5552", "eventpbx-5552", ev("contact"))
 
 -- EVERY DID, both directions, straight off the live table rather than case by case: a DID
 -- added without a line, or an endpoint renamed out of step with the entry that names it, is
 -- a call that rings the wrong household or none.
 for name, reg in pairs(routing.registrations) do
-	-- INBOUND: pjsip matched the call to this registration's endpoint, so the endpoint name
-	-- alone must name the line. This is the attribution that does not depend on the carrier
-	-- echoing anything.
-	check("inbound: " .. name .. " endpoint is its line",
-		(inbound_line(routing, nil, reg.peer)), reg.line)
-	-- And with the contact the carrier would echo, which must agree.
-	check("inbound: " .. name .. " contact is its line",
-		(inbound_line(routing, reg.contact_user, reg.peer)), reg.line)
-	check("inbound: " .. name .. " contact is a per-DID match",
-		select(4, inbound_line(routing, reg.contact_user, reg.peer)), "contact")
-	-- No "@" in a contact: pjsip parses the Contact URI it builds, so one there makes the
-	-- whole registration object fail to load and this DID never registers at all.
-	check("inbound: " .. name .. " contact is a legal sip user part",
-		reg.contact_user:find("@") == nil, true)
-	-- OUTBOUND: the line label a caller on this DID is rendered as resolves back to its own
-	-- line, and leaves by its PRIMARY -- which is what pins the presented number.
-	local _, _, peer, _, _, kind, line = resolve_destination(
-		component_to("+4915112345678#" .. reg.line), permitted)
-	check("outbound: #" .. reg.line .. " is a line", kind, "line")
-	check("outbound: #" .. reg.line .. " resolves to its own line", line, reg.line)
-	check("outbound: #" .. reg.line .. " leaves by its primary",
-		peer, routing.lines[reg.line].primary)
-	-- Whatever it leaves by is dialled through its own endpoint, never its host.
-	check("outbound: " .. name .. " dials its own endpoint",
-		dial_string(routing, reg.peer, "123"), "PJSIP/123@" .. reg.peer)
+	if reg.disabled then
+		-- No pjsip object, so nothing arrives on it; and a line it is primary of is off.
+		check("inbound: disabled " .. name .. " attributes nothing",
+			(inbound_line(routing, reg.contact_user, reg.peer)), nil)
+		if routing.lines[reg.line].primary == name then
+			local _, _, peer, _, _, kind = resolve_destination(
+				component_to("+4915112345678#" .. reg.line), permitted)
+			check("outbound: #" .. reg.line .. " is refused", peer, nil)
+			check("outbound: #" .. reg.line .. " is disabled", kind, "disabled")
+		end
+	else
+		-- INBOUND: pjsip matched the call to this registration's endpoint, so the endpoint name
+		-- alone must name the line. This is the attribution that does not depend on the carrier
+		-- echoing anything.
+		check("inbound: " .. name .. " endpoint is its line",
+			(inbound_line(routing, nil, reg.peer)), reg.line)
+		-- And with the contact the carrier would echo, which must agree.
+		check("inbound: " .. name .. " contact is its line",
+			(inbound_line(routing, reg.contact_user, reg.peer)), reg.line)
+		check("inbound: " .. name .. " contact is a per-DID match",
+			select(4, inbound_line(routing, reg.contact_user, reg.peer)), "contact")
+		-- No "@" in a contact: pjsip parses the Contact URI it builds, so one there makes the
+		-- whole registration object fail to load and this DID never registers at all.
+		check("inbound: " .. name .. " contact is a legal sip user part",
+			reg.contact_user:find("@") == nil, true)
+		-- OUTBOUND: the line label a caller on this DID is rendered as resolves back to its own
+		-- line, and leaves by its PRIMARY -- which is what pins the presented number.
+		local _, _, peer, _, _, kind, line = resolve_destination(
+			component_to("+4915112345678#" .. reg.line), permitted)
+		check("outbound: #" .. reg.line .. " is a line", kind, "line")
+		check("outbound: #" .. reg.line .. " resolves to its own line", line, reg.line)
+		check("outbound: #" .. reg.line .. " leaves by its primary",
+			peer, routing.lines[reg.line].primary)
+		-- Whatever it leaves by is dialled through its own endpoint, never its host.
+		check("outbound: " .. name .. " dials its own endpoint",
+			dial_string(routing, reg.peer, "123"), "PJSIP/123@" .. reg.peer)
+	end
 end
 
 -- THE EMERGENCY WAIVER, stated as what it is rather than as one destination that happens to

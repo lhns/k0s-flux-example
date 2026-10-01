@@ -4,13 +4,13 @@ re-encoded here: every value below is the entry's own, or a deployment fact from
 
 The name of the host's DEFAULT registration -- the `entrypoint` one, or the only one on the
 host. It alone carries the type=identify, and "" when the table leaves that undecided, which
-tests/check-routing.py is what rejects.
+tests/check-routing.py is what rejects. A disabled entry is not on the host at all.
 */}}
 {{- define "cheogram-sip-routing.pjsip-default" -}}
 {{- $names := list -}}
 {{- $entry := list -}}
 {{- range $n, $r := .regs -}}
-{{- if eq $r.host $.host -}}
+{{- if and (eq $r.host $.host) (not $r.disabled) -}}
 {{- $names = append $names $n -}}
 {{- if $r.entrypoint -}}{{- $entry = append $entry $n -}}{{- end -}}
 {{- end -}}
@@ -47,6 +47,8 @@ local_net={{ $net }}
 {{- $regs := .Values.registrations }}
 {{- $transport := .Values.trunk_transport }}
 {{- range $name, $r := $regs }}
+{{- /* Disabled: no object at all, so nothing REGISTERs, answers or #includes a secret. */}}
+{{- if $r.disabled }}{{ continue }}{{ end }}
 {{- $default := include "cheogram-sip-routing.pjsip-default" (dict "host" $r.host "regs" $regs) }}
 {{- $isdefault := eq $default $name }}
 

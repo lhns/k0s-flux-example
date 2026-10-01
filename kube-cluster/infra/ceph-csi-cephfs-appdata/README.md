@@ -36,14 +36,20 @@ hangs.
 ## Moving an existing volume onto this driver
 
 `PersistentVolume.spec.csi.driver` is **immutable**, so changing the
-StorageClass only affects newly provisioned volumes. An existing PV moves by
-being recreated — no data is touched, the subvolume is reused:
+StorageClass only affects newly provisioned volumes.
+
+**`reclaimPolicy: Retain` does not make deleting the PV safe.** pv-reaper
+reclaims any *dynamic* `cephfs.csi.ceph.com` PV that is deleted, Retain or not
+(see the top of the repo's `AGENTS.md`). Recreating the PV in place is only safe
+for a **static** PV (no `pv.kubernetes.io/provisioned-by` annotation), which
+pv-reaper skips. For a dynamic one, copy into a new PVC as `AGENTS.md` describes.
+
+For a static PV, the subvolume is reused and no data is touched:
 
 1. Scale the workload to 0 (pin it with
    `kustomize.toolkit.fluxcd.io/reconcile: disabled` so Flux does not restart it).
 2. Save the PV and PVC YAML.
-3. Confirm the PV is `reclaimPolicy: Retain` — **this is what makes the delete
-   safe**; the CephFS subvolume survives.
+3. Confirm the PV has **no** `pv.kubernetes.io/provisioned-by` annotation.
 4. Delete the PVC, then the PV.
 5. Recreate the PV with `spec.csi.driver: cephfs-appdata.csi.ceph.com`, the same
    `volumeHandle` and `volumeAttributes`, and a `claimRef` to the PVC.

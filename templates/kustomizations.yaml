@@ -1,6 +1,6 @@
 {{- /*
 One Flux Kustomization per component directory, so each component is its own failure
-domain. Helpers: _artifacts.tpl, _substitution.tpl, _crd-upgrade.tpl.
+domain. Helpers: _substitution.tpl, _crd-upgrade.tpl, _secret-from-files.tpl.
 
 Discovery
 - A component is any <group.base>/<name>/kustomization.yaml. Adding one needs no change here.
@@ -18,6 +18,8 @@ generator input.
                applied through commonMetadata, which runs after the build and only
                touches top-level metadata, so it is authoritative and causes no rollouts.
 - crdPolicy    Skip, Create or CreateReplace (the default). See _crd-upgrade.tpl.
+- suspend      "true" suspends the component's Kustomization only; its gen- HelmRelease stays
+               live, since it is what delivers and lifts the suspend. See AGENTS.md.
 
 substitution-secrets/ subdirectory, for injecting secret values into plaintext config
 - Creating the directory is the entire opt-in. It gets its own Kustomization, the
@@ -32,13 +34,13 @@ substitution-secrets/ subdirectory, for injecting secret values into plaintext c
 
   BEFORE creating one, check what else in the component looks like a variable:
 
-      kustomize build kube-cluster/apps/<app> | grep '\${'
+      kustomize build kube-cluster/apps/<app> | grep -E '\$\{|\$\$'
 
   Substitution is not scoped to the file you meant. Flux runs envsubst over the whole
-  component build and replaces anything it cannot resolve with an empty string, so every
-  hit has to either become a substitution source or be escaped as $${VAR}. Shell scripts
-  in a component are the usual casualty. Bare $var is left alone; only ${VAR} is
-  substituted.
+  component build, fails the reconcile on anything it cannot resolve and applies $$ as $,
+  so every hit has to become a substitution source, be escaped as $${VAR}, or sit in an
+  object annotated kustomize.toolkit.fluxcd.io/substitute: disabled. Shell scripts and
+  regex replacements are the usual casualties. Bare $var is left alone.
 
   A substituted config cannot come from a secretGenerator, which base64-encodes into
   data: and buries the ${VAR} where envsubst cannot see it. Use a configMapGenerator
@@ -48,6 +50,19 @@ substitution-secrets/ subdirectory, for injecting secret values into plaintext c
   Where an app can read the credential itself, from a file or an env var, prefer that.
   The config then holds no secret at all and needs none of this; apps/arr/autopulse
   reads its own AUTOPULSE__* env vars.
+
+artifacts/ subdirectory, for oci-composer ImageComposition and ImageBuild objects
+- Each object sets push.writeRefTo, so oci-composer writes its digest-pinned ref into a
+  ConfigMap in flux-system. The component substitutes from those (_substitution.tpl) and
+  names the image ${KEY}. That turns substitution on for the whole component: run the
+  check above first.
+- It gets its own Kustomization, which the component depends on: the ConfigMap exists
+  only once the object is applied and published, so one Kustomization holding both
+  deadlocks a fresh cluster. wait: true makes Ready mean published; a failing build holds
+  the component back.
+- Namespace oci-composer, since the component's own does not exist yet. The Kustomization
+  inherits the component's dependsOn, which must name infra-oci-composer.
+- Put no kustomization.yaml in there, as for substitution-secrets/.
 */ -}}
 {{- /* The root release sets .Values.generate and emits per-component generators instead
     (generate.yaml); the generated releases do not, so they land here. Both rendering would
@@ -64,11 +79,40 @@ substitution-secrets/ subdirectory, for injecting secret values into plaintext c
 {{- $instance := dig "metadata" "annotations" "appInstance" $component $kust }}
 {{- $crdPolicy := dig "metadata" "annotations" "crdPolicy" "CreateReplace" $kust }}
 {{- $interval := $group.interval | default "10m0s" }}
-{{- $artifacts := include "generators.artifacts" (dict "root" $ "dir" $dir "publicHost" $.Values.ociComposer.publicHost) | fromYamlArray }}
-{{- $substFrom := include "generators.substituteFrom" (dict "root" $ "dir" $dir) | fromYamlArray }}
+{{- $substFrom := concat
+      (include "generators.substituteFrom" (dict "root" $ "dir" $dir) | fromYamlArray)
+      (include "generators.refExports" (dict "root" $ "dir" $dir) | fromYamlArray) }}
 {{- $dependsOn := list }}
 {{- with dig "metadata" "annotations" "dependsOn" "" $kust }}
 {{- range splitList "," . }}{{- $dependsOn = append $dependsOn (trim .) }}{{- end }}
+{{- end }}
+{{- $artifactsName := printf "%s-artifacts" $fluxName }}
+{{- with $.Files.Glob (printf "%s/artifacts/*.yaml" $dir) }}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: {{ $artifactsName }}
+  namespace: flux-system
+spec:
+  interval: {{ $interval }}
+  path: ./{{ $dir }}/artifacts
+  prune: true
+  wait: true
+  commonMetadata:
+    labels:
+      app.kubernetes.io/instance: {{ $instance | quote }}
+  {{- with $dependsOn }}
+  dependsOn:
+    {{- range . }}
+    - name: {{ . }}
+    {{- end }}
+  {{- end }}
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+    namespace: flux-system
+{{- $dependsOn = append $dependsOn $artifactsName }}
 {{- end }}
 {{- $secretsName := printf "%s-substitution-secrets" $fluxName }}
 {{- $hasSecrets := $.Files.Glob (printf "%s/substitution-secrets/*.yaml" $dir) }}
@@ -108,46 +152,18 @@ metadata:
   namespace: flux-system
 spec:
   interval: {{ $interval }}
+  {{- if eq (dig "metadata" "annotations" "suspend" "" $kust | toString) "true" }}
+  suspend: true
+  {{- end }}
   path: ./{{ $dir }}
   prune: true
   wait: {{ if hasKey $group "wait" }}{{ $group.wait }}{{ else }}true{{ end }}
   commonMetadata:
     labels:
       app.kubernetes.io/instance: {{ $instance | quote }}
-  {{- /* The placeholder is the artifact's own name, so an app connects the two by
-         writing that name where the image reference goes and declares nothing else. */}}
-  {{- with $artifacts }}
-  images:
-    {{- range . }}
-    - name: {{ .name }}
-      newName: {{ .repo }}
-      newTag: {{ .tag }}
-    {{- end }}
-  {{- end }}
   patches:
     {{- include "generators.crdPatch" $crdPolicy | nindent 4 }}
     {{- include "generators.secretFromFiles" . | nindent 4 }}
-  {{- /* The other end of the same hash, telling the artifact which tag to publish
-         under. This is a patch rather than an extension of the images transformer to
-         spec/push/ref, because kustomize learns non-builtin paths only from a
-         `configurations:` file listed in the kustomization being built, and a Flux
-         Kustomization has no field to supply one. That would mean a copy of the same
-         file in every app owning an artifact, forever.
-         It is a merge patch, so an object with no push block gets one rather than
-         erroring. Such an object must not set push.tags itself; this replaces them. */}}
-  {{- range $artifacts }}
-    - target:
-        kind: {{ .kind }}
-        name: {{ .name }}
-      patch: |
-        apiVersion: oci.lhns.de/v1alpha1
-        kind: {{ .kind }}
-        metadata:
-          name: {{ .name }}
-        spec:
-          push:
-            tags: [{{ .tag }}]
-  {{- end }}
   {{- with $dependsOn }}
   dependsOn:
     {{- range . }}

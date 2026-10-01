@@ -59,8 +59,6 @@ spec:
         kube-vnet/net.victoriatraces.victoriatraces: egress
         # reach the in-cluster VictoriaLogs DB (:9428) as a datasource
         kube-vnet/net.victorialogs.victorialogs: egress
-        # reach the in-cluster VictoriaMetrics DB (:8428) as the metrics datasource
-        kube-vnet/net.victoriametrics.victoriametrics: egress
         # reach the in-cluster VictoriaMetrics cluster (vmselect :8481) datasource
         kube-vnet/net.victoriametrics-cluster.vmselect: egress
     spec:
@@ -153,6 +151,9 @@ spec:
             # Allow HTML in text panels (dashboards rely on it). From [panels].
             - name: GF_PANELS_DISABLE_SANITIZE_HTML
               value: "true"
+            # Comma-separated [feature_toggles] enable list.
+            - name: GF_FEATURE_TOGGLES_ENABLE
+              value: grafanaAdvisor
           ports:
             - name: http
               containerPort: 3000

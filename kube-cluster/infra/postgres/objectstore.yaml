@@ -1,6 +1,6 @@
 # Barman Cloud Plugin object store — where WAL (and any object-store base backups)
 # land. Ceph RGW at s3.example.com, bucket kube-barman; barman writes under
-# <destinationPath>/<serverName>/ (serverName defaults to the cluster name → postgres).
+# <destinationPath>/<serverName>/ (serverName is set on the Cluster, cluster.yaml).
 apiVersion: barmancloud.cnpg.io/v1
 kind: ObjectStore
 metadata:

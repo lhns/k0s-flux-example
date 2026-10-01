@@ -19,15 +19,12 @@ metadata:
     # infra-reloader: the as-secret generators carry disableNameSuffixHash, so a config
     # change does not roll its pod by itself -- reloader is what notices.
     #
-    # infra-oci-composer: images.yaml. Without the controller the ImageBuild fails admission
-    # with "no matches for kind" and that fails the WHOLE apply -- every bridge with it. It
-    # gates on the controller only, not on the build finishing.
+    # infra-oci-composer: artifacts/ is built there.
     dependsOn: infra-postgres,infra-reflector,infra-metallb,infra-traefik,infra-ceph-csi-cephfs,infra-ceph-csi-rbd,infra-reloader,app-coturn,infra-oci-composer
 # NOTE: no `namespace:` transformer — database.yaml + db-role-secret.yaml pin
 # `namespace: postgres`; everything else is in `matrix`.
 resources:
 - resources.yaml
-- images.yaml
 - routing.yaml
 - database.yaml
 - db-role-secret.yaml
@@ -49,7 +46,7 @@ configMapGenerator:
   files:
   - synapse-turn.yaml
 # A fourth --config-path selecting the appservice registrations, which now live in
-# git (secret-registrations.yaml) rather than as hand-placed files on the CephFS PV.
+# git (registrations/) rather than as hand-placed files on the CephFS PV.
 # Replaces homeserver.yaml's list wholesale -- see the file for why it must always be
 # complete.
 - name: synapse-appservices

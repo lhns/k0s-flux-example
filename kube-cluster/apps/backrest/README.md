@@ -28,8 +28,8 @@ Runs as **root** (reads/writes the root-owned mounts), no fsGroup. `enableServic
 The `backrest-state` PVC is included in the cluster's Velero `velero-daily` schedule (03:00, CSI snapshot,
 30-day retention) — so backrest's config + oplog are themselves backed up. The cache is excluded (above).
 
-## Cutover
-Ships `replicas: 0`. To go live:
+## Cutover (done)
+How the state got here:
 
 1. Confirm applied (ns; `backrest-state` + static CephFS PVCs bound).
 2. **Stop the Swarm backrest** (frees the SQLite oplog for a consistent copy).

@@ -30,23 +30,17 @@ spec:
 # the HDD filesystem via `cephfs-appdata`, which is where Gitea's 27G already
 # lives. Sized for the migration that will land here later, not for today.
 #
-# As of 2026-08-17 `cephfs-appdata` is served by its own CSI driver
-# (cephfs-appdata.csi.ceph.com, infra/ceph-csi-cephfs-appdata) rather than the
-# shared one, so a hang on the `appdata` filesystem can no longer kill the node
-# plugin that also serves `fastappdata`. This volume is what forced that split:
-# its mount hung on PGs stuck `activating` and repeatedly tripped ceph-csi's
-# 10-minute stuck-call watchdog, unmounting unrelated apps each time.
+# `cephfs-appdata` is served by its own CSI driver (cephfs-appdata.csi.ceph.com,
+# infra/ceph-csi-cephfs-appdata) rather than the shared one, so a hang on the
+# `appdata` filesystem can no longer kill the node plugin that also serves
+# `fastappdata`. This volume is what forced that split.
 #
 # !!! Do NOT try to move a volume between drivers by deleting its PV. !!!
 # PV.spec.csi.driver is immutable, so that looks like the obvious route, and
-# reclaimPolicy: Retain looks like it makes deletion safe. It does not here:
-# infra/pv-reaper implements a SPLIT RECLAIM — deleting the PVC keeps the
-# volume, deleting the PV reclaims it (via a disposable Delete-policy clone).
-# Doing exactly that on 2026-08-17 destroyed this subvolume; it was rebuilt by
-# copying out of a retained CephFS snapshot into a freshly provisioned volume,
-# which is why the PVC below is plain dynamic again and carries no volumeName.
-# To actually move a volume across drivers: provision a new PVC on the target
-# driver and copy into it, or scale pv-reaper to 0 first.
+# reclaimPolicy: Retain looks like it makes deletion safe. It does not: deleting
+# the PV is what reclaims the subvolume. Provision a new PVC on the target driver
+# and copy into it. Scaling pv-reaper to 0 does NOT make a PV delete safe -- see
+# AGENTS.md, which has the whole procedure.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

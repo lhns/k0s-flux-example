@@ -18,7 +18,9 @@ spec:
   chart:
     spec:
       chart: ceph-csi-rbd
-      version: "3.17.1"
+      # Moves with the image below: Renovate reads both from its tags.
+      # renovate: datasource=docker depName=ghcr.io/lhns/ceph-csi-x86-64-v2
+      version: "3.18.0"
       interval: 1h0m0s
       sourceRef:
         kind: HelmRepository
@@ -33,6 +35,11 @@ spec:
     # nodeplugin is hostNetwork (real host port); the provisioner is pod-network
     # but kept on the same port for consistency.
     nodeplugin:
+      plugin:
+        # Also the provisioner's image. x86-64-v2 build of upstream: see ../ceph-csi-cephfs/README.md.
+        image:
+          repository: ghcr.io/lhns/ceph-csi-x86-64-v2
+          tag: v3.18.0@sha256:96dae99b2ed1d1d8f4a6f7d0ed0ff5a651878ce1b1f07a5d5bdb823c2d5e016e
       httpMetrics:
         containerPort: 8091
         service:
@@ -75,6 +82,15 @@ spec:
           - target:
               kind: DaemonSet
               name: ceph-csi-rbd-nodeplugin
+            patch: |
+              - op: add
+                path: /spec/template/spec/containers/0/args/-
+                value: --feature-gates=SlowGRPCRestart=false
+          # Also the provisioner, unlike cephfs: CreateSnapshot spends 10+ min in rbd_list_children
+          # with many retained snapshots, and each restart aborts every in-flight snapshot.
+          - target:
+              kind: Deployment
+              name: ceph-csi-rbd-provisioner
             patch: |
               - op: add
                 path: /spec/template/spec/containers/0/args/-

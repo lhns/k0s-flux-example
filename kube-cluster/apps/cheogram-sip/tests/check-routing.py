@@ -64,6 +64,18 @@ def helm_template(values=None):
     return p.returncode, p.stdout, p.stderr
 
 
+def helm_template_text(values):
+    """helm_template with values given as YAML text rather than a file."""
+    with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False,
+                                     encoding="utf-8", newline="\n") as fh:
+        fh.write(values)
+        path = fh.name
+    try:
+        return helm_template(path)
+    finally:
+        pathlib.Path(path).unlink(missing_ok=True)
+
+
 def env_value(key):
     m = re.search(r"(?m)^%s=(.*)$" % re.escape(key), ENV.read_text(encoding="utf-8"))
     return m.group(1).strip() if m else None
@@ -239,6 +251,16 @@ def check_pjsip(registrations, rows, pjsip_conf):
     """
     objects = pjsip_objects(pjsip_conf)
     peer_file = {r["name"]: r["peer"] for r in rows}
+
+    # A disabled entry is no object at all: one left behind would REGISTER, or answer, for a
+    # line the dialplan treats as off.
+    for regname, reg in sorted(registrations.items()):
+        if reg["disabled"]:
+            left = sorted(ty for (n, ty) in objects if n == reg["peer"])
+            if left:
+                fail("registration %r is disabled but pjsip.conf still defines %r as type=%s"
+                     % (regname, reg["peer"], ", type=".join(left)))
+    registrations = {n: r for n, r in registrations.items() if not r["disabled"]}
 
     for regname, reg in sorted(registrations.items()):
         peer = reg["peer"]
@@ -530,15 +552,16 @@ def check_registrations_tsv(rows, registrations):
     """The register lines: everything about one that can be wrong silently."""
     keys = sops_keys()
 
-    for r in rows:
+    for name in sorted(registrations):
         # The entry name IS the Secret key. It must therefore be a legal one, and it must
         # exist: a missing key already refuses to start the pod, and catching it here stops
-        # the rollout one step earlier.
-        if not re.match(r"^[a-z0-9-]+$", r["name"]):
-            fail("registration %r is not usable as a Kubernetes Secret key" % r["name"])
-        if r["name"] not in keys:
+        # the rollout one step earlier. Demanded of a disabled entry too, so that turning it
+        # back on stays a one-line change.
+        if not re.match(r"^[a-z0-9-]+$", name):
+            fail("registration %r is not usable as a Kubernetes Secret key" % name)
+        if name not in keys:
             fail("registration %r has no Secret key of that name in this component's "
-                 "secret*.yaml; the initContainer would refuse to start the pod" % r["name"])
+                 "secret*.yaml; the initContainer would refuse to start the pod" % name)
 
     # A trunk's REGISTER is its type=registration object, so all the initContainer writes is
     # the password -- and it has to land under the exact filename pjsip.conf #includes, or
@@ -551,8 +574,13 @@ def check_registrations_tsv(rows, registrations):
     # Every registration is rendered, the entrypoint one included: a row missing here is an
     # account whose password is written nowhere, and which therefore never registers.
     rendered = {r["name"] for r in rows}
-    for name in registrations:
-        if name not in rendered:
+    for name, reg in sorted(registrations.items()):
+        if reg["disabled"]:
+            # A row makes the initContainer demand the key and write a secret nothing reads.
+            if name in rendered:
+                fail("registration %r is disabled but still has a registrations.tsv row"
+                     % name)
+        elif name not in rendered:
             fail("registration %r is in no registrations.tsv row, so its password is written "
                  "nowhere and it never registers" % name)
 
@@ -582,6 +610,7 @@ def parse_lua(lua):
             if m:
                 fields = dict(re.findall(r'(\w+) = "((?:[^"\\]|\\.)*)"', m.group(2)))
                 fields["entrypoint"] = " entrypoint = true" in (" " + m.group(2))
+                fields["disabled"] = " disabled = true" in (" " + m.group(2))
                 registrations[m.group(1)] = fields
                 continue
         if section == "lines":
@@ -647,9 +676,14 @@ def check(registrations, lines, outbound, rows, pjsip_conf):
     # FIRST, because `entrypoint` is what the generator gives the host's single
     # type=identify: a host with none, or with two, has no defined inbound fallback and
     # everything below would be reading a file built on that.
-    for host in sorted({r["host"] for r in registrations.values()}):
-        on_host = sorted(n for n, r in registrations.items() if r["host"] == host)
-        entry = [n for n in on_host if registrations[n]["entrypoint"]]
+    enabled = {n: r for n, r in registrations.items() if not r["disabled"]}
+    for name, reg in sorted(registrations.items()):
+        if reg["disabled"] and reg["entrypoint"]:
+            fail("registration %r is both disabled and the entrypoint; the host's inbound "
+                 "fallback and the PSTN trunk would be gone" % name)
+    for host in sorted({r["host"] for r in enabled.values()}):
+        on_host = sorted(n for n, r in enabled.items() if r["host"] == host)
+        entry = [n for n in on_host if enabled[n]["entrypoint"]]
         if len(entry) > 1:
             fail("host %r has more than one entrypoint registration (%s); the inbound "
                  "fallback would be undefined" % (host, ", ".join(entry)))
@@ -672,7 +706,11 @@ def check(registrations, lines, outbound, rows, pjsip_conf):
         # The endpoint the call actually leaves by has to exist, or it would be dialled with
         # no credentials -- which a carrier may answer with a recorded refusal, i.e. a
         # connected call rather than an error. check_pjsip holds the rest of its shape.
-        if reg["peer"] not in peers:
+        if reg["disabled"]:
+            if reg["peer"] in peers:
+                fail("registration %r is disabled but %r is still an endpoint in pjsip.conf"
+                     % (name, reg["peer"]))
+        elif reg["peer"] not in peers:
             fail("registration %r leaves by %r, which is no endpoint in pjsip.conf "
                  "(have: %s)" % (name, reg["peer"], ", ".join(real)))
         if reg["line"] not in lines:
@@ -708,11 +746,12 @@ def check(registrations, lines, outbound, rows, pjsip_conf):
                  % (dids[reg["did"]], name, reg["did"]))
         dids[reg["did"]] = name
     # A line name and a trunk host both appear after "#" in an XMPP destination, so one that
-    # is both is ambiguous in resolve_destination.
-    trunk_hosts = {t.strip() for t in (env_value("SIP_TRUNKS") or "").split(",") if t.strip()}
+    # is both is ambiguous in resolve_destination. Every host, disabled ones included, so
+    # re-enabling one cannot introduce the clash.
+    trunk_hosts = {r["host"].lower() for r in registrations.values()} | {(sip_host or "").lower()}
     for name in lines:
-        if name in trunk_hosts:
-            fail("line %r has the same name as a SIP_TRUNKS host; '#%s' would be ambiguous"
+        if name.lower() in trunk_hosts:
+            fail("line %r has the same name as a trunk host; '#%s' would be ambiguous"
                  % (name, name))
 
     for name, line in sorted(lines.items()):
@@ -727,6 +766,13 @@ def check(registrations, lines, outbound, rows, pjsip_conf):
         if reg["line"] != name:
             fail("line %r presents registration %r, which belongs to line %r"
                  % (name, line["primary"], reg["line"]))
+        # A disabled primary switches the whole line off, so a member still enabled would
+        # ring in on a line nobody can call back on.
+        if reg["disabled"]:
+            live = sorted(n for n, r in enabled.items() if r["line"] == name)
+            if live:
+                fail("line %r has a disabled primary but enabled member(s) %s; disable them "
+                     "too, or present one of them" % (name, ", ".join(live)))
         # The gate. A line with no callers list refuses everyone, which is the safe
         # direction but still a line nobody can use, so it never ships.
         if not line["callers"]:
@@ -783,11 +829,17 @@ def check(registrations, lines, outbound, rows, pjsip_conf):
             if r["registration"] not in registrations:
                 fail("outbound rule %d pins unknown registration %r"
                      % (i, r["registration"]))
+            if registrations[r["registration"]]["disabled"]:
+                fail("outbound rule %d is an emergency route pinning disabled registration %r"
+                     % (i, r["registration"]))
             presented = r["registration"]
         else:
             if r.get("line") not in lines:
                 fail("outbound rule %d selects unknown line %r" % (i, r.get("line")))
             presented = lines[r["line"]]["primary"]
+            # Allowed: the dialplan refuses it as "disabled" and never tries the next rule.
+            if registrations[presented]["disabled"]:
+                continue
         # Presenting a number means the endpoint the call leaves by pins from_user to it,
         # which is why every endpoint carries the same values as its registration.
         reg = registrations[presented]
@@ -804,14 +856,7 @@ def check(registrations, lines, outbound, rows, pjsip_conf):
 
 def reject(values, what, expect):
     """Assert Helm refuses these values, and refuses them for the stated reason."""
-    with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False,
-                                     encoding="utf-8", newline="\n") as fh:
-        fh.write(values)
-        bad = fh.name
-    try:
-        rc, _, err = helm_template(bad)
-    finally:
-        pathlib.Path(bad).unlink(missing_ok=True)
+    rc, _, err = helm_template_text(values)
     if rc == 0:
         fail("helm accepted %s; values.schema.json is not being enforced" % what)
     if expect not in err:
@@ -862,15 +907,58 @@ def check_schema_is_enforced():
     reject("lines:\n  home: {callers: ['not-an-address'], primary: pstn-02012345678,"
            " inbound_route: [{ring: ['xmpp:a@b.example'], timeout: 25}]}\n",
            "a caller that is not an address pattern", "callers")
+    # Disabling the entrypoint would take the PSTN trunk and the inbound fallback with it.
+    reject("registrations:\n  pstn-02012345678: {disabled: true}\n",
+           "a disabled entrypoint", "pstn-02012345678")
     # from_glob is a list; a bare string would silently narrow nothing.
     reject("outbound:\n  - {to_pattern: '.*', from_glob: 'xmpp:a@b.example', line: home}\n",
            "a from_glob that is still a bare string", "from_glob")
+
+
+def check_reenable(registrations, out, write_lua):
+    """Re-enabling is deleting the flag and nothing else. Rendered with every `disabled`
+    cleared, the table passes every check above, and the live render is exactly that one
+    minus the disabled entries: their pjsip objects, their TSV rows, and the flag itself."""
+    disabled = sorted(n for n, r in registrations.items() if r["disabled"])
+    override = "registrations:\n" + "".join(
+        "  %s:\n    disabled: null\n" % n for n in disabled)
+    rc, full, err = helm_template_text(override) if disabled else (0, out, "")
+    if rc != 0:
+        fail("the table does not render with its disabled entries enabled:\n" + err.strip())
+    lua = extract_block(full, "routing.lua")
+    rows = parse_registrations_tsv(extract_block(full, "registrations.tsv"))
+    regs, lines, outbound = parse_lua(lua)
+    pjsip_conf = check_pjsip_is_generated(full)
+    if any(r["disabled"] for r in regs.values()):
+        fail("clearing `disabled` left an entry disabled")
+    check(regs, lines, outbound, rows, pjsip_conf)
+    check_registrations_tsv(rows, regs)
+    check_pjsip(regs, rows, pjsip_conf)
+
+    if extract_block(out, "routing.lua").replace(", disabled = true }", " }") != lua:
+        fail("routing.lua differs from the re-enabled render by more than the disabled flag")
+    if extract_block(out, "registrations.tsv").splitlines() != [
+            l for l in extract_block(full, "registrations.tsv").splitlines()
+            if l.split("\t")[0] not in disabled]:
+        fail("registrations.tsv differs from the re-enabled render by more than the "
+             "disabled rows")
+    heads = tuple("[%s]\n" % registrations[n]["peer"] for n in disabled)
+    if check_pjsip_is_generated(out) != "\n\n".join(
+            c for c in pjsip_conf.split("\n\n") if not c.startswith(heads)):
+        fail("pjsip.conf differs from the re-enabled render by more than the disabled "
+             "entries' objects")
+    if write_lua:
+        with open(write_lua, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(lua + "\n")
+    return disabled
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--write-lua", metavar="PATH",
                     help="also write the rendered routing.lua here, for the dialplan suite")
+    ap.add_argument("--write-lua-enabled", metavar="PATH",
+                    help="and the one rendered with every disabled entry enabled")
     args = ap.parse_args()
 
     rc, out, err = helm_template()
@@ -886,11 +974,12 @@ def main():
     check_in_cluster(pjsip_objects(pjsip_conf))
     check_asterisk_image()
     check_schema_is_enforced()
+    disabled = check_reenable(registrations, out, args.write_lua_enabled)
     if args.write_lua:
         with open(args.write_lua, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(lua + "\n")
-    print("routing chart OK: %d registration(s), %d line(s), %d outbound rule(s)"
-          % (len(registrations), len(lines), len(outbound)))
+    print("routing chart OK: %d registration(s) (%d disabled), %d line(s), "
+          "%d outbound rule(s)" % (len(registrations), len(disabled), len(lines), len(outbound)))
 
 
 if __name__ == "__main__":

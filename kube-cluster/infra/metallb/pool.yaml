@@ -198,15 +198,13 @@ spec:
   ipAddressPools:
     - coturn-vip
 ---
-# A tenth VIP for the XMPP to SIP gateway (apps/cheogram-sip). Asterisk's RTP range is
-# UDP, which Traefik cannot carry, and externalTrafficPolicy: Local is required rather
-# than preferred: a SNAT'd source address would make chan_sip's comedia latch onto a
-# node instead of the far end, giving one-way audio.
+# The XMPP to SIP gateway (apps/cheogram-sip). Asterisk's RTP range is UDP, which Traefik
+# cannot carry, and externalTrafficPolicy: Local is required rather than preferred: a SNAT'd
+# source address would make rtp_symmetric latch onto a node instead of the far end, giving
+# one-way audio.
 #
-# SIP signalling (5060) is deliberately NOT on this VIP. The trunk uses registration
-# auth, so Asterisk registers outbound and inbound INVITEs return down that pinhole.
-#
-# .81 verified idle on the wire (ARP INCOMPLETE, against REACHABLE for .80 and .15).
+# SIP signalling (5060) is deliberately NOT on this VIP. The trunk uses registration auth, so
+# Asterisk registers outbound and inbound INVITEs return down that pinhole.
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
@@ -224,3 +222,23 @@ metadata:
 spec:
   ipAddressPools:
     - cheogram-sip-vip
+---
+# RustDesk (apps/rustdesk): rendezvous is UDP-first, which Traefik cannot carry, and
+# externalTrafficPolicy: Local keeps the real client address hole-punching needs.
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: rustdesk-vip
+  namespace: metallb-system
+spec:
+  addresses:
+    - 10.20.2.82/32
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: rustdesk-vip-l2
+  namespace: metallb-system
+spec:
+  ipAddressPools:
+    - rustdesk-vip

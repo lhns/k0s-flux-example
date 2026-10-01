@@ -20,8 +20,8 @@ Single-writer → `Recreate`, `replicas: 1`.
 > keys/secrets stored in the BoltDB keystore. It is copied verbatim — regenerating it makes every stored
 > key undecryptable.
 
-## Cutover
-Ships `replicas: 0`. To go live:
+## Cutover (done)
+How the state got here:
 
 1. Confirm applied (ns + `semaphore-data` PVC bound).
 2. **Stop the Swarm semaphore stack** (frees the BoltDB for a consistent copy).

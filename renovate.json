@@ -30,7 +30,7 @@
       "versioningTemplate": "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)\\+k0s\\.(?<build>\\d+)$"
     },
     {
-      "description": "Kubernetes image volumes. The built-in kubernetes manager looks for `image: <string>`, but an image volume spells it `image: {reference: repo:tag}` — a mapping — so it sees nothing and the reference would silently stop being bumped. Anchored on an explicit `# renovate: datasource=docker` comment rather than matching every `reference:` in the repo, because composed artifacts (apps/freshrss) use that same key for a placeholder the generator rewrites, which must NOT be tracked.",
+      "description": "Kubernetes image volumes. The built-in kubernetes manager looks for `image: <string>`, but an image volume spells it `image: {reference: repo:tag}` — a mapping — so it sees nothing and the reference would silently stop being bumped. Anchored on an explicit `# renovate: datasource=docker` comment rather than matching every `reference:` in the repo, because composed artifacts (apps/freshrss) use that same key for a ${...} ref substituted at apply time, which must NOT be tracked.",
       "customType": "regex",
       "managerFilePatterns": ["/kube-cluster/.*\\.ya?ml$/"],
       "matchStrings": [
@@ -38,12 +38,14 @@
       ]
     },
     {
-      "description": "Release archives fetched by URL in an ImageComposition `fetch:` layer (infra/opentelemetry-gateway/tiered-storage-plugin.yaml). Nothing built in sees a version buried in a download URL. IMPORTANT: this manager can only bump the URL — the sibling `digest:` has to be recomputed by hand from the new bytes, and a URL/digest mismatch is TERMINAL in the composer. So the matched dependency is dashboard-gated in packageRules and must never automerge.",
+      "description": "Download URLs, each under a `# renovate:` comment: an oci-composer `fetch.url`, or a `url=` in a shell script (apps/homeassistant, lint.yml); a GitHub release asset or a Debian pool file. The version is captured bare and the match runs on through the following digest/unpack/subpath lines, so every copy of it (tag, file name, subpath) is replaced. The digest is not: check-fetch-digests.py rewrites it (packageRules) and fails the lint if it is stale.",
       "customType": "regex",
-      "managerFilePatterns": ["/kube-cluster/.*\\.ya?ml$/"],
+      "managerFilePatterns": ["/kube-cluster/.*\\.ya?ml$/", "/^\\.github/workflows/lint\\.yml$/"],
       "matchStrings": [
-        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)\\s+url:\\s*\\S+/download/(?<currentValue>v[^/\\s]+)/"
-      ]
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(?:\\s+registryUrl=(?<registryUrl>\\S+))?\\s+url[:=]\\s*\\S+?/releases/download/(?:[^/\\s]*%2F)?v?(?<currentValue>[^/\\s]+)/\\S+(?:\\n[ \\t]+(?:digest|unpack|subpath)[:=][^\\n]*)*",
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(?:\\s+registryUrl=(?<registryUrl>\\S+))?\\s+url[:=]\\s*\\S+/pool/\\S+?_(?<currentValue>[^_/\\s]+)_[^_/\\s]+\\.deb(?:\\n[ \\t]+(?:digest|unpack|subpath)[:=][^\\n]*)*"
+      ],
+      "extractVersionTemplate": "^v?(?<version>.+)$"
     },
     {
       "description": "Base images in an ImageBuild's inline Dockerfile (apps/jetkvm). The built-in dockerfile manager only reads real Dockerfiles, so a recipe living inside a YAML string is invisible to it and its FROM pins would never be bumped. oci-composer requires every FROM to be digest-pinned, so the tag AND the digest are captured and Renovate updates them together. Anchored on an explicit `# renovate: datasource=docker` comment on the preceding line, so it matches only where we asked for it.",
@@ -56,7 +58,7 @@
       ]
     },
     {
-      "description": "PyPI pins in an ImageBuild's inline Dockerfile (apps/matrix/images.yaml). Same blind spot as the FROM manager above: a pip command inside a YAML string is invisible to every built-in manager, so these pins would silently never move. The package name is read off the install line rather than a depName= in the comment, so one package per RUN. They are pinned at all because the spec hash is the tag and push.onConflict is Fail -- an unpinned dep can change the content under an unchanged tag and wedge the build.",
+      "description": "PyPI pins in an ImageBuild's inline Dockerfile (apps/matrix/artifacts/). Same blind spot as the FROM manager above: a pip command inside a YAML string is invisible to every built-in manager, so these pins would silently never move. The package name is read off the install line rather than a depName= in the comment, so one package per RUN. They are pinned at all so the Dockerfile says what is deployed: unpinned, a rebuild silently ships whatever PyPI serves that day.",
       "customType": "regex",
       "managerFilePatterns": [
         "/kube-cluster/.*\\.ya?ml$/"
@@ -64,9 +66,39 @@
       "matchStrings": [
         "#\\s*renovate:\\s*datasource=(?<datasource>pypi)\\s+RUN pip install[^\\n]*?\\s(?<depName>[A-Za-z0-9._-]+)==(?<currentValue>[^\\s\"']+)"
       ]
+    },
+    {
+      "description": "ceph-csi chart versions in infra/ceph-csi-*/release.yaml, read from the tags of our x86-64-v2 image (which the flux manager tracks in the same file), so chart and image cannot drift apart.",
+      "customType": "regex",
+      "managerFilePatterns": ["/kube-cluster/infra/ceph-csi-[^/]+/release\\.yaml$/"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)\\s+version:\\s*\"(?<currentValue>[^\"]+)\""
+      ],
+      "extractVersionTemplate": "^v(?<version>.+)$"
+    },
+    {
+      "description": "A version held in a workflow's env: (RENOVATE_VERSION in renovate.yml). The github-actions manager reads uses:, not env values. Anchored on a `# renovate: datasource= depName=` comment on the preceding line.",
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.github/workflows/[^/]+\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)\\s+[A-Z_]+:\\s*(?<currentValue>[^\\s\"']+)"
+      ]
     }
   ],
   "packageRules": [
+    {
+      "description": "Renovate's own image, pinned in renovate.yml only because the action never re-pulls a tag. Automerging minor and patch keeps the behaviour of the floating major it replaced.",
+      "matchDepNames": [
+        "ghcr.io/renovatebot/renovate"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
+      "automerge": true
+    },
     {
       "description": "Automerge patch (bugfix) releases only. platformAutomerge:false so Renovate merges via the API (works on a private/free repo without GitHub auto-merge or branch protection). Minor + major become review PRs. Gated by the lint CI: the RENOVATE_TOKEN fine-grained PAT (Contents, Commit statuses, Issues, Pull requests and Workflows: RW) opens PRs as a real user so the lint workflow runs. That PAT can't read the Checks API (no Checks permission on this account), so lint.yml also posts a `lint` commit STATUS (which Renovate can read) — that flips the branch green and lets automerge proceed.",
       "matchUpdateTypes": ["patch"],
@@ -131,15 +163,52 @@
       "addLabels": ["spliit-cloud"]
     },
     {
-      "description": "The Aiven tiered-storage plugin waits on the dependency dashboard, because a version bump is only HALF the change. The custom manager rewrites the download URL; the sibling `digest:` in the same ImageComposition layer has to be recomputed from the new archive by hand, and a URL/digest mismatch is terminal in oci-composer — the artifact stops building, and Kafka brokers are what consume it. Approve from the dashboard, then edit both url and digest together (see infra/opentelemetry-gateway/README.md).",
+      "description": "The Aiven tiered-storage plugin is on the Kafka brokers' classpath: never automerge (see infra/opentelemetry-gateway/README.md).",
       "matchPackageNames": ["Aiven-Open/tiered-storage-for-apache-kafka"],
-      "dependencyDashboardApproval": true,
       "automerge": false,
       "addLabels": ["kafka-plugin"]
     },
     {
+      "description": "The runner image's remote-docker client (apps/github-runner/artifacts) moves in one PR with the workspaces it talks to.",
+      "matchPackageNames": ["ghcr.io/lhns/charts/remote-docker-workspace", "lhns/remote-docker"],
+      "groupName": "remote-docker"
+    },
+    {
+      "description": "HACS is only installed into an empty /config (apps/homeassistant) and then updates itself, so a bump changes nothing running but restarts Home Assistant: monthly, never automerged. The task refreshes its sha256.",
+      "matchPackageNames": ["hacs/integration"],
+      "schedule": ["* * 1 * *"],
+      "automerge": false,
+      "postUpgradeTasks": {
+        "commands": ["python3 scripts/check-fetch-digests.py --fix"],
+        "fileFilters": ["kube-cluster/**/*.yaml"],
+        "executionMode": "update"
+      }
+    },
+    {
+      "description": "Multus sits in every pod's creation path: never automerge. The tag lives in infra/multus/kustomization.yaml; the task re-downloads the unmodified upstream manifest for it, and the patches beside it are re-applied by kustomize.",
+      "matchFileNames": ["kube-cluster/infra/multus/kustomization.yaml"],
+      "matchPackageNames": ["ghcr.io/k8snetworkplumbingwg/multus-cni"],
+      "automerge": false,
+      "addLabels": ["multus"],
+      "postUpgradeTasks": {
+        "commands": ["curl -sfL -o kube-cluster/infra/multus/upstream.yaml https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/{{{newValue}}}/deployments/multus-daemonset.yml"],
+        "fileFilters": ["kube-cluster/infra/multus/upstream.yaml"],
+        "executionMode": "branch"
+      }
+    },
+    {
+      "description": "Upstream's multus manifest names `:snapshot`; the real tag is set in kustomization.yaml.",
+      "matchFileNames": ["kube-cluster/infra/multus/upstream.yaml"],
+      "enabled": false
+    },
+    {
+      "description": "kustomize tags its releases per module (kustomize/vX, api/vX, kyaml/vX).",
+      "matchPackageNames": ["kubernetes-sigs/kustomize"],
+      "extractVersion": "^kustomize/v(?<version>.+)$"
+    },
+    {
       "description": "Keep jetkvm on Node 22. Upstream's cloud-api requires it: engines ^22.21.1.",
-      "matchFileNames": ["kube-cluster/apps/jetkvm/images.yaml"],
+      "matchFileNames": ["kube-cluster/apps/jetkvm/artifacts/*.yaml"],
       "matchDepNames": ["node"],
       "allowedVersions": "<23"
     },
@@ -156,7 +225,7 @@
     },
     {
       "description": "A GitRepository pin and every oci-composer `revision:` naming it must move together; Renovate sees only the pin. The task rewrites them and check-source-pins.py fails the lint if it did not.",
-      "matchFileNames": ["kube-cluster/apps/freshrss/*.yaml", "kube-cluster/apps/jetkvm/images.yaml"],
+      "matchFileNames": ["kube-cluster/*/*/artifacts/*.yaml"],
       "postUpgradeTasks": {
         "commands": ["python3 scripts/check-source-pins.py --fix"],
         "fileFilters": ["kube-cluster/**/*.yaml"],
@@ -164,8 +233,18 @@
       }
     },
     {
+      "description": "A fetch.url bump needs the digest of the new bytes. Replaces the rule above for these deps, so it repeats its command. `update`, not `branch`: a group's branch-mode tasks come from its first upgrade, which may be a chart.",
+      "matchFileNames": ["kube-cluster/*/*/artifacts/*.yaml"],
+      "matchDatasources": ["github-releases", "deb"],
+      "postUpgradeTasks": {
+        "commands": ["python3 scripts/check-source-pins.py --fix", "python3 scripts/check-fetch-digests.py --fix"],
+        "fileFilters": ["kube-cluster/**/*.yaml"],
+        "executionMode": "update"
+      }
+    },
+    {
       "description": "matrixdotorg/synapse is pinned twice and the two must move together: the Deployment's image, and the FROM of the synapse-pymods ImageBuild whose /pymods is imported by that interpreter. Two managers (kubernetes, and the inline-Dockerfile custom one) see them as unrelated deps and would otherwise merge them apart. scripts/validate.sh fails the lint if they ever disagree.",
-      "matchFileNames": ["kube-cluster/apps/matrix/*.yaml"],
+      "matchFileNames": ["kube-cluster/apps/matrix/*.yaml", "kube-cluster/apps/matrix/artifacts/*.yaml"],
       "matchPackageNames": ["matrixdotorg/synapse"],
       "groupName": "synapse",
       "automerge": false
@@ -173,13 +252,33 @@
     {
       "description": "One PR for all VictoriaMetrics images. Mixed versions across the cluster are unsupported.",
       "matchPackageNames": [
-        "victoriametrics/victoria-metrics",
         "victoriametrics/vminsert",
         "victoriametrics/vmselect",
         "victoriametrics/vmstorage"
       ],
       "groupName": "victoriametrics",
       "automerge": false
+    },
+    {
+      "description": "ceph-csi runs our x86-64-v2 build (upstream's image needs x86-64-v3; see infra/ceph-csi-cephfs/README.md). Its tags also drive the chart versions (custom manager above), so chart and image move in one reviewed PR, and only once our build exists. A bump restarts every CSI nodeplugin, so it never automerges. Held at 3.18: v3.19 drops the charts (TODO.md, operator migration).",
+      "matchPackageNames": ["ghcr.io/lhns/ceph-csi-x86-64-v2"],
+      "groupName": "ceph-csi",
+      "automerge": false,
+      "allowedVersions": "/^v?3\\.18\\./"
+    },
+    {
+      "description": "The ceph-csi charts move only with our image (rule above), never from the chart repo.",
+      "matchDatasources": ["helm"],
+      "matchPackageNames": ["ceph-csi-cephfs", "ceph-csi-rbd"],
+      "enabled": false
+    },
+    {
+      "description": "NATS chart minor/major: read the upgrade notes (chart UPGRADING.md and the nats-server release notes); take a backup first; JetStream minors may not downgrade.",
+      "matchDatasources": ["helm"],
+      "matchPackageNames": ["nats"],
+      "matchUpdateTypes": ["major", "minor"],
+      "automerge": false,
+      "addLabels": ["nats"]
     },
     {
       "description": "MariaDB non-patch bumps wait on the dependency dashboard (standardnotes-db, teamspeak-db). Both StatefulSets run MARIADB_AUTO_UPGRADE=1, so merging one of these is a deploy that rewrites the system tables in place on the next pod start -- irreversible, since an in-place downgrade is only supported before mariadb-upgrade runs. The entrypoint triggers that on any major OR minor change, so 13.0 -> 13.1 is as one-way as 12 -> 13; patch bumps do not trigger it and stay on the blanket automerge. We are on the 13.0 rolling line by choice, which means this fires every few months: approve from the dashboard when there is time to snapshot both datadir PVCs first and to read the pod log for `Finished mariadb-upgrade` afterwards -- the readiness probe goes green either way.",

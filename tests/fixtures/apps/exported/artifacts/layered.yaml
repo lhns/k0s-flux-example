@@ -1,0 +1,66 @@
+# Several documents in one file. Only an ImageComposition or ImageBuild exporting into
+# flux-system becomes a substituteFrom entry: the GitRepository, the object exporting
+# elsewhere and the object exporting nothing are applied but not substituted from.
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: exported-src
+  namespace: oci-composer
+spec:
+  interval: 1h0m0s
+  url: https://example.invalid/fixture.git
+  ref:
+    tag: v1.0.0
+---
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageComposition
+metadata:
+  name: exported-layered
+  namespace: oci-composer
+spec:
+  layers:
+    - name: fixture
+      sourceRef:
+        kind: GitRepository
+        name: exported-src
+        revision: v1.0.0
+      to: /
+  push:
+    writeRefTo:
+      namespace: flux-system
+      keys:
+        ref: EXPORTED_LAYERED_REF
+---
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageComposition
+metadata:
+  name: exported-elsewhere
+  namespace: oci-composer
+spec:
+  layers:
+    - name: fixture
+      sourceRef:
+        kind: GitRepository
+        name: exported-src
+        revision: v1.0.0
+      to: /
+  push:
+    writeRefTo:
+      namespace: oci-composer
+      keys:
+        ref: UNUSED_REF
+---
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageComposition
+metadata:
+  name: exported-none
+  namespace: oci-composer
+spec:
+  layers:
+    - name: fixture
+      sourceRef:
+        kind: GitRepository
+        name: exported-src
+        revision: v1.0.0
+      to: /

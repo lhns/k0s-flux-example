@@ -9,10 +9,10 @@ Docker daemon. Serves `forgejo.example.com` (see [`../forgejo`](../forgejo/READM
 
 One Deployment, `replicas: 1`, `strategy: Recreate`, one Pod with two containers:
 
-- **`dind`** — `docker:29.7.1-dind`, `privileged: true`, a **native sidecar**
+- **`dind`** — `docker:*-dind`, `privileged: true`, a **native sidecar**
   (`initContainers` entry with `restartPolicy: Always`) so the daemon is up before the runner
   starts and terminates after it exits, letting in-flight jobs drain.
-- **`runner`** — `code.forgejo.org/forgejo/runner:13.0.0`, no privileges at all
+- **`runner`** — `code.forgejo.org/forgejo/runner`, no privileges at all
   (`drop: [ALL]`, `RuntimeDefault`), reaching the daemon at `tcp://127.0.0.1:2375`.
 
 ## What changed from `../gitea-runner`

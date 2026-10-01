@@ -1,0 +1,38 @@
+# xExtension-ImageProxy. Same shape as extension-autottl.yaml. Shares the FreshRSS/Extensions
+# monorepo with extension-llm-classification.yaml but declares its own GitRepository, so
+# repinning one cannot rebuild the other.
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: freshrss-ext-image-proxy
+  namespace: oci-composer
+spec:
+  interval: 12h
+  url: https://github.com/FreshRSS/Extensions
+  ref:
+    commit: 47db9391d0c66d3e15ad8bd4fa44e477fabdae1e
+---
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageComposition
+metadata:
+  name: freshrss-ext-image-proxy
+  namespace: oci-composer
+spec:
+  interval: 1h
+  layers:
+    - name: image-proxy
+      sourceRef:
+        kind: GitRepository
+        name: freshrss-ext-image-proxy
+        revision: sha1:47db9391d0c66d3e15ad8bd4fa44e477fabdae1e
+        # Places the directory's contents, not the directory, at `to`.
+        subpath: xExtension-ImageProxy
+      to: /
+      owner: {uid: 33, gid: 33}
+  push:
+    history: 10
+    writeRefTo:
+      namespace: flux-system
+      keys:
+        ref: FRESHRSS_EXT_IMAGE_PROXY_REF

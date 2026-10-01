@@ -90,7 +90,7 @@ spec:
 ---
 # ===========================================================================
 # TeamSpeak file store (/var/ts3server, 4.4G of file transfers + logs) — MOUNTED
-# in place off the existing appdata CephFS dir (jellyfin/victoriametrics static-PV
+# in place off the existing appdata CephFS dir (jellyfin static-PV
 # pattern), NOT copied. capacity 1Gi is a dummy (ignored for static cephfs); bound
 # by volumeName. The server/channels/users/perms are all in MariaDB, not here.
 # ===========================================================================

@@ -23,12 +23,16 @@ Synapse merges every `--config-path` **last-value-wins per top-level key**:
 | path | source | overrides |
 | --- | --- | --- |
 | `/data/homeserver.yaml` | CephFS PV, **not in git** | base |
-| `/secrets/database.yaml` | `secret-synapse.yaml` (SOPS) | `database` |
-| `/config/synapse-turn.yaml` | ConfigMap | `turn_*` |
+| `/secrets/database.yaml` | `synapse-database.yaml` | `database` |
+| `/config/synapse-turn.yaml` | `synapse-turn.yaml` | `turn_*` |
 | `/config-appservices/…` | `synapse-appservices.yaml` | `app_service_config_files` |
-| `/media-s3/media-s3.yaml` | `secret-media-s3.yaml` (SOPS) | `media_storage_providers` |
+| `/media-s3/media-s3.yaml` | `media-s3.yaml` | `media_storage_providers` |
+| `/config-keyservers/…` | `synapse-keyservers.yaml` | `trusted_key_servers` |
 
-**All five appservice registrations live in git** (`secret-registrations.yaml`, mounted at
+Every one but `homeserver.yaml` is a plaintext generator source patched to a Secret; the
+credentials in them arrive by substitution, so none is a SOPS file.
+
+**All six appservice registrations live in git** (`registrations/`, mounted at
 `/registrations`). Replacement is whole-key, not element-wise, so `synapse-appservices.yaml` must
 always list *every* bridge — a partial list silently unregisters the rest. `homeserver.yaml` still
 holds its original three-entry list; it is **dead config**, kept only as the rollback.
@@ -60,12 +64,12 @@ the provider never saw, failed async uploads, and already-uploaded files awaitin
 - `concurrencyPolicy: Forbid` + `activeDeadlineSeconds` — two runs would race on `cache.db`; Forbid
   alone has no timeout, so a hung run would block all future ones.
 - `cache.db` is SQLite → its PVC is **ceph-rbd**, per the single-writer-SQLite rule.
-- Credentials are read out of `secret-media-s3.yaml` at runtime; DB access reuses
-  `secret-synapse.yaml` via `--homeserver-config-path`, whose `database.name`/`args` shape it wants.
+- Credentials are read out of `media-s3.yaml` at runtime; DB access reuses
+  `synapse-database.yaml` via `--homeserver-config-path`, whose `database.name`/`args` shape it wants.
 
 ### Getting the module into synapse
 
-`matrixdotorg/synapse` has no boto3. `images.yaml` declares an **ImageBuild**, `synapse-pymods`,
+`matrixdotorg/synapse` has no boto3. `artifacts/` declares an **ImageBuild**, `synapse-pymods`,
 that pip-installs the provider and its CLI extras into `/pymods` on top of the synapse image;
 synapse mounts that as an **image volume** at `/pymods` with `PYTHONPATH=/pymods`. An `ImageBuild`
 rather than an `ImageComposition` because pip resolves the transitive closure inside the build —
@@ -79,10 +83,8 @@ only the four direct packages are pinned, and nothing here hand-resolves wheels.
   will try to build **psycopg2 from source**; there is no compiler in the image.
   psycopg2/Twisted/PyYAML are declared deps but only the CLI uses them and all three are present.
 - **`subPath: pymods`** on synapse's mount: the image root is the whole synapse filesystem.
-- **The sweep CronJob runs the image as its container image** instead of mounting it. kustomize's
-  `ImageTagTransformer` has no image-volume fieldspec under a `jobTemplate`, so a volume there
-  would keep the bare name `synapse-pymods` and fail to pull; a container `image:` is rewritten.
-  That is why the image is runnable (single stage `FROM` synapse) rather than `scratch`.
+- **The sweep CronJob runs the image as its container image** instead of mounting it, which is why
+  the image is runnable (single stage `FROM` synapse) rather than `scratch`.
 
 ### Path-style addressing
 
@@ -96,7 +98,7 @@ Verify the provider actually parsed (silent otherwise):
 
 ```sh
 kubectl -n matrix exec deploy/synapse -c synapse -- python -c "
-import sys; sys.argv=['x'] + '--config-path /data/homeserver.yaml --config-path /secrets/database.yaml --config-path /config/synapse-turn.yaml --config-path /config-appservices/synapse-appservices.yaml --config-path /media-s3/media-s3.yaml'.split()
+import sys; sys.argv=['x'] + '--config-path /data/homeserver.yaml --config-path /secrets/database.yaml --config-path /config/synapse-turn.yaml --config-path /config-appservices/synapse-appservices.yaml --config-path /media-s3/media-s3.yaml --config-path /config-keyservers/synapse-keyservers.yaml'.split()
 from synapse.config.homeserver import HomeServerConfig
 print(len(HomeServerConfig.load_config('', sys.argv[1:]).media.media_storage_providers))"   # -> 1
 ```
@@ -248,7 +250,7 @@ stored from 2023. All four were moved to `as_token:` on 2026-08-24.
 
 Each bridge reuses **its own** `as_token` from its `registration.yaml`; no dedicated
 double-puppet registration exists. This works because every registration in
-`secret-registrations.yaml` carries the non-exclusive `^@.*:example\.com$` user namespace, which is
+`registrations/` carries the non-exclusive `^@.*:example\.com$` user namespace, which is
 what lets it masquerade via `?user_id=`. That namespace is required — without it the bridge can
 only ever speak as a ghost. It is also why a stale registration is dangerous: it grants
 impersonation over every local account.
@@ -485,7 +487,7 @@ Service that never existed here. It grew with local Matrix activity rather than 
 the registration granted a non-exclusive `^@.*:example\.com$`, which also meant a three-year-unused
 `as_token` held impersonation rights over every local account.
 
-The `discord.yaml` key in `secret-registrations.yaml` was **replaced in place** rather than removed
+`registrations/discord.yaml` was **replaced in place** rather than removed
 and re-added. Two reasons: `synapse-appservices.yaml` is whole-key, so touching the list risks
 silently unregistering other bridges; and the old and new registrations both claim overlapping
 exclusive namespaces, so Synapse would refuse to start if they ever coexisted. The stale
@@ -651,7 +653,7 @@ table.
 - **Database**: `sip-bridge`, owned by the shared `matrix` role, so no extra `DatabaseRole`.
 - **Config**: a FILE, not env. `mxmain` reads environment variables only when
   `env_config_prefix` is set, under `__`-separated paths, and a variable that matches the prefix
-  but no field is a startup error — so the whole config is `secret-sip-bridge.yaml`, mounted at
+  but no field is a startup error — so the whole config is `sip-bridge-config.yaml`, mounted at
   `/config/config.yaml` and passed as `-c /config/config.yaml -n`. `-n` is required: without it
   the config upgrader writes the migrated file back and dies on the read-only mount.
 - **Portal rooms are NOT encrypted, deliberately.** Element Call SFrame-encrypts media in any

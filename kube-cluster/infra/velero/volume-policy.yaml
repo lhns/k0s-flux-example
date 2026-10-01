@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: velero-volume-policy
+  namespace: velero
+data:
+  # Velero's CSI plugin guards `storageClassName == nil` but not `""`, so a static
+  # rootPath PVC makes it fetch a StorageClass named "" and every backup reports
+  # "error getting storage class: resource name may not be empty". Skip them — the
+  # snapshot never worked anyway (see README).
+  # Matches static ceph-csi volumes only; dynamic cephfs/rbd PVCs keep their snapshots.
+  # A static PV on another driver needs its own entry here.
+  # Exactly one data key: Velero rejects the ConfigMap otherwise.
+  policy.yaml: |
+    version: v1
+    volumePolicies:
+      - conditions:
+          csi:
+            driver: cephfs.csi.ceph.com
+            volumeAttributes:
+              staticVolume: "true"
+        action:
+          type: skip

@@ -14,7 +14,7 @@ line's own `callers` list.
 | host | role |
 | --- | --- |
 | `sip.example.net` (ExampleISP fiber) | outbound PSTN, 110/112, and inbound on its numbers |
-| `voip.example.org` | inbound, and its own short internal extensions |
+| `voip.example.org` | inbound, and its own short internal extensions. **Disabled** for now (`disabled: true`) |
 
 Everything — both trunks and both in-cluster peers — is `res_pjsip`, in `pjsip.conf`.
 
@@ -74,6 +74,14 @@ then silence. Measured on the built image, asserted twice in
 `tests/check-routing.py`, and the reason inbound attribution is the **endpoint** rather than
 the extension: see below.
 
+`disabled: true` switches an entry off and keeps it, Secret key included, so turning it back on
+is deleting that line. It renders no pjsip object and no `registrations.tsv` row, so its key is
+never read and may be absent. A line whose `primary` is disabled is off: every outbound rule or
+`#<line>` label reaching it is **refused** with `line '<name>' is disabled` in the log, never
+passed on to the next rule, and nothing inbound is attributed to it. The flag is on the
+registration only, because that is what holds the objects and the credentials; every other
+member of such a line must be disabled too, and an emergency route or an `entrypoint` never may.
+
 `entrypoint: true` marks the host's **default** registration. An inbound call that nothing
 else identifies is attributed to it, which is what the carrier ceasing to echo anything would
 look like: per-DID inbound degrades to one line rather than to nothing. It is therefore also
@@ -113,12 +121,17 @@ the household chat server. This way it costs exactly one, ever.
 ## The Asterisk image
 
 `ghcr.io/lhns/asterisk`, built by <https://github.com/lhns/asterisk> from branch
-`22.11.0-cheogram-dtls`: Asterisk 22.11.0 plus three commits giving `chan_motif` DTLS-SRTP
-(XEP-0320) and RTCP-MUX/ICE, `res_xmpp` the matching disco feature, and `res_rtp_asterisk` a
-DTLS MTU fix. Without them nothing here completes an encrypted Jingle call. That fork's CI
+`22.11.0-cheogram-dtls`: Asterisk 22.11.0 plus commits giving `chan_motif` DTLS-SRTP
+(XEP-0320), RTCP-MUX and the ICE-UDP interop they need, and `res_xmpp` the matching disco
+feature. Without them nothing here completes an encrypted Jingle call. DTLS is opt-in per
+endpoint, hence `dtlsenable=yes` in `motif.conf`. Another commit fixes upstream `chan_motif`
+handing stack garbage to ao2 whenever it negotiates a Jingle description. The same changes,
+based on upstream `master` for submission, are the fork's `chan_motif-dtls` and
+`chan_motif-codecs-init` branches. That fork's CI
 asserts the patches did what they claim, not merely that they applied — a startup check plus a
 prosody/slixmpp call that the outgoing `session-initiate` really carries a well-formed
-`<fingerprint hash='sha-256' setup='actpass'>` and `<rtcp-mux/>`.
+`<fingerprint hash='sha-256' setup='actpass'>` and `<rtcp-mux/>`, and an inbound call that must
+complete without Asterisk crashing or logging `FRACK`, also on a pattern-initialized-stack build.
 
 Digest-pinned, as everything here is; rebasing onto a newer Asterisk is work in the fork, then
 a pin bump. The GHCR package is public, so nothing needs an `imagePullSecret` — making it
@@ -223,14 +236,14 @@ Outbound selection:
 | dialled | goes |
 | --- | --- |
 | no label | the first matching rule in the routing table, below |
-| label in `SIP_TRUNKS` | that host's default registration, with credentials |
+| label naming one of our trunk hosts | that host's default registration, with credentials |
 | label naming a **line** | that line's primary registration, with credentials |
 | anything else | **refused** |
 
-`SIP_TRUNKS` entries MUST equal a registration's `host`: no object is named after a host, so
-a label resolves through that host's default registration. The last row is the fail-closed
-part — nothing falls through to an uncredentialed `SIP/<user>@<label>` dial, which a provider
-may answer with a recorded refusal, i.e. a connected call rather than an error. Federated SIP
+Our trunk hosts are `SIP_HOST` and the `host` of every enabled registration, taken from the
+routing table: no object is named after a host, so a label resolves through that host's default
+registration. The last row is the fail-closed part — nothing falls through to an
+uncredentialed `SIP/<user>@<label>` dial, which a provider may answer with a recorded refusal, i.e. a connected call rather than an error. Federated SIP
 dialling would come back, if at all, as a deliberate allow list.
 
 ## The routing table
@@ -284,7 +297,7 @@ be the entry name; every `line` must exist and every `primary` must belong to th
 presents it; every outbound rule must resolve, and a rule may pin a registration only as an
 emergency route; `did` must be unique and (`host`, `contact_user`) must be unique; each host
 needs exactly one default registration, so the inbound fallback is defined; a line name may
-not also be a `SIP_TRUNKS` host, or `#label` would be ambiguous; and a rule may present only a
+not also be a registration's host, or `#label` would be ambiguous; and a rule may present only a
 registration whose endpoint pins `from_user` to it, because a carrier may reject or silently
 rewrite a From the account does not own. Of each entry it also demands the whole object set,
 `line=yes` with `endpoint=`, no `@` in any `contact_user`, and exactly one `type=identify` per host, on that
@@ -407,7 +420,7 @@ not route anywhere, and would put a resolver in the call path.
 | address | where | risk |
 | --- | --- | --- |
 | `10.21.27.11` | `hostAliases` in `resources.yaml` | ExampleISP's proxy, from their portal. Only needed because `sip.example.net` does not resolve. Also what `type=identify` and every AOR contact resolve to, so it is read at config load as well as per REGISTER. If it changes, or if they ever publish real DNS, the entry silently wins and registration stops with no error. |
-| `203.0.113.10` | `routing/values.yaml` `external_address`, `rtp.conf` `ice_host_candidates`, and `coturn/turnserver.conf` | The static tunnel address, duplicated across two apps with no single source of truth. Wrong value means one-way audio in SIP and dead TURN relays at once. |
+| `203.0.113.10` | `routing/values.yaml` `external_address`, `rtp.conf` `ice_host_candidates`, `coturn/turnserver.conf`, and `matrix/livekit-config.yaml` `node_ip` | The static tunnel address, duplicated across three apps with no single source of truth. Wrong value means one-way audio in SIP, dead TURN relays and silent Element Call phone calls from off the LAN at once. |
 | `10.20.0.0/16`, `172.18.0.0/16`, `172.19.0.0/16` | `routing/values.yaml` `local_nets` | LAN, podCIDR, serviceCIDR. Only change on a cluster rebuild. |
 | `matrix-sip-bridge.matrix.svc.cluster.local` | the `[matrixbridge]` AOR contact and `extensions.lua`'s `bridge_host` | A MESSAGE's Request-URI is routed as written, so the dialplan needs the name too; `tests/check-routing.py` holds the two together. |
 | `10.20.2.81` | `metallb/pool.yaml` and the Service | Ours. |
@@ -563,7 +576,10 @@ the answered leg up if the gosub fails** — so its body is wrapped in `pcall`. 
 would otherwise drop ordinary calls to the household number.
 
 The two user profiles this uses are in `confbridge.conf`: livekit-sip is the marked user, the
-caller is `end_marked`, and that pairing is what a Matrix hangup ends the caller with.
+caller is `end_marked`, and that pairing is what a Matrix hangup ends the caller with. The other
+direction is the `h` extension calling `ConfKick()`: the profiles cannot express it, and neither
+can a channel, because the leg that has to end the conference is by then hung up — or, on the
+outbound path the bridge cancelled, was never in it.
 
 ### Outbound calls from Matrix
 

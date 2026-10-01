@@ -1,0 +1,37 @@
+# The Aiven tiered-storage plugin jars, mounted on the brokers (../kafka.yaml). Upgrading: ../README.md.
+---
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageComposition
+metadata:
+  name: kafka-tiered-storage
+  namespace: oci-composer
+spec:
+  interval: 1h
+  # No `base`: files mounted into the upstream Strimzi Kafka image.
+  layers:
+    # Separate directories: both archives ship commons-codec, in different versions.
+    - name: core
+      fetch:
+        # renovate: datasource=github-releases depName=Aiven-Open/tiered-storage-for-apache-kafka
+        url: https://github.com/Aiven-Open/tiered-storage-for-apache-kafka/releases/download/v1.1.1/core-1.1.1.tgz
+        digest: sha256:053480aa4ea5d3b667df824b4c4425f469243df3c89fa8c50edbf9ec88300e4f
+        unpack: tar.gz
+        subpath: core-1.1.1
+      to: /core
+      # The Strimzi Kafka container's user.
+      owner: {uid: 1001, gid: 0}
+    - name: s3
+      fetch:
+        # renovate: datasource=github-releases depName=Aiven-Open/tiered-storage-for-apache-kafka
+        url: https://github.com/Aiven-Open/tiered-storage-for-apache-kafka/releases/download/v1.1.1/s3-1.1.1.tgz
+        digest: sha256:3e0ea6ce17033c1fcf74e0f6f292411cb3e2afcc1798b51125bb15e5b7500017
+        unpack: tar.gz
+        subpath: s3-1.1.1
+      to: /s3
+      owner: {uid: 1001, gid: 0}
+  push:
+    history: 10
+    writeRefTo:
+      namespace: flux-system
+      keys:
+        ref: KAFKA_TIERED_STORAGE_REF

@@ -1,5 +1,8 @@
 # Kafka→VictoriaMetrics exporter lag: measurement runbook
 
+> The single-node `victoriametrics-exporter` has since been decommissioned; only
+> `victoriametrics-cluster-exporter` remains. Measurements of the former are historical.
+
 The `victoriametrics-exporter` and `victoriametrics-cluster-exporter` OTel collectors each
 run **two** Kafka consumer pipelines over the same topics. The **best-effort** one keeps up;
 the **guaranteed** one falls millions of messages behind and periodically stalls to *zero*
@@ -30,20 +33,19 @@ to be gone.
 2. [Metric inventory](#2-metric-inventory)
 3. [Running the queries](#3-running-the-queries)
 4. [The queries that matter](#4-the-queries-that-matter)
-5. [Measured baseline](#5-measured-baseline-2026-07-29-2306-cest)
 6. [Findings and open hypotheses](#6-findings-and-open-hypotheses)
 7. [Remediation (1 applied, rest untested)](#7-remediation-1-applied-rest-untested)
 8. [Gotchas](#8-gotchas)
 
 ## 1. How the two pipelines differ
 
-Both configs (`kube-cluster/apps/victoriametrics/victoriametrics-exporter.yaml`,
+Both configs (the single-node's, now removed, and
 `kube-cluster/apps/victoriametrics-cluster/victoriametrics-cluster-exporter.yaml`) define:
 
 | | pipeline `metrics` (**guaranteed**) | pipeline `metrics/latest` (**best-effort**) |
 | --- | --- | --- |
 | consumer group | `<name>-exporter` | `<name>-exporter-latest` |
-| `initial_offset` | default (earliest) | `latest` |
+| `initial_offset` | `earliest` | `latest` |
 | `message_marking.on_error` | **`false`** — on failure the record is *not* marked ⇒ the receiver sets `fatalRecord` and **pauses the partition** (§6) | **`true`** — marks anyway ⇒ drops the batch ⇒ always progresses |
 | processors | `transform/truncate_attributes` | `+ interval/downsample` (60s) |
 | request size | one Kafka message per write | 60s of accumulated data (~**100k datapoints**) per write |
@@ -58,14 +60,15 @@ Both exporters keep `sending_queue: false` / `retry_on_failure: false` (delibera
 §7). The setting that actually mattered was the *receiver's* `error_backoff`, which was unset
 and is what allowed the partition pause; it is now enabled on every kafka receiver (§6/§7).
 
-Neither Deployment sets `resources:` — so there are **no CPU/memory limits** and CFS
-throttling is *not* a factor here (unlike the valkey readiness-probe incident).
+Neither exporter container sets a **CPU** limit, so CFS throttling is *not* a factor here
+(unlike the valkey readiness-probe incident). Both do carry a memory limit.
 
 ## 2. Metric inventory
 
 **Use the `kafka.*` metrics as the primary signal.** They come from a `kafkametricsreceiver`
-(in the Swarm collector, `cluster_name="otel-kafka"`) and carry a **`group`** label, so each
-consumer group is directly addressable:
+and carry a **`group`** label, so each consumer group is directly addressable. The in-cluster
+broker is scraped as `cluster_name="otel-kafka-kube"`; the queries below do not filter on
+`cluster_name`, so add it if a Swarm-era series is still present:
 
 | metric | labels | meaning |
 | --- | --- | --- |
@@ -161,44 +164,6 @@ curl -s localhost:18480/metrics | grep -E '^vm_rows_inserted_total|^vm_rpc_
 #   vm_data_size_bytes, vm_cache_misses_total{type="storage/tsid"}
 ```
 
-## 5. Measured baseline (2026-07-29, 23:06 CEST)
-
-Compare future readings against this.
-
-```
-production          otlp_metrics 5.5 msg/s   otlp_meta_metrics 0.3 msg/s   (~5.8 total)
-
-consumption         victoriametrics-exporter                  0.0 msg/s   lag 4,039,335
-                    victoriametrics-exporter-latest           5.8 msg/s   lag 1
-                    victoriametrics-cluster-exporter          0.0 msg/s   lag 2,597,828
-                    victoriametrics-cluster-exporter-latest    5.8 msg/s   lag 1
-
-24h lag band        victoriametrics-exporter          3.92M – 4.20M  (oscillates, never drains)
-                    victoriametrics-cluster-exporter  2.52M – 2.98M
-
-guaranteed rate     11:06–12:36  0.0
-(both exporters,    13:06–18:36  12–33 msg/s   ← working, ~6h
- in lockstep)       19:06–23:06  0.0           ← stalled, 4h+
-
-exporters           no resource limits; RSS ~407Mi / ~428Mi; CPU 124m / 141m; uptime 10h
-vmstorage           67 GB data + 42.7 GB index; 3.39M series; RSS 5.8/12 GiB;
-                    tsid cache miss 1.7%; 68 TB free; data on appdata CephFS (HDD tier)
-failing batches     ~102,000 datapoints per request (the 60s downsample flush)
-
-FROZEN OFFSETS (otlp_metrics) — committed offset, hourly:
-  victoriametrics-exporter          15:11 17,359,834 → 19:11 17,586,452 (+~57k/h) → 20:11..23:11 +0
-  victoriametrics-cluster-exporter  15:11 18,632,054 → 19:11 19,018,306 (+~99k/h) → 20:11..23:11 +0
-                                    ...pinned at 19,021,494 = the offset in its error log
-
-RETENTION HEADROOM (otlp_metrics: floor 16,702,704, head 21,591,251 ⇒ window ~4.89M msgs)
-  victoriametrics-exporter            883,748 msgs above floor  ⇒  ~44.6 h until data loss
-  victoriametrics-cluster-exporter  2,318,790 msgs above floor  ⇒  ~117 h until data loss
-```
-
-Key ratio: best-effort consumption (5.8) **exactly equals** production (5.8) — it keeps up by
-dropping. Guaranteed peaks at 12–33 msg/s, which *is* above production, so it can drain the
-backlog **while it runs**; it just doesn't run most of the time.
-
 ## 6. Findings and open hypotheses
 
 **Established:**
@@ -250,7 +215,7 @@ availability-limited.**
 | vminsert↔vmstorage connectivity | `rate(vm_rpc_dial_errors_total)` = **0/s** all 24h (the 298 cumulative are stale) | **ruled out** |
 | Exporter stuck holding open HTTP requests | `otelcol_exporter_in_flight_requests` = **0** for the whole wedge (it is 1 when healthy) | **ruled out** — it wasn't even attempting requests |
 | Consumer kicked from the group / rebalance | `kafka.consumer_group.members` = **2**, constant, throughout | **ruled out** — it held its partitions the entire time |
-| CPU throttling / memory growth | no `resources:` set; RSS flat ~410 MiB | **ruled out** |
+| CPU throttling / memory growth | no CPU limit set; RSS flat | **ruled out** |
 
 Together these say: the backend was **not saturated** (2–3 concurrent inserts of 40), and the
 collector was **not blocked in the HTTP layer** — it simply stopped consuming while still
@@ -263,7 +228,7 @@ The write timeouts that *trigger* it are a **latency** problem, not a concurrenc
 POST against 110 GB of vmstorage on the HDD-tier appdata CephFS. The VM backends' own
 `/metrics` scrapes were timing out in the same window, which is the tell.
 
-### The mechanism, verified in source (`kafkareceiver` v0.157.0, `consumer_franz.go`)
+### The mechanism, verified in source (`kafkareceiver`, `consumer_franz.go`)
 
 **One export timeout pauses the partition indefinitely.** The exact path for our config
 (`message_marking: {after: true, on_error: false}`, `error_backoff` unset, timeout ⇒
@@ -307,19 +272,12 @@ timestamp. There is no 413.)
 `victoriametrics-exporter` had **~45 h** of headroom when measured at 4M lag. Re-run the §5
 headroom calculation whenever it has been wedged for a while.
 
-> **Method note.** The "poison message" error was mine: I inferred it from a frozen offset
-> plus a matching offset in the logs, and stated it as confirmed on circumstantial evidence.
-> The user's repeated observation ("a restart always fixes it") was the stronger evidence and
-> falsified it in one experiment. When a cheap experiment can discriminate two hypotheses,
-> run it before writing a conclusion down.
-
-What is *not* the cause: CPU throttling (no limits set), exporter memory growth (~410 MiB
-steady, no limits), Kafka read-side problems, and vmstorage cache thrash (1.7% miss ratio).
+What is *not* the cause: CPU throttling (no CPU limit set), exporter memory growth, Kafka
+read-side problems, and vmstorage cache thrash.
 
 ## 7. Remediation (1 applied, rest untested)
 
-Roughly in order of effort/benefit. **None applied yet** — deliberately, so the measurement
-isn't confounded.
+Roughly in order of effort/benefit.
 
 0. **Immediate unblock: `kubectl rollout restart` both exporter Deployments.** Verified to
    work every time (§6). No offset surgery and no Swarm access needed — the wedge is process
@@ -344,7 +302,7 @@ isn't confounded.
          enabled: true         # defaults: 5s initial, 30s max interval, 5m max_elapsed_time
          initial_interval: 5s
          max_interval: 1m
-         # max_elapsed_time: 0 would retry in-process forever; leaving it at the 5m default
+         # max_elapsed_time: 0 would retry in-process forever; the 5m here
          # is better — it falls through to the cursor rewind, i.e. re-reads from Kafka.
    ```
    Applied to the `*_latest` receivers too, with a deliberately shorter profile

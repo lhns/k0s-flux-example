@@ -1,7 +1,7 @@
 # gitea
 
 [Gitea](https://about.gitea.com) — git forge at `gitea.example.com` (traefik ingress, wildcard TLS),
-migrated from Docker Swarm. Image `gitea/gitea:1.27.1`.
+migrated from Docker Swarm. Image `gitea/gitea`.
 
 ## Shape
 
@@ -85,7 +85,7 @@ the dump needs.
    *before* touching DNS: SSO round-trip, browse a repo (proves the 27 G mount), `git clone` and
    **push** over HTTPS (exercises the hooks and `INTERNAL_TOKEN`), and a test mail
    (`kubectl -n msmtpd logs`). Then `gitea doctor check --all` (also as `su git`).
-8. Point `gitea.example.com` at the cluster and re-verify. **Done** — it serves 1.27.1 from here.
+8. Point `gitea.example.com` at the cluster and re-verify. **Done** — it serves from here.
 9. Flip `gitea-kube` in `routing.yaml` from serving to the canonical redirect. **Done** —
    `gitea.kube.example.com` now 301s to `gitea.example.com`, matching every other migrated app.
 

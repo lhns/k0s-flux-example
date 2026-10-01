@@ -9,7 +9,7 @@ spec:
   url: oci://ghcr.io/lhns/charts/remote-docker-workspace
   ref:
     # Bump to roll a new version.
-    tag: "0.7.0"
+    tag: "0.8.1"
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -44,9 +44,9 @@ spec:
 
     persistence:
       # Every account's /var/lib/docker: a full private image + build cache each, and
-      # nothing prunes them. Growing it needs persistence.graph.existingClaim (0.6.0) --
-      # as a StatefulSet volumeClaimTemplate the size here only applies to a claim that
-      # does not exist yet.
+      # nothing prunes them. `size` only applies to a claim that does not exist yet (a
+      # StatefulSet volumeClaimTemplate is immutable): the live claim was grown to 80Gi by
+      # patching the PVC, which is how to grow it again.
       graph:
         size: 40Gi
         storageClass: ceph-rbd

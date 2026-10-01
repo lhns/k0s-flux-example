@@ -24,18 +24,19 @@ Snikket bundles a coturn and Matrix could run one, so the obvious thing is two o
 servers. Each would want its own VIP and its own UDP relay range punched through the router,
 for no benefit — the protocol is stateless-ish and one instance serves any number of apps.
 
-Both consumers speak coturn's **REST-API credential scheme** (`use-auth-secret`): the
+Every consumer speaks coturn's **REST-API credential scheme** (`use-auth-secret`): the
 application derives `username=<expiry>:<user>`, `password=HMAC(shared-secret, username)` and
 hands it to the client, so no user accounts exist in coturn itself. That is what makes sharing
-possible at all, and why all three components need the *same* secret:
+possible at all, and why every consumer needs the *same* secret:
 
 | consumer | how it is wired |
 | --- | --- |
 | `snikket` | `SNIKKET_TWEAK_TURNSERVER=0` disables its bundled one; `_DOMAIN`/`_SECRET`/`_PORT` point here |
-| `matrix` (synapse) | `turn_uris` + `turn_shared_secret` in `secret-synapse.yaml` |
+| `matrix` (synapse) | `turn_uris` + `turn_shared_secret_path` in `matrix/synapse-turn.yaml` |
+| `jetkvm` (cloud-api) | `COTURN_TURN_URLS`/`_SECRET`, via our cloud-api fork (`jetkvm/README.md`) |
 
-`coturn-shared-secret` is owned by this namespace and mirrored to both by Reflector, so
-rotating it is a single edit rather than three that can drift.
+`coturn-shared-secret` is owned by this namespace and mirrored to each consumer by Reflector, so
+rotating it is a single edit rather than several that can drift.
 
 ## The two things that must stay in sync
 

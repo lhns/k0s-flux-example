@@ -2,7 +2,7 @@
 
 Ceph **RBD** block storage — the `ceph-rbd` StorageClass (`rbd.csi.ceph.com`).
 Each PVC becomes an rbd image in the `kube` rados namespace of pool **`rbd.kube`**,
-on the same Ceph cluster as cephfs (clusterID `fastappdata`, monitors
+on the same Ceph cluster as cephfs (clusterID `ceph-cluster`, monitors
 `10.20.2.101-103`).
 
 Deployed in its own **`ceph-csi-rbd`** namespace (not co-located with the cephfs

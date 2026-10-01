@@ -17,7 +17,7 @@ senders ──► gateway (x2)  ──►  Kafka (3 dual-role KRaft nodes)  ─�
 | `opentelemetry-gateway-kafkametrics.yaml` | broker/topic/consumer scraper config |
 | `kafka.yaml` | `KafkaNodePool` + `Kafka` (Strimzi; the operator itself is `infra/strimzi`) |
 | `topics.yaml` | the four `otlp_*` topics |
-| `tiered-storage-plugin.yaml` | the Aiven tiered-storage jars, as an OCI artifact |
+| `artifacts/tiered-storage-plugin.yaml` | the Aiven tiered-storage jars, as an OCI artifact |
 | `vnet.yaml` | the `kafka` and `otel-gateway` VirtualNetworks |
 | `secret.yaml` | SOPS: S3 credentials for tiered storage |
 
@@ -101,20 +101,13 @@ separable for cleanup.
 ### The Aiven plugin jars
 
 Composed into one OCI artifact from the upstream release archives and mounted as an **image
-volume** — see `tiered-storage-plugin.yaml`. They used to be mounted in place from a CephFS
+volume** — see `artifacts/tiered-storage-plugin.yaml`. They used to be mounted in place from a CephFS
 directory unpacked by hand for the Swarm broker, which meant the plugin version existed only as
 two directory names on Ceph and Ceph sat in the broker startup path.
 
-**To upgrade, edit two `url`/`digest` pairs and nothing else.** The digest is not optional and
-not derivable — get it with the archive:
-
-```sh
-curl -sL <url> | tee >(sha256sum) | tar tzf - | head   # digest AND the wrapper dir name
-```
-
-A URL/digest mismatch is **terminal** in oci-composer, which is why Renovate is dashboard-gated
-for this dependency (`renovate.json`): it can rewrite the URL but cannot recompute the digest, so
-an automerged bump would break the artifact and, in time, the brokers.
+**Renovate bumps each layer's `url` and `subpath`**, and `scripts/check-fetch-digests.py --fix`
+(its postUpgradeTask) the `digest`. A URL/digest mismatch is **terminal** in oci-composer, so the
+lint fails on one. By hand: edit `url` and `subpath`, then run that script.
 
 The classpath is deliberately **version-free** (`/mnt/tiered-storage/core/*:.../s3/*`) so it never
 has to change, and deliberately **two entries** — both archives ship `commons-*.jar`, `httpclient`
@@ -122,10 +115,10 @@ and different `commons-codec` versions, so flattening them would silently pick o
 
 Two things about image volumes worth knowing here: they are pulled by the **kubelet**, not by the
 pod, so kube-vnet and cluster DNS are not involved (the node's containerd resolves
-`oci-composer.internal:30500` via a containerd registry drop-in); and the reference in `kafka.yaml` is a bare
-placeholder that only gets rewritten because of `kustomizeconfig.yaml` — Strimzi's
-`spec.template.pod.volumes[]` is not among kustomize's builtin image fieldspecs. Delete that file
-and the brokers will try to pull an image called `kafka-tiered-storage`.
+`oci-composer.internal:30500` via a containerd registry drop-in); and the reference in `kafka.yaml` is
+`${KAFKA_TIERED_STORAGE_REF}`, the digest-pinned ref the composition exports (see
+[`infra/oci-composer`](../oci-composer/README.md#how-a-workload-names-an-artifact)). A new digest
+makes Strimzi roll the brokers one at a time.
 
 ## Migration state
 

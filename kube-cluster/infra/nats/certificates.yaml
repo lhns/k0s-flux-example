@@ -1,0 +1,61 @@
+# Route mTLS. kube-vnet cannot filter by port, so any pod with ingress into the servers
+# could otherwise dial :6222 and join the cluster. Self-signed CA, local to this namespace.
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: nats-selfsigned
+  namespace: nats
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: nats-ca
+  namespace: nats
+spec:
+  isCA: true
+  commonName: nats-route-ca
+  secretName: nats-ca
+  duration: 87600h # 10y
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    kind: Issuer
+    name: nats-selfsigned
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: nats-ca
+  namespace: nats
+spec:
+  ca:
+    secretName: nats-ca
+---
+# One cert for all servers, used as both server and client on routes. The reloader
+# picks up renewals without a restart.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: nats-route-tls
+  namespace: nats
+spec:
+  secretName: nats-route-tls
+  commonName: nats-route
+  dnsNames:
+    - "*.nats-headless"
+    - "*.nats-headless.nats"
+    - "*.nats-headless.nats.svc"
+    - "*.nats-headless.nats.svc.cluster.local"
+  usages:
+    - server auth
+    - client auth
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    kind: Issuer
+    name: nats-ca

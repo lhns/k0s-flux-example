@@ -1,0 +1,8 @@
+# suspend in its own fixture, so the other fixtures' golden output stays untouched.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    suspend: "true"
+resources:
+  - resources.yaml

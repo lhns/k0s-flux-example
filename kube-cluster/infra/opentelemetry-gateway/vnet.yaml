@@ -22,8 +22,6 @@ spec:
       # when the Swarm gateway was repointed here. That reached lag 0 and the
       # *_swarm_drain receivers are gone.
       - victorialogs
-      - victoriametrics
-      # The cluster exporter lives in its own namespace, not in `victoriametrics`.
       - victoriametrics-cluster
       - victoriatraces
 ---
@@ -44,10 +42,9 @@ spec:
       # member, by carrying `kube-vnet/net.opentelemetry-gateway.otel-gateway: egress`
       # or via a VirtualNetworkBinding.
       #
-      # The four Victoria exporters send their own self-monitoring metrics here
+      # The three Victoria exporters send their own self-monitoring metrics here
       # (otlp/feedback); the rest send their real telemetry.
       - victorialogs
-      - victoriametrics
       - victoriametrics-cluster
       - victoriatraces
       - mosquitto

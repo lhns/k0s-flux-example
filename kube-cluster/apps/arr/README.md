@@ -1,13 +1,13 @@
 # arr — the *arr stack, VPN-only
 
 Migrated from the Swarm `arr` stack. Everything here reaches the internet **only**
-through `infra/pod-gateway` (NordVPN via gluetun). Workloads that must not be
-tunnelled — seerr, autopulse, decluttarr — live elsewhere, not in this namespace.
+through `infra/pod-gateway` (NordVPN via gluetun). `seerr` must not be tunnelled and
+lives in its own namespace; `autopulse` and `decluttarr` are here, and are routed.
 
-## Why one directory for six workloads
+## Why one directory for every *arr workload
 
 The mutating webhook selects by **namespace** label, and the egress NetworkPolicy is
-per-namespace. Splitting these into six namespaces would multiply both, and every one
+per-namespace. Splitting these into a namespace each would multiply both, and every one
 would be a place to forget the label. Here the namespace *is* the switch: anything
 scheduled into `arr` is routed, with no per-pod opt-in to omit.
 
@@ -48,7 +48,7 @@ These are `staticVolume: "true"` PVs pointing at directories that already existe
 pv-reaper does not claim them — verified: no `reclaim-on-delete` finalizer on any static
 CephFS PV in this cluster, including long-lived ones like `gitea-git`. Deleting one
 therefore removes a pointer, not data. That is what made renaming this namespace safe.
-The CLAUDE.md warning still stands in full for dynamically provisioned PVs.
+The AGENTS.md warning still stands in full for dynamically provisioned PVs.
 
 ## The symlinks are load-bearing
 

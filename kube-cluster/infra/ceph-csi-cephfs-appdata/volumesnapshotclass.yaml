@@ -1,0 +1,14 @@
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: cephfs-appdata-snapshotclass
+  labels:
+    # Velero needs one per CSI driver; without it every backup fails on this driver's volumes.
+    velero.io/csi-volumesnapshot-class: "true"
+driver: cephfs-appdata.csi.ceph.com
+# Delete: see ../ceph-csi-cephfs/volumesnapshotclass.yaml.
+deletionPolicy: Delete
+parameters:
+  clusterID: ceph-cluster
+  csi.storage.k8s.io/snapshotter-secret-name: csi-cephfs-secret
+  csi.storage.k8s.io/snapshotter-secret-namespace: ceph-csi-cephfs

@@ -29,3 +29,7 @@ schema-checks the `VirtualNetwork*` resources instead of skipping them.
 
 Roll a new version by bumping `ref.tag` (the linter derives the matching schema
 version from it).
+
+Use the pod annotation `kube-vnet/network-max-wait` only for an app that stays running but
+broken when its network is not ready at start. An app that exits and recovers on restart does
+not need it.

@@ -37,8 +37,7 @@ PY
 
 case "${1:-}" in
   fixtures)
-    values='{"groups":[{"base":"tests/fixtures/apps","prefix":"app"}],
-             "ociComposer":{"publicHost":"registry.test:5000"}}'
+    values='{"groups":[{"base":"tests/fixtures/apps","prefix":"app"}]}'
     ;;
   real)          values="$(live_values generate)" ;;
   real-generate) values="$(live_values)" ;;

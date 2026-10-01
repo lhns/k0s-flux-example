@@ -23,7 +23,7 @@ header rewritten to the account, so a vanity domain does not fail, it just quiet
 attributable. Plus-addressing is owned by definition, which is why `+<app>` survives and gives one
 readable sender per service in the mailbox.
 
-Current senders: `+auth` (authelia), `+gitea`, `+forgejo`.
+Senders are whatever `vnet.yaml` admits; each gets its own `+<app>` sender.
 
 Two traps worth knowing before you "verify" a change here:
 

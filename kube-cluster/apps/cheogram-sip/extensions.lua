@@ -5,13 +5,11 @@
 -- Fall back to something obviously broken rather than concatenating nil into every call.
 local component_domain = os.getenv("COMPONENT_DOMAIN") or "COMPONENT_DOMAIN-unset"
 
--- Our own trunk hosts, keyed lowercase. The label after "#" is either one of these or a LINE
--- name; a host label dials through that host's default registration, so it carries
--- credentials. See resolve_destination.
+-- Our own trunk hosts, keyed lowercase: SIP_HOST and every enabled registration's host,
+-- filled once the routing table is loaded below. The label after "#" is either one of these
+-- or a LINE name; a host label dials through that host's default registration, so it
+-- carries credentials. See resolve_destination.
 local trunks = {}
-for name in (os.getenv("SIP_TRUNKS") or os.getenv("SIP_HOST") or ""):gmatch("[^,%s]+") do
-	trunks[name:lower()] = name
-end
 
 -- The Matrix bridge's pjsip endpoint: the name of the [matrixbridge] objects, and the From
 -- user part of everything the bridge sends, which identify_by=username matches it on. Both
@@ -40,6 +38,23 @@ end
 -- Global, and the path is overridable, so a test can point it at the chart's rendered
 -- output instead of needing a file at the Asterisk location.
 sip_routing = load_routing(os.getenv("SIP_ROUTING_FILE") or "/etc/asterisk/routing.lua")
+
+-- A registration switched off in the table. It has no pjsip objects, so nothing can be
+-- dialled through it or have arrived on it.
+local function reg_disabled(reg)
+	return type(reg) == "table" and reg.disabled == true
+end
+
+do
+	local host = os.getenv("SIP_HOST") or ""
+	if host ~= "" then trunks[host:lower()] = host end
+	for _, r in pairs(sip_routing and sip_routing.registrations or {}) do
+		if type(r) == "table" and not reg_disabled(r) and type(r.host) == "string"
+				and r.host ~= "" then
+			trunks[r.host:lower()] = r.host
+		end
+	end
+end
 
 -- Does an address pattern from the routing table cover this caller? "*" is anyone,
 -- "xmpp:*"/"matrix:*" anyone on that transport, "xmpp:*@domain" and "matrix:@*:server" any
@@ -183,7 +198,10 @@ local function host_default_kind(tbl, reg)
 	local host = tostring(reg.host or ""):lower()
 	local n = 0
 	for _, r in pairs(tbl.registrations) do
-		if type(r) == "table" and tostring(r.host or ""):lower() == host then n = n + 1 end
+		if type(r) == "table" and not reg_disabled(r)
+				and tostring(r.host or ""):lower() == host then
+			n = n + 1
+		end
 	end
 	if n == 1 then return "sole" end
 	return nil
@@ -212,9 +230,11 @@ function inbound_registration(tbl, extension, peername)
 	-- which DID rang. It is the stronger discriminator and so is tried first, but it does
 	-- not make `how` a match: the host's default endpoint is also the only one carrying a
 	-- type=identify, so a call attributed to it may equally be the source-address fallback.
-	-- A MESSAGE has no endpoint and falls through to the host loop below.
+	-- A MESSAGE has no endpoint and falls through to the host loop below. A disabled
+	-- registration attributes nothing, by either route.
 	for name, r in pairs(tbl.registrations) do
-		if type(r) == "table" and tostring(r.peer or ""):lower() == peer then
+		if type(r) == "table" and not reg_disabled(r)
+				and tostring(r.peer or ""):lower() == peer then
 			if ext ~= "" and tostring(r.contact_user or ""):lower() == ext then
 				return r, tostring(name), "contact"
 			end
@@ -225,7 +245,8 @@ function inbound_registration(tbl, extension, peername)
 	peer = peer_host(tbl, peer)
 	local entry, entryname, sole, solename, several
 	for name, r in pairs(tbl.registrations) do
-		if type(r) == "table" and tostring(r.host or ""):lower() == peer then
+		if type(r) == "table" and not reg_disabled(r)
+				and tostring(r.host or ""):lower() == peer then
 			if ext ~= "" and tostring(r.contact_user or ""):lower() == ext then
 				return r, tostring(name), "contact"
 			end
@@ -344,8 +365,9 @@ end
 -- which is what keeps short extensions off the PSTN trunk.
 --
 -- `kind` is the fail-closed part: "trunk", "line" or "routed" reached a peer;
--- "unknown", "unrouted" and "forbidden" refuse. There is no fall-through to an
--- uncredentialed dial, which a carrier can answer with a recorded refusal.
+-- "unknown", "unrouted", "forbidden" and "disabled" refuse. There is no fall-through to an
+-- uncredentialed dial, which a carrier can answer with a recorded refusal -- nor, for a
+-- line whose primary is disabled, to the next rule's trunk.
 --
 -- `rule` is nil for every explicit label, so `emergency` is only ever set on a routed one.
 function resolve_destination(to, from_uri)
@@ -375,8 +397,12 @@ function resolve_destination(to, from_uri)
 			if l then
 				kind, line = "line", lname
 				local reg = routing_registration(sip_routing, {line = lname})
-				peer = registration_peer(reg)
-				if not peer then kind = "unrouted" end
+				if reg_disabled(reg) then
+					kind = "disabled"
+				else
+					peer = registration_peer(reg)
+					if not peer then kind = "unrouted" end
+				end
 			else
 				kind = "unknown"
 			end
@@ -384,8 +410,12 @@ function resolve_destination(to, from_uri)
 	else
 		local r, reg = routing_match(sip_routing, to, from_uri)
 		if r then
-			rule, peer, kind = r, registration_peer(reg), "routed"
-			line = r.line or reg.line
+			rule, line = r, r.line or reg.line
+			if reg_disabled(reg) then
+				kind = "disabled"
+			else
+				peer, kind = registration_peer(reg), "routed"
+			end
 		else
 			kind = "unrouted"
 		end
@@ -405,6 +435,18 @@ function resolve_destination(to, from_uri)
 	return to, label, peer, exten, rule, kind, line
 end
 
+-- Why resolve_destination returned no peer, in the words every refusing path logs.
+function refusal_reason(kind, line, label)
+	if kind == "forbidden" then
+		return "caller is not in the callers list of line '" .. tostring(line) .. "'"
+	elseif kind == "unknown" then
+		return "'" .. tostring(label) .. "' is neither one of our trunks nor a line"
+	elseif kind == "disabled" then
+		return "line '" .. tostring(line) .. "' is disabled in the routing table"
+	end
+	return "no routing rule matched, or the table is missing or malformed"
+end
+
 -- Hangup causes for what Originate reports back, picked for the SIP response the stack
 -- derives from each: 17 -> 486, 34 -> 503, 19 -> 480, 1 -> 404. The bridge fails the call
 -- on any non-2xx alike, so these are for whoever reads the trace, not for its logic.
@@ -420,40 +462,43 @@ function matrix_outbound_cause(status)
 	return originate_cause[status or ""] or 34
 end
 
--- The CLI command that ends a matrix conference, or nil plus a reason.
+-- The matrix conference this leg still has to end, or nil plus a reason to log.
 --
 -- confbridge.conf's marked/end_marked pairing only ends the caller when livekit-sip leaves;
 -- a caller hanging up leaves livekit-sip in the conference with its LiveKit participant
 -- alive, so that direction is ended explicitly from the h extension.
 --
--- Pure, so tests/ exercises it. The name is re-checked here even
--- though every caller already validated it, because it is pasted into a shell command.
-function matrix_kick_command(conf)
+-- Pure, so tests/ exercises it. The name is re-checked here even though every caller
+-- already validated it, because pbx_lua joins application arguments with commas.
+function matrix_kick_conference(conf, result)
 	conf = tostring(conf or "")
-	if conf == "" then return nil, "no conference on this channel" end
+	-- ENDMARKED is the pairing above having ended this leg, KICKED another leg's h having
+	-- ended it: either way the conference is already gone and ConfKick() would only warn.
+	if conf == "" or result == "ENDMARKED" or result == "KICKED" then return nil end
 	if not conf:match("^[%w%-_+]+$") then
 		return nil, "unusable conference name: " .. conf
 	end
-	return "asterisk -rx 'confbridge kick " .. conf .. " all'"
+	return conf
 end
 
 -- Hangup handler for every leg that enters a matrix conference. MATRIX_CONF is set on the
 -- channel before it joins and cleared once the leg has handed the conference on, so an
 -- unset one means there is nothing to end.
 --
--- Goes through the CLI socket in this container: by the time this runs the channel is gone,
--- so the conference is only reachable from outside the dialplan.
+-- ConfKick(), not ConfBridge's own teardown: it takes the conference by name, which is what
+-- makes it work here at all -- this channel is already hung up, and the matrixbridge control
+-- leg was never in the conference it has to end.
 local function matrix_end_conference()
-	local conf = tostring(channel.MATRIX_CONF:get() or "")
-	local cmd, reason = matrix_kick_command(conf)
-	if not cmd then
+	local conf, reason = matrix_kick_conference(channel.MATRIX_CONF:get(),
+		channel.CONFBRIDGE_RESULT:get())
+	if not conf then
 		-- Every ordinary call passes through here too, so only a name we could not use
 		-- is worth a line.
-		if conf ~= "" then app.log("NOTICE", "matrix hangup: " .. reason) end
+		if reason then app.log("NOTICE", "matrix hangup: " .. reason) end
 		return
 	end
 	app.log("NOTICE", "matrix hangup: ending conference " .. conf)
-	app.system(cmd)
+	app.confkick(conf, "all")
 end
 
 -- Asterisk routes the special extensions h (hangup), i (invalid) and t (timeout) through
@@ -489,9 +534,9 @@ function matrix_outbound_route(request_exten, conference, caller)
 	-- The same resolver the XMPP path uses, so the two cannot drift on which trunk a
 	-- number takes. The caller is the Matrix user the bridge names on the INVITE; without
 	-- one, a rule narrowed by from_glob cannot match and the next rule decides.
-	local _, _, peer = resolve_destination(num, caller)
+	local _, label, peer, _, _, kind, line = resolve_destination(num, caller)
 	if not peer or peer == "" then
-		return nil, nil, nil, 34, "no peer for " .. num
+		return nil, nil, nil, 34, "no peer for " .. num .. ": " .. refusal_reason(kind, line, label)
 	end
 	return peer, num, conference
 end
@@ -664,9 +709,9 @@ function sms_outbound_route(to_uri, caller)
 	if not num:match("^%+?[0-9]+$") then
 		return nil, nil, "destination is not a number: " .. tostring(to_uri)
 	end
-	local _, _, peer = resolve_destination(num, caller)
+	local _, label, peer, _, _, kind, line = resolve_destination(num, caller)
 	if not peer or peer == "" then
-		return nil, nil, "no peer for " .. num
+		return nil, nil, "no peer for " .. num .. ": " .. refusal_reason(kind, line, label)
 	end
 	return peer, num
 end
@@ -818,7 +863,7 @@ extensions = {
 						if with_matrix and channel.MATRIX_ANSWERED:get() == "1" then
 							-- A channel inside ConfBridge() cannot also Dial(), so the order is
 							-- forced. Named before joining so the h extension can end the
-							-- conference: end_marked cannot, see matrix_kick_command.
+							-- conference: end_marked cannot, see matrix_kick_conference.
 							channel.MATRIX_CONF:set(conf)
 							app.confbridge(conf, "default_bridge", "matrix_caller")
 							return
@@ -1041,12 +1086,7 @@ extensions = {
 				return
 			end
 
-			app.log("NOTICE", "Cannot dial '" .. to .. "': "
-				.. (kind == "forbidden"
-					and "caller is not in the callers list of line '" .. tostring(line) .. "'"
-				or kind == "unknown"
-					and "'" .. tostring(label) .. "' is neither one of our trunks nor a line"
-					or "no routing rule matched, or the table is missing or malformed"))
+			app.log("NOTICE", "Cannot dial '" .. to .. "': " .. refusal_reason(kind, line, label))
 		end;
 	};
 

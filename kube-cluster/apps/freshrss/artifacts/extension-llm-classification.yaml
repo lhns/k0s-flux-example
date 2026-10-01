@@ -1,0 +1,35 @@
+# xExtension-LlmClassification. Same shape as extension-image-proxy.yaml.
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: freshrss-ext-llm-classification
+  namespace: oci-composer
+spec:
+  interval: 12h
+  url: https://github.com/FreshRSS/Extensions
+  ref:
+    commit: 47db9391d0c66d3e15ad8bd4fa44e477fabdae1e
+---
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageComposition
+metadata:
+  name: freshrss-ext-llm-classification
+  namespace: oci-composer
+spec:
+  interval: 1h
+  layers:
+    - name: llm-classification
+      sourceRef:
+        kind: GitRepository
+        name: freshrss-ext-llm-classification
+        revision: sha1:47db9391d0c66d3e15ad8bd4fa44e477fabdae1e
+        subpath: xExtension-LlmClassification
+      to: /
+      owner: {uid: 33, gid: 33}
+  push:
+    history: 10
+    writeRefTo:
+      namespace: flux-system
+      keys:
+        ref: FRESHRSS_EXT_LLM_CLASSIFICATION_REF

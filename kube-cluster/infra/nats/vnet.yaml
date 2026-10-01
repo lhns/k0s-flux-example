@@ -1,0 +1,38 @@
+---
+# Client channel. A client namespace is added to `names`, then its pods join with
+#   kube-vnet/net.nats.nats: egress
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: nats
+  namespace: nats
+spec:
+  description: "Client channel to the NATS servers (:4222). Namespaces are added per app."
+  allowedNamespaces:
+    names: []
+---
+# Route peering between the servers (:6222). Home namespace only.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: nats-cluster
+  namespace: nats
+spec:
+  description: "NATS route peering between the servers."
+---
+# Scrape target for the otel `cluster` collector (prom-exporter :7777). The namespace must
+# also be listed in infra/opentelemetry-monitoring/release.yaml `namespaces.names`.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetworkBinding
+metadata:
+  name: nats-scrape-ingress
+  namespace: nats
+spec:
+  virtualNetworkRef:
+    name: otel-scrape
+    namespace: opentelemetry
+  direction: ingress
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: nats
+      app.kubernetes.io/component: nats

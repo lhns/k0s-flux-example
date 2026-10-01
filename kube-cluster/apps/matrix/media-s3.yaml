@@ -5,7 +5,7 @@
 # the S3 key out of a ConfigMap.
 #
 # The module itself is NOT in the stock synapse image -- it comes from the
-# synapse-pymods image volume at /pymods, where PYTHONPATH points. See images.yaml.
+# synapse-pymods image volume at /pymods, where PYTHONPATH points. See artifacts/.
 #
 # store_local + store_remote: every upload is written to local disk AND to S3.
 # Local copies are removed later by the s3_media_upload sweep, not by synapse.

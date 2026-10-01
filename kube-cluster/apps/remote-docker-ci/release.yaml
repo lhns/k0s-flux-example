@@ -1,0 +1,55 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: remote-docker-workspace
+  namespace: remote-docker-ci
+spec:
+  interval: 1h0m0s
+  url: oci://ghcr.io/lhns/charts/remote-docker-workspace
+  ref:
+    tag: "0.8.1"
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: remote-docker-ci
+  namespace: remote-docker-ci
+spec:
+  interval: 10m0s
+  chartRef:
+    kind: OCIRepository
+    name: remote-docker-workspace
+  values:
+    fullnameOverride: remote-docker-ci
+    # One account, so the workspace's own dockerd serves it rather than a nested one.
+    perUserDind: false
+    # overlay2 refuses Ceph-backed volumes; see apps/remote-docker/README.md.
+    dockerdArgs: "--storage-driver=fuse-overlayfs"
+    persistence:
+      # Renovate's image cache. `size` only applies to a claim that does not exist yet.
+      graph:
+        size: 20Gi
+        storageClass: ceph-rbd
+      # Host keys and the uid map.
+      state:
+        size: 1Gi
+        storageClass: ceph-rbd
+    # Memory only, as in apps/remote-docker: job containers have no other ceiling.
+    resources:
+      requests:
+        memory: 512Mi
+      limits:
+        memory: 6Gi
+    ingress:
+      enabled: false
+    commonLabels:
+      # Joins vnet.yaml's network, which is what lets runner-k0s-flux reach :2280.
+      kube-vnet/net.remote-docker-ci: ingress
+    # One key per runner-k0s-flux replica: a CLIENT is identified by its key (ADR 0029), and two
+    # replicas sharing one would fight over one reverse-tunnel port. The private halves are in
+    # apps/github-runner/secret-k0s-flux-ssh.yaml.
+    authorizedKeys:
+      k0s-flux: |
+        ssh-ed25519 AAAA<public-key> runner-k0s-flux-0
+        ssh-ed25519 AAAA<public-key> runner-k0s-flux-1

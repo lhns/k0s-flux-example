@@ -5,9 +5,9 @@
 # and one of these repos is not ours. Without this policy a job could reach the Ceph monitors at
 # 10.20.2.101-103, the Kubernetes API server, every LAN host and every other pod.
 #
-# WHAT IT DOES NOT COVER: the job CONTAINERS do not run here. They run on the daemon in
-# apps/remote-docker and inherit that pod's network reach, not this one. This policy governs the
-# runner agent -- the tunnel, the GitHub API, and action downloads the agent itself performs.
+# WHAT IT DOES NOT COVER: job CONTAINERS. They run on a remote-docker workspace and inherit that
+# pod's reach: unrestricted for apps/remote-docker (runner-example-repo), confined to the internet by
+# apps/remote-docker-ci's own policy (runner-k0s-flux).
 #
 # WHY IT DOES NOT CONFLICT WITH kube-vnet: the cluster baseline is INGRESS-only
 # (`ingressIsolationLevel: pod`) and states that egress is unrestricted. A `policyTypes: [Egress]`
@@ -19,10 +19,8 @@ metadata:
   name: github-runner-egress
   namespace: github-runner
 spec:
-  # Both runners, by instance -- each Deployment has its own app.kubernetes.io/name.
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/instance: github-runner
+  # Every runner. Anything more a runner needs goes in its own policy, like the one below.
+  podSelector: {}
   policyTypes: [Egress]
   egress:
     # --- DNS -------------------------------------------------------------
@@ -44,20 +42,9 @@ spec:
         - protocol: TCP
           port: 53
 
-    # --- the workspace, i.e. the Docker daemon ---------------------------
-    # Required explicitly: the workspace is a ClusterIP inside 172.16.0.0/12, which the internet
-    # rule below excludes. Without this the runners have no daemon at all.
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: remote-docker
-      ports:
-        - protocol: TCP
-          port: 2280
-
     # --- the public internet, and nothing private ------------------------
-    # github.com, the runner's own download of actions, and image pulls the agent makes. The
-    # `except` list is the actual containment:
+    # github.com, the runner's own download of actions, and image pulls. The `except` list is the
+    # actual containment:
     #   10.0.0.0/8      the LAN -- nodes, Ceph mons, the API server VIP
     #   172.16.0.0/12   the pod network (172.18/16) AND the service network (172.19/16)
     #   192.168/16, 169.254/16   other private space and link-local (cloud metadata)
@@ -72,3 +59,44 @@ spec:
               - 172.16.0.0/12
               - 192.168.0.0/16
               - 169.254.0.0/16
+---
+# The remote-docker workspace, for its vnet members only. Explicit because it is a ClusterIP inside
+# 172.16.0.0/12, which the internet rule above excludes; without it those runners have no daemon.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: github-runner-remote-docker
+  namespace: github-runner
+spec:
+  podSelector:
+    matchLabels:
+      kube-vnet/net.remote-docker.remote-docker: egress
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: remote-docker
+      ports:
+        - protocol: TCP
+          port: 2280
+---
+# The same for apps/remote-docker-ci's members.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: github-runner-remote-docker-ci
+  namespace: github-runner
+spec:
+  podSelector:
+    matchLabels:
+      kube-vnet/net.remote-docker-ci.remote-docker-ci: egress
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: remote-docker-ci
+      ports:
+        - protocol: TCP
+          port: 2280

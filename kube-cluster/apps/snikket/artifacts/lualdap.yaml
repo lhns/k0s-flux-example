@@ -1,0 +1,30 @@
+# lualdap, the Lua binding mod_auth_ldap needs and Snikket's image lacks. Without it prosody
+# loads no auth provider, and clients see "No available SASL mechanisms".
+#
+# Debian's build, unpacked as an archive (no maintainer scripts run). It must match the image's
+# Debian release (bookworm): a mismatch is a soname error at load and locks LDAP users out.
+---
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageComposition
+metadata:
+  name: snikket-lualdap
+  namespace: oci-composer
+spec:
+  interval: 1h
+  # No `base`: files mounted into the upstream Snikket image.
+  layers:
+    - name: lualdap
+      fetch:
+        # renovate: datasource=deb depName=lua-ldap registryUrl=https://deb.debian.org/debian?suite=bookworm&components=main&binaryArch=amd64
+        url: https://deb.debian.org/debian/pool/main/l/lua-ldap/lua-ldap_1.3.0-2+b1_amd64.deb
+        digest: sha256:077bd1629b358e827c0651b2a4952657ec2e36fa2cca80ef9cb900a7346e115a
+        unpack: deb
+        subpath: usr/lib/x86_64-linux-gnu
+      # The artifact root is the mounted `lib` directory; see the mount in ../resources.yaml.
+      to: /
+  push:
+    history: 10
+    writeRefTo:
+      namespace: flux-system
+      keys:
+        ref: SNIKKET_LUALDAP_REF

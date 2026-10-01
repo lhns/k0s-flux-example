@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Every oci-composer sourceRef must carry a `revision` matching its GitRepository's pin.
 
-Without it the composition can publish the PREVIOUS revision's content under the new spec-hash
-tag and wedge on ImmutableTagConflict; with a WRONG one it waits for a revision that will never
-arrive. See kube-cluster/infra/oci-composer/README.md.
+Without it a pin bump can build the PREVIOUS revision's content and roll it out; with a WRONG
+one it waits for a revision that will never arrive. See kube-cluster/infra/oci-composer/README.md.
 
   check-source-pins.py          verify (scripts/validate.sh)
   check-source-pins.py --fix    rewrite revisions to match (renovate.json postUpgradeTasks)

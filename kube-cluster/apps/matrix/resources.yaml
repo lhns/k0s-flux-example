@@ -159,7 +159,7 @@ spec:
         runAsGroup: 991
       containers:
         - name: synapse
-          image: matrixdotorg/synapse:v1.161.0
+          image: matrixdotorg/synapse:v1.162.0
           command: ["python", "-m", "synapse.app.homeserver"]
           args:
             - "--config-path"
@@ -176,9 +176,8 @@ spec:
             # every bridge -- the files come from the registrations secret below.
             - "--config-path"
             - "/config-appservices/synapse-appservices.yaml"
-            # Media storage provider -> s3.example.com. SOPS, because it carries the
-            # S3 secret key. Additive: homeserver.yaml leaves
-            # media_storage_providers commented out.
+            # Media storage provider -> s3.example.com. Additive: homeserver.yaml
+            # leaves media_storage_providers commented out.
             - "--config-path"
             - "/media-s3/media-s3.yaml"
             # trusted_key_servers: [] -- fetch other servers' signing keys directly
@@ -189,7 +188,7 @@ spec:
             - name: TZ
               value: Europe/Berlin
             # Where the s3 media storage provider and its dependencies live. The
-            # base image is stock upstream and has no boto3; see images.yaml.
+            # base image is stock upstream and has no boto3; see artifacts/.
             - name: PYTHONPATH
               value: /pymods
             # boto3 reads path-style addressing from here; the provider has no
@@ -265,7 +264,7 @@ spec:
             secretName: synapse-appservice-registrations
         - name: pymods
           image:
-            reference: synapse-pymods
+            reference: ${SYNAPSE_PYMODS_REF}
             pullPolicy: IfNotPresent
         - name: media-s3
           secret:
@@ -369,7 +368,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: mas
-          image: ghcr.io/element-hq/matrix-authentication-service:1.24.0
+          image: ghcr.io/element-hq/matrix-authentication-service:1.26.0
           args: ["-c", "/config/config.yaml"]
           env:
             - name: TZ
@@ -555,7 +554,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: livekit-sip
-          image: livekit/sip:v1.15.0
+          image: livekit/sip:v1.17.0
           env:
             # No SIP_CONFIG_FILE: the image's ENTRYPOINT is
             # ["livekit-sip", "--config=/sip/config.yaml"], and the flag always wins, so
@@ -836,12 +835,9 @@ spec:
             runAsUser: 0
             runAsGroup: 0
           containers:
-            # Runs the pymods image rather than mounting it: kustomize rewrites a
-            # container `image:` anywhere, but has no image-volume fieldspec under a
-            # CronJob's jobTemplate, so a volume here would keep the bare name and
-            # fail to pull. The image is the synapse image plus /pymods.
+            # The pymods image is the synapse image plus /pymods, so it runs as-is.
             - name: sweep
-              image: synapse-pymods
+              image: ${SYNAPSE_PYMODS_REF}
               workingDir: /work
               env:
                 - name: PYTHONPATH
@@ -886,9 +882,8 @@ spec:
                     /data/media_store "$SWEEP_AGE" \
                     --homeserver-config-path /secrets/database.yaml
 
-                  # $$ escapes Flux's envsubst, which runs over this whole component
-                  # because substitution-secrets/ exists. Unescaped it would resolve to
-                  # the empty string at apply time.
+                  # The doubled $ escapes Flux's substitution, which covers this whole
+                  # component; unescaped, the reconcile fails on an undefined variable.
                   echo "== upload to $BUCKET (delete='$${SWEEP_DELETE}') =="
                   # --no-progress is a GLOBAL flag: it must precede the subcommand, or argparse
                   # rejects it and the upload never runs.
@@ -960,8 +955,12 @@ spec:
       enableServiceLinks: false
       containers:
         - name: whatsapp
-          # Fork build: lhns/mautrix-whatsapp branch lhns-build, upstream v0.2608.0 plus
-          # dm_room_name_template and group_room_name_template.
+          # Fork build: lhns/mautrix-whatsapp branch lhns-build, upstream plus
+          # dm_room_name_template, group_room_name_template and the ghost-name fix.
+          #
+          # Ghost names: a login that has not learned a contact's push name used to rename
+          # the shared ghost down to whatever the template renders without a name. A
+          # nameless render now only names a ghost that has no name yet.
           #
           # bridgev2 names a DM room after the ghost, and the ghost is shared by every
           # login, so a contact name in displayname_template leaks between accounts. The
@@ -974,7 +973,7 @@ spec:
           #
           # Pinned to a commit, so Renovate does not track it: an upstream release needs
           # that branch rebased and a new tag written here.
-          image: ghcr.io/lhns/mautrix-whatsapp:d11503d588416813c5a9005138ea6a5f5d54529f@sha256:fcb521b7c3e945a0180de164e8a591e8765865574f9e2cdfa8ad7927fb59cd4f
+          image: ghcr.io/lhns/mautrix-whatsapp:e02ad0e38e5847dc3df2394c2547a907fcad9b20@sha256:49f9baff99813e34525a4ea47528876351dc1eb1a5131c1bbb945e597cc55125
           ports:
             - name: appservice
               containerPort: 29318
@@ -1507,7 +1506,7 @@ spec:
       port: 29337
       targetPort: appservice
     # Asterisk reaches the bridge here, not on the pod address: sip.public_address
-    # in the config names this Service, and chan_sip has it as a static host.
+    # in the config names this Service, and its pjsip AOR contact points at it.
     - name: sip
       port: 5060
       targetPort: sip
@@ -1536,7 +1535,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: element-web
-          image: vectorim/element-web:v1.12.28
+          image: vectorim/element-web:v1.12.30
           ports:
             - name: http
               containerPort: 80
@@ -1595,7 +1594,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: baibot
-          image: ghcr.io/etkecc/baibot:v1.27.0
+          image: ghcr.io/etkecc/baibot:v1.27.1
           env:
             - name: TZ
               value: Europe/Berlin

@@ -9,8 +9,9 @@ repo-root `README.md`; this file covers the per-component tests.
 kinds of check.
 
 **Repo-wide, unconditional.** `yamllint`, the golden generator render,
-`scripts/check-substitution.py`, `scripts/check-sops.py`, and the `kustomize build` +
-`kubeconform` sweep. These
+`scripts/check-release-size.py`, `scripts/check-substitution.py`,
+`scripts/check-source-pins.py`, the synapse tag-drift check, `scripts/check-sops.py`, and
+the `kustomize build` + `kubeconform` sweep. These
 cover every component in `apps/`, `infra/` and `rbac/` whether or not it has tests, and
 are not opt-in. Nothing component-specific belongs here.
 

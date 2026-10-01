@@ -22,7 +22,7 @@
       "pattern": "^[^\\s]+$"
     },
     "linename": {
-      "description": "A line name. Lowercase, digits and hyphens, NO UNDERSCORE: it lands in a Matrix MXID localpart, where mautrix escapes a literal underscore to '=5f'. It must also differ from every SIP_TRUNKS host, or a '#<label>' destination would be ambiguous; tests/check-routing.py checks that against cheogram-sip.env.",
+      "description": "A line name. Lowercase, digits and hyphens, NO UNDERSCORE: it lands in a Matrix MXID localpart, where mautrix escapes a literal underscore to '=5f'. It must also differ from every registration's host, or a '#<label>' destination would be ambiguous; tests/check-routing.py checks that.",
       "type": "string",
       "pattern": "^[a-z][a-z0-9-]*$"
     },
@@ -112,12 +112,12 @@
       "pattern": "^[a-z0-9-]+$"
     },
     "external_address": {
-      "description": "The address the SDP must carry, on every transport: behind double NAT the pod address reaches nothing and audio goes nowhere. chan_sip's externip.",
+      "description": "The address the SDP must carry, on every transport: behind double NAT the pod address reaches nothing and audio goes nowhere.",
       "type": "string",
       "pattern": "^[0-9]+(\\.[0-9]+){3}$"
     },
     "local_nets": {
-      "description": "The nets that are NOT behind external_address, so media to them keeps the pod address. chan_sip's localnet.",
+      "description": "The nets that are NOT behind external_address, so media to them keeps the pod address.",
       "type": "array",
       "minItems": 1,
       "items": {
@@ -143,6 +143,12 @@
           "line",
           "peer_secret_file"
         ],
+        "not": {
+          "required": [
+            "entrypoint",
+            "disabled"
+          ]
+        },
         "properties": {
           "user": {
             "description": "The carrier account, usually the DID in national form.",
@@ -167,6 +173,10 @@
           },
           "entrypoint": {
             "description": "This host's DEFAULT registration: the one an inbound call is attributed to when nothing identifies which DID was dialled, and so the only endpoint on that host that may carry a type=identify. At most one per host, or the fallback is undefined. Its user and host are also cheogram-sip.env's SIP_USER and SIP_HOST, which is what the component appends to a bare number.",
+            "const": true
+          },
+          "disabled": {
+            "description": "Switched off without being removed: no pjsip object, no registrations.tsv row (so its Secret key is not read), and no inbound attribution. A line whose primary is disabled is off: outbound on it is REFUSED, never rerouted. May not be an entrypoint.",
             "const": true
           },
           "peer_secret_file": {

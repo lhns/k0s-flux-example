@@ -11,6 +11,8 @@ kind: GitRepository
 metadata:
   name: generators
   namespace: flux-system
+  labels:
+    flux.example.com/push-receiver: github
 spec:
   interval: 10m0s
   url: https://github.com/example/k0s-flux.git
@@ -73,13 +75,3 @@ spec:
     k0sUpgrade:
       k0sctlPath: kube-cluster/k0sctl.yaml
       path: kube-cluster/k0s-upgrade
-    # Registry host prefixed onto every composed artifact reference. Must match
-    # infra/oci-composer's registry.host, INCLUDING THE PORT — containerd names its
-    # registry directory after this exact string, and it is the nodes' containerd,
-    # not DNS, that knows where this actually is (kube-cluster/k0s-files).
-    #
-    # Named publicHost, not servingHost: 0.5.0 removed the controller's serving
-    # endpoint, and this is now only the public name of the registry. The composer
-    # itself reaches that registry by its in-cluster Service and never uses this.
-    ociComposer:
-      publicHost: oci-composer.internal:30500

@@ -110,7 +110,7 @@ spec:
         - name: render-config
           # The same image as the asterisk container, so what renders the config is what
           # parses it. Nothing here needs more than a shell.
-          image: ghcr.io/lhns/asterisk:22.11.0-cheogram-dtls@sha256:6951c3cea8696d42de7c433bd65b58c86bd0c73f18a8e0f54ba499e7cbf76e32
+          image: ghcr.io/lhns/asterisk:22.11.0-cheogram-dtls@sha256:9d3a5db1d609c9711c339dbe2df27c16be641744ac78cdb9e72ea9ea2327c146
           command: ["/bin/sh", "-c"]
           args:
             - |
@@ -240,7 +240,7 @@ spec:
         # the wire; render-config does the rendering instead.
         - name: asterisk
           # Our fork: released Asterisk cannot do DTLS-SRTP over Jingle. See README.md.
-          image: ghcr.io/lhns/asterisk:22.11.0-cheogram-dtls@sha256:6951c3cea8696d42de7c433bd65b58c86bd0c73f18a8e0f54ba499e7cbf76e32
+          image: ghcr.io/lhns/asterisk:22.11.0-cheogram-dtls@sha256:9d3a5db1d609c9711c339dbe2df27c16be641744ac78cdb9e72ea9ea2327c146
           command: ["/bin/sh", "-c"]
           args:
             - |
