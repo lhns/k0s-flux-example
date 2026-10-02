@@ -6,7 +6,7 @@ metadata:
     # postgres, no traefik, no reflector — the runner talks to Gitea over the
     # public URL and owns nothing else. Read by the root generator; inert to
     # kustomize.
-    dependsOn: infra-ceph-csi-rbd
+    flux-component-generator/dependsOn: infra-ceph-csi-rbd
 resources:
 - resources.yaml
 - secret.yaml

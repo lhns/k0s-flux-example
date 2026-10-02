@@ -9,7 +9,7 @@ metadata:
     # start. Read by the root generator; inert to kustomize.
     # app-lldap because authentication now depends on the directory being up.
     # infra-oci-composer: artifacts/ is built there.
-    dependsOn: infra-traefik,infra-cert-manager,infra-ceph-csi-rbd,infra-reloader,app-coturn,app-lldap,infra-oci-composer
+    flux-component-generator/dependsOn: infra-traefik,infra-cert-manager,infra-ceph-csi-rbd,infra-reloader,app-coturn,app-lldap,infra-oci-composer
 resources:
 - resources.yaml
 - routing.yaml

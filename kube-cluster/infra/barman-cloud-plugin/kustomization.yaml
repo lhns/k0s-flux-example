@@ -3,7 +3,7 @@ kind: Kustomization
 metadata:
   annotations:
     # Deploys into cnpg-system; needs the operator + cert-manager (gRPC TLS).
-    dependsOn: infra-cloudnative-pg,infra-cert-manager
+    flux-component-generator/dependsOn: infra-cloudnative-pg,infra-cert-manager
 # Barman has no app label of its own; the generator gives it one via
 # commonMetadata (= dir name, barman-cloud-plugin), so it shows as its own app.
 resources:

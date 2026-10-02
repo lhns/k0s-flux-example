@@ -4,7 +4,7 @@ metadata:
   annotations:
     # ceph-csi-cephfs: the blob store and layer cache PVC. kube-vnet: vnet.yaml uses its CRDs.
     # Read by the root generator; inert to kustomize.
-    dependsOn: infra-ceph-csi-cephfs,infra-kube-vnet
+    flux-component-generator/dependsOn: infra-ceph-csi-cephfs,infra-kube-vnet
 resources:
 - namespace.yaml
 - release.yaml

@@ -4,10 +4,10 @@ metadata:
   annotations:
     # Wait for metallb (operator + address pool) before traefik claims its VIP.
     # Read by the root generator; inert to kustomize.
-    dependsOn: infra-metallb
+    flux-component-generator/dependsOn: infra-metallb
     # The chart labels its workloads traefik-traefik (not the dir name), so tell
     # the generator to group this component's vnet/tls under that instead.
-    appInstance: traefik-traefik
+    flux-component-generator/appInstance: traefik-traefik
 resources:
 - release.yaml
 - tls.yaml

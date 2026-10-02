@@ -4,7 +4,7 @@ metadata:
   annotations:
     # CNPG (db) + Reflector (db secret) + Reloader (config/secret roll) + ceph-rbd
     # (redis PVC). No global `namespace:` — database/db-role-secret live in postgres ns.
-    dependsOn: infra-postgres,infra-reflector,infra-reloader,infra-ceph-csi-rbd,infra-cert-manager
+    flux-component-generator/dependsOn: infra-postgres,infra-reflector,infra-reloader,infra-ceph-csi-rbd,infra-cert-manager
 resources:
 - resources.yaml
 - valkey.yaml

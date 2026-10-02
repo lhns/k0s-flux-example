@@ -6,7 +6,7 @@
    A component with a substitution-secrets/ dir has envsubst run over its whole build,
    so a ConfigMap holding one of its ${KEY} placeholders receives the real value at
    apply time. That is only safe for a ConfigMap the generator turns into a Secret,
-   which is the generators.example.com/as-secret annotation. Misspell the annotation and
+   which is the flux-component-generator/as-secret annotation. Misspell the annotation and
    the credential is applied in the clear with nothing to notice it.
 
 2. A ${VAR} with nothing behind it.
@@ -45,7 +45,7 @@ Key names are read straight from the SOPS files; only the values are encrypted.
 """
 import pathlib, re, subprocess, sys, yaml
 
-ANNOTATION = "generators.example.com/as-secret"
+ANNOTATION = "flux-component-generator/as-secret"
 DISABLED = "kustomize.toolkit.fluxcd.io/substitute"
 KINDS = ("ImageComposition", "ImageBuild")
 KEY_RE = re.compile(r'^\s{2,}([A-Z][A-Z0-9_]*):', re.M)

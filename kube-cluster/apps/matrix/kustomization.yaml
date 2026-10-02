@@ -20,7 +20,7 @@ metadata:
     # change does not roll its pod by itself -- reloader is what notices.
     #
     # infra-oci-composer: artifacts/ is built there.
-    dependsOn: infra-postgres,infra-reflector,infra-metallb,infra-traefik,infra-ceph-csi-cephfs,infra-ceph-csi-rbd,infra-reloader,app-coturn,infra-oci-composer
+    flux-component-generator/dependsOn: infra-postgres,infra-reflector,infra-metallb,infra-traefik,infra-ceph-csi-cephfs,infra-ceph-csi-rbd,infra-reloader,app-coturn,infra-oci-composer
 # NOTE: no `namespace:` transformer — database.yaml + db-role-secret.yaml pin
 # `namespace: postgres`; everything else is in `matrix`.
 resources:
@@ -75,7 +75,7 @@ configMapGenerator:
   options:
     disableNameSuffixHash: true
     annotations:
-      generators.example.com/as-secret: "true"
+      flux-component-generator/as-secret: "true"
 - name: synapse-media-s3
   namespace: matrix
   files:
@@ -83,7 +83,7 @@ configMapGenerator:
   options:
     disableNameSuffixHash: true
     annotations:
-      generators.example.com/as-secret: "true"
+      flux-component-generator/as-secret: "true"
 # The livekit Secret: the SFU's config file plus the same credentials as env, for lk-jwt
 # and livekit-sip. One generator so all three come from one pair of variables.
 - name: livekit
@@ -96,7 +96,7 @@ configMapGenerator:
   options:
     disableNameSuffixHash: true
     annotations:
-      generators.example.com/as-secret: "true"
+      flux-component-generator/as-secret: "true"
 # matrix-sip-bridge's config. A mautrix config is one file with no include mechanism, so
 # the credentials sit among the settings; the as-secret annotation is what lets it be a
 # real file with ${...} in it rather than an encrypted blob nothing can read or diff.
@@ -108,7 +108,7 @@ configMapGenerator:
   options:
     disableNameSuffixHash: true
     annotations:
-      generators.example.com/as-secret: "true"
+      flux-component-generator/as-secret: "true"
 # livekit-sip's config. Not a Secret: the credentials it needs are supplied as env from
 # the existing livekit Secret, which override the file's api_key/api_secret/ws_url.
 - name: livekit-sip-config
@@ -142,4 +142,4 @@ configMapGenerator:
   options:
     disableNameSuffixHash: true
     annotations:
-      generators.example.com/as-secret: "true"
+      flux-component-generator/as-secret: "true"

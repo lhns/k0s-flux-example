@@ -6,7 +6,7 @@ metadata:
     # the TLS listener (turns:5349) mounts the *.example.com wildcard mirrored out of
     # the traefik ns; reloader so a secret rotation rolls the pod. Read by the
     # root generator; inert to kustomize.
-    dependsOn: infra-metallb,infra-cert-manager,infra-reflector,infra-reloader
+    flux-component-generator/dependsOn: infra-metallb,infra-cert-manager,infra-reflector,infra-reloader
 resources:
 - resources.yaml
 - secret.yaml

@@ -53,7 +53,7 @@ spec:
   chart:
     spec:
       chart: opentelemetry-kube-stack
-      version: "0.23.1"
+      version: "0.23.2"
       interval: 1h0m0s
       sourceRef:
         kind: HelmRepository

@@ -5,7 +5,7 @@ metadata:
     # Needs the CNPG cluster + Database/DatabaseRole CRDs (infra-postgres) and
     # Reflector (infra-reflector) to mirror the db secret into this namespace.
     # Read by the root generator; inert to kustomize.
-    dependsOn: infra-postgres,infra-reflector
+    flux-component-generator/dependsOn: infra-postgres,infra-reflector
 resources:
 - resources.yaml
 - grafana-config-secret.yaml

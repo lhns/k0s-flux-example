@@ -6,7 +6,7 @@ metadata:
     # extensions in artifacts/). Read by the root generator; inert to kustomize. No
     # `namespace:` transformer here — database.yaml and db-role-secret.yaml live in the
     # postgres ns.
-    dependsOn: infra-postgres,infra-reflector,infra-ceph-csi-cephfs,infra-oci-composer
+    flux-component-generator/dependsOn: infra-postgres,infra-reflector,infra-ceph-csi-cephfs,infra-oci-composer
 resources:
 - resources.yaml
 - routing.yaml

@@ -4,7 +4,7 @@ metadata:
   annotations:
     # No workloads of its own — fold the webhook receiver/ingress/vnet-binding
     # into the flux-system app (the generator reads this into commonMetadata).
-    appInstance: flux-system
+    flux-component-generator/appInstance: flux-system
 resources:
 - secret.yaml
 - receiver.yaml

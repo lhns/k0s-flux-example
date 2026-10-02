@@ -5,7 +5,7 @@ metadata:
     # app-remote-docker(-ci): the Docker daemons the runners use; without them they have nothing
     # to talk to. infra-oci-composer: artifacts/ is built there.
     # Read by the root generator; inert to kustomize.
-    dependsOn: app-remote-docker,app-remote-docker-ci,infra-kube-vnet,infra-oci-composer
+    flux-component-generator/dependsOn: app-remote-docker,app-remote-docker-ci,infra-kube-vnet,infra-oci-composer
 resources:
   - resources.yaml
   - secret.yaml

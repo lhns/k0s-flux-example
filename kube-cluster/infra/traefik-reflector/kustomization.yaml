@@ -3,7 +3,7 @@ kind: Kustomization
 metadata:
   annotations:
     # Needs the Traefik CRDs (Middleware/TLSOption/ServersTransport) to watch.
-    dependsOn: infra-traefik
+    flux-component-generator/dependsOn: infra-traefik
 resources:
 - namespace.yaml
 - release.yaml

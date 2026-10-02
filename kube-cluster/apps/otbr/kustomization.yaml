@@ -7,7 +7,7 @@ metadata:
     # ContainerCreating. ceph-csi-cephfs: the /var/lib/thread PVC holding the operational
     # dataset. kube-vnet: vnet.yaml uses its CRDs. Read by the root generator; inert to
     # kustomize.
-    dependsOn: infra-multus,infra-ceph-csi-cephfs,infra-kube-vnet
+    flux-component-generator/dependsOn: infra-multus,infra-ceph-csi-cephfs,infra-kube-vnet
 resources:
 - resources.yaml
 - vnet.yaml

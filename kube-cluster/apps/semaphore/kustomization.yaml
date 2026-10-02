@@ -5,7 +5,7 @@ metadata:
     # The semaphore-data PVC needs infra-ceph-csi-rbd. No LB, no per-host cert
     # (semaphore.example.com is under the *.example.com wildcard). Read by the root
     # generator; inert to kustomize.
-    dependsOn: infra-ceph-csi-rbd
+    flux-component-generator/dependsOn: infra-ceph-csi-rbd
 resources:
 - resources.yaml
 - routing.yaml

@@ -8,7 +8,7 @@ metadata:
     # startup). Read by the root generator; inert to kustomize.
     # No `namespace:` transformer — database.yaml and db-role-secret.yaml live in the
     # postgres ns.
-    dependsOn: infra-ceph-csi-cephfs,infra-postgres,infra-reflector,infra-multus,app-mosquitto
+    flux-component-generator/dependsOn: infra-ceph-csi-cephfs,infra-postgres,infra-reflector,infra-multus,app-mosquitto
 resources:
 - resources.yaml
 - routing.yaml

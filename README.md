@@ -25,7 +25,7 @@ GitOps for a k0s Kubernetes cluster, managed by Flux.
 
   Such a config cannot come from a `secretGenerator`, which base64s it into `data:` and
   hides the `${VAR}` from envsubst. Use a `configMapGenerator` marked
-  `generators.example.com/as-secret: "true"` and the generator patches it into a Secret with
+  `flux-component-generator/as-secret: "true"` and the generator patches it into a Secret with
   the content still plaintext, so the config stays a real file
   (`apps/mosquitto/mosquitto.conf`). The entry also needs
   `options.disableNameSuffixHash: true`: the patch matches on the annotation rather than
@@ -149,7 +149,7 @@ destructive. Override per component on its own `kustomization.yaml`:
 ```yaml
 metadata:
   annotations:
-    crdPolicy: Skip        # Skip | Create | CreateReplace (default)
+    flux-component-generator/crdPolicy: Skip   # Skip | Create | CreateReplace (default)
 ```
 
 ## Moving a component between groups (non-destructive migration)

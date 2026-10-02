@@ -9,7 +9,7 @@ metadata:
     # the root generator; inert to kustomize.
     # infra-reloader: the as-secret generators carry disableNameSuffixHash, so a config
     # change does not roll its pod by itself -- reloader is what notices.
-    dependsOn: infra-postgres,infra-reflector,infra-metallb,infra-ceph-csi-rbd,infra-reloader
+    flux-component-generator/dependsOn: infra-postgres,infra-reflector,infra-metallb,infra-ceph-csi-rbd,infra-reloader
 # NOTE: no `namespace:` transformer — database.yaml + db-role-secret.yaml pin
 # `namespace: postgres`; everything else is in `stalwart`.
 resources:
@@ -34,7 +34,7 @@ configMapGenerator:
   options:
     disableNameSuffixHash: true
     annotations:
-      generators.example.com/as-secret: "true"
+      flux-component-generator/as-secret: "true"
 - name: umleiter
   namespace: stalwart
   files:
@@ -42,4 +42,4 @@ configMapGenerator:
   options:
     disableNameSuffixHash: true
     annotations:
-      generators.example.com/as-secret: "true"
+      flux-component-generator/as-secret: "true"

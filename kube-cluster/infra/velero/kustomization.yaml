@@ -3,7 +3,7 @@ kind: Kustomization
 metadata:
   annotations:
     # CSI snapshots need the snapshot.storage.k8s.io CRDs.
-    dependsOn: infra-snapshot-controller
+    flux-component-generator/dependsOn: infra-snapshot-controller
 resources:
 - namespace.yaml
 - s3-secret.yaml

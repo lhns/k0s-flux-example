@@ -60,7 +60,7 @@ spec:
       containers:
         - name: zigbee2mqtt
           # Runs as root; /app/data is root-owned, writable directly (no fsGroup needed).
-          image: ghcr.io/koenkk/zigbee2mqtt:2.14.1
+          image: ghcr.io/koenkk/zigbee2mqtt:2.14.2
           env:
             - name: TZ
               value: Europe/Berlin

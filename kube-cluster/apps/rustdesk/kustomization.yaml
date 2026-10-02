@@ -4,7 +4,7 @@ metadata:
   annotations:
     # MetalLB for the rustdesk-lb VIP (10.20.2.82); ceph-rbd for the key/DB PVC. Read by
     # the root generator; inert to kustomize.
-    dependsOn: infra-metallb,infra-ceph-csi-rbd
+    flux-component-generator/dependsOn: infra-metallb,infra-ceph-csi-rbd
 resources:
 - resources.yaml
 - routing.yaml

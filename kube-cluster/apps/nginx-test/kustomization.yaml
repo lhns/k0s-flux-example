@@ -13,4 +13,4 @@ configMapGenerator:
   options:
     disableNameSuffixHash: true
     annotations:
-      generators.example.com/as-secret: "true"
+      flux-component-generator/as-secret: "true"

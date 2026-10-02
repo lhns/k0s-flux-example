@@ -6,7 +6,7 @@ metadata:
     # LoadBalancer's 10.20.2.18 needs the syncthing-vip MetalLB pool (infra-metallb);
     # the syncthing.example.net cert needs infra-cert-manager. Read by the root
     # generator; inert to kustomize.
-    dependsOn: infra-ceph-csi-cephfs,infra-metallb,infra-cert-manager
+    flux-component-generator/dependsOn: infra-ceph-csi-cephfs,infra-metallb,infra-cert-manager
 resources:
 - resources.yaml
 - routing.yaml

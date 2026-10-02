@@ -7,7 +7,7 @@ metadata:
     # reflected here for TURN credentials). Read by the root generator; inert
     # to kustomize. No `namespace:` transformer here -- database.yaml and db-role-secret.yaml
     # live in the postgres ns.
-    dependsOn: infra-postgres,infra-reflector,infra-oci-composer,app-coturn
+    flux-component-generator/dependsOn: infra-postgres,infra-reflector,infra-oci-composer,app-coturn
 resources:
 - resources.yaml
 - routing.yaml

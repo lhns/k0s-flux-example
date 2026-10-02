@@ -3,7 +3,7 @@ kind: Kustomization
 metadata:
   annotations:
     # VolumeSnapshotClass needs the snapshot.storage.k8s.io CRDs first.
-    dependsOn: infra-snapshot-controller
+    flux-component-generator/dependsOn: infra-snapshot-controller
 resources:
 - namespace.yaml
 - release.yaml

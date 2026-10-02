@@ -11,7 +11,7 @@ metadata:
     # vnet.yaml deliberately ships a binding into the `strimzi` namespace.
     #
     # oci-composer: artifacts/ is built there, and publishes the ref kafka.yaml substitutes.
-    dependsOn: infra-strimzi,infra-metallb,infra-ceph-csi-rbd,infra-kube-vnet,infra-oci-composer
+    flux-component-generator/dependsOn: infra-strimzi,infra-metallb,infra-ceph-csi-rbd,infra-kube-vnet,infra-oci-composer
 resources:
 - resources.yaml
 - secret.yaml

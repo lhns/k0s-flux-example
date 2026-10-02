@@ -9,7 +9,7 @@ metadata:
     # Deployment; app-snikket because the gateway is useless without the prosody components
     # it connects to; app-matrix-substitution-secrets because it owns livekit-sip-trunk,
     # which reflector mirrors here and render-config exits non-zero without.
-    dependsOn: infra-metallb,infra-reflector,infra-reloader,app-snikket,app-matrix-substitution-secrets
+    flux-component-generator/dependsOn: infra-metallb,infra-reflector,infra-reloader,app-snikket,app-matrix-substitution-secrets
 resources:
 - resources.yaml
 - routing-release.yaml

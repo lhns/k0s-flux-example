@@ -1,32 +1,6 @@
 ---
-# The generator's own source. Helm embeds the whole chart in its release Secret's
-# data.release, which the apiserver caps at 1 MiB -- and the repo root IS the chart, so the
-# unfiltered repo no longer fits. This keeps what the templates read and nothing else.
-# See docs/generator-chart-size.md.
+# Its source, the GitRepository `generators`, is in generators-source.yaml.
 #
-# An INCLUDE list. sourceignore does not prune excluded directories, so the gitignore idiom
-# for re-including them re-admits everything.
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: GitRepository
-metadata:
-  name: generators
-  namespace: flux-system
-  labels:
-    flux.example.com/push-receiver: github
-spec:
-  interval: 10m0s
-  url: https://github.com/example/k0s-flux.git
-  ref:
-    branch: main
-  secretRef:
-    name: flux-system
-  ignore: |
-    *
-    !/Chart.yaml
-    !/templates/**
-    !**/k0sctl.yaml
-    !**/kustomization.yaml
----
 # Renders the repo-root generator chart once for every group: one Flux Kustomization
 # per dir under kube-cluster/apps/ (prefix app-), kube-cluster/infra/ (prefix infra-)
 # and kube-cluster/rbac/ (prefix rbac-). reconcileStrategy: Revision so a new dir
@@ -65,10 +39,7 @@ spec:
     # Emit a GitRepository + HelmRelease per component instead of the Kustomizations
     # themselves, so no single release carries more than one component.
     generate:
-      source:
-        url: https://github.com/example/k0s-flux.git
-        branch: main
-        secretRef: flux-system
+      sourceFile: kube-cluster/flux-system/generators-source.yaml
     # Opt into the in-cluster k0s upgrade wrapper (templates/k0s-upgrade.yaml).
     # The generator reads the k0s version from this file and emits the k0s-upgrade
     # Flux Kustomization. Omit the block on clusters that don't use it.

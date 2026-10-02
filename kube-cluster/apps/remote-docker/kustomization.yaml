@@ -4,7 +4,7 @@ metadata:
   annotations:
     # ceph-rbd: the graph and state PVCs. traefik: routing.yaml's IngressRoute.
     # Read by the root generator; inert to kustomize.
-    dependsOn: infra-ceph-csi-rbd,infra-kube-vnet,infra-traefik
+    flux-component-generator/dependsOn: infra-ceph-csi-rbd,infra-kube-vnet,infra-traefik
 resources:
   - resources.yaml
   - vnet.yaml

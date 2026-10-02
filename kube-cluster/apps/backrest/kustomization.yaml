@@ -6,7 +6,7 @@ metadata:
     # static CephFS source PVs need infra-ceph-csi-cephfs. No LB, no per-host cert
     # (backrest.example.com is under the *.example.com wildcard + Authelia catch-all). Read
     # by the root generator; inert to kustomize.
-    dependsOn: infra-ceph-csi-cephfs,infra-ceph-csi-rbd
+    flux-component-generator/dependsOn: infra-ceph-csi-cephfs,infra-ceph-csi-rbd
 resources:
 - resources.yaml
 - routing.yaml

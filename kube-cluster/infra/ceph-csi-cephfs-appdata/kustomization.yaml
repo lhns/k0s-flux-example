@@ -5,7 +5,7 @@ metadata:
     # The StorageClass here references csi-cephfs-secret, which lives in the
     # ceph-csi-cephfs namespace and is owned by that kustomization. Read by the
     # root generator; inert to kustomize.
-    dependsOn: infra-ceph-csi-cephfs
+    flux-component-generator/dependsOn: infra-ceph-csi-cephfs
 resources:
 - namespace.yaml
 - release.yaml

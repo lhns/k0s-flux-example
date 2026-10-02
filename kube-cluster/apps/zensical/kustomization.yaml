@@ -4,7 +4,7 @@ metadata:
   annotations:
     # The source PVC uses the cephfs StorageClass. Read by the root generator; inert to
     # kustomize.
-    dependsOn: infra-ceph-csi-cephfs
+    flux-component-generator/dependsOn: infra-ceph-csi-cephfs
 resources:
 - resources.yaml
 - routing.yaml

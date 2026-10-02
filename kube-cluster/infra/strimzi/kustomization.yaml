@@ -6,6 +6,6 @@ metadata:
     # admissible under the ValidatingAdmissionPolicy (which needs the CRDs to exist
     # and denies pods carrying no labels). Read by the root generator; inert to
     # kustomize. No `namespace:` transformer — release.yaml pins its own namespace.
-    dependsOn: infra-kube-vnet
+    flux-component-generator/dependsOn: infra-kube-vnet
 resources:
 - release.yaml

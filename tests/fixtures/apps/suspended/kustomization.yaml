@@ -3,6 +3,6 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 metadata:
   annotations:
-    suspend: "true"
+    flux-component-generator/suspend: "true"
 resources:
   - resources.yaml

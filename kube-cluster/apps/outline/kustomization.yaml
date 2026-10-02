@@ -5,7 +5,7 @@ metadata:
     # CNPG (db) + Reflector (db secret) + Traefik (route) + ceph-rbd (file PVC).
     # Read by the root generator; inert to kustomize. No `namespace:` transformer —
     # database.yaml/db-role-secret.yaml pin `namespace: postgres`; the rest is `outline`.
-    dependsOn: infra-postgres,infra-reflector,infra-traefik,infra-ceph-csi-rbd
+    flux-component-generator/dependsOn: infra-postgres,infra-reflector,infra-traefik,infra-ceph-csi-rbd
 resources:
 - resources.yaml
 - routing.yaml

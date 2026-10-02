@@ -5,7 +5,7 @@ metadata:
     # Start the operator after the VolumeSnapshot CRDs exist so it detects them at
     # startup and can run volumeSnapshot backups without a manual restart (matters on
     # a from-scratch rebuild).
-    dependsOn: infra-snapshot-controller
+    flux-component-generator/dependsOn: infra-snapshot-controller
 resources:
 - namespace.yaml
 - release.yaml

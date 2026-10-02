@@ -4,7 +4,7 @@ metadata:
   annotations:
     # The webhook's serving cert is issued by a chart-owned self-signed Issuer,
     # so cert-manager's CRDs must exist. kube-vnet gates the VXLAN ingress.
-    dependsOn: infra-cert-manager,infra-kube-vnet
+    flux-component-generator/dependsOn: infra-cert-manager,infra-kube-vnet
 resources:
 - namespace.yaml
 - secret.yaml

@@ -6,7 +6,7 @@ metadata:
     # running before a pod requesting `lan` can be created — without it the pod stays
     # ContainerCreating. ceph-csi-cephfs: the fabric-credentials PVC. kube-vnet: vnet.yaml
     # uses its CRDs. Read by the root generator; inert to kustomize.
-    dependsOn: infra-multus,infra-ceph-csi-cephfs,infra-kube-vnet
+    flux-component-generator/dependsOn: infra-multus,infra-ceph-csi-cephfs,infra-kube-vnet
 resources:
 - resources.yaml
 - vnet.yaml

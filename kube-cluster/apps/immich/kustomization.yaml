@@ -4,7 +4,7 @@ metadata:
   annotations:
     # Static CephFS PVs (the mounted library) need infra-ceph-csi-cephfs; the immich-db
     # PVC needs infra-ceph-csi-rbd. Read by the root generator; inert to kustomize.
-    dependsOn: infra-ceph-csi-cephfs,infra-ceph-csi-rbd
+    flux-component-generator/dependsOn: infra-ceph-csi-cephfs,infra-ceph-csi-rbd
 resources:
 - resources.yaml
 - routing.yaml

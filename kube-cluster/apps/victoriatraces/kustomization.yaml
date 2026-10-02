@@ -5,7 +5,7 @@ metadata:
     # The DB mounts a CephFS static PV (infra-ceph-csi-cephfs); the UI routes
     # through Traefik + the reflected Authelia middleware (infra-traefik). Read
     # by the root generator; inert to kustomize.
-    dependsOn: infra-ceph-csi-cephfs,infra-traefik
+    flux-component-generator/dependsOn: infra-ceph-csi-cephfs,infra-traefik
 resources:
 - resources.yaml
 - vnet.yaml

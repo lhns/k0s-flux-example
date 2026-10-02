@@ -8,7 +8,8 @@ Discovery
 - group.wait defaults to true. The hasKey guard matters, because `default true` would
   coerce an explicit false back to true.
 
-Annotations on the component's own kustomization.yaml. Kustomize ignores `metadata`
+Annotations on the component's own kustomization.yaml, each prefixed
+flux-component-generator/. Kustomize ignores `metadata`
 entirely and it never reaches the built resources, which is what makes it usable as
 generator input.
 - dependsOn    Comma-separated Flux Kustomization names.
@@ -44,7 +45,7 @@ substitution-secrets/ subdirectory, for injecting secret values into plaintext c
 
   A substituted config cannot come from a secretGenerator, which base64-encodes into
   data: and buries the ${VAR} where envsubst cannot see it. Use a configMapGenerator
-  marked generators.example.com/as-secret and it is patched into a Secret with the content
+  marked flux-component-generator/as-secret and it is patched into a Secret with the content
   still plaintext: see _secret-from-files.tpl.
 
   Where an app can read the credential itself, from a file or an env var, prefer that.
@@ -76,14 +77,14 @@ artifacts/ subdirectory, for oci-composer ImageComposition and ImageBuild object
 {{- $fluxName := $component }}
 {{- if $group.prefix }}{{- $fluxName = printf "%s-%s" $group.prefix $component }}{{- end }}
 {{- $kust := $.Files.Get $kustPath | fromYaml }}
-{{- $instance := dig "metadata" "annotations" "appInstance" $component $kust }}
-{{- $crdPolicy := dig "metadata" "annotations" "crdPolicy" "CreateReplace" $kust }}
+{{- $instance := dig "metadata" "annotations" "flux-component-generator/appInstance" $component $kust }}
+{{- $crdPolicy := dig "metadata" "annotations" "flux-component-generator/crdPolicy" "CreateReplace" $kust }}
 {{- $interval := $group.interval | default "10m0s" }}
 {{- $substFrom := concat
       (include "generators.substituteFrom" (dict "root" $ "dir" $dir) | fromYamlArray)
       (include "generators.refExports" (dict "root" $ "dir" $dir) | fromYamlArray) }}
 {{- $dependsOn := list }}
-{{- with dig "metadata" "annotations" "dependsOn" "" $kust }}
+{{- with dig "metadata" "annotations" "flux-component-generator/dependsOn" "" $kust }}
 {{- range splitList "," . }}{{- $dependsOn = append $dependsOn (trim .) }}{{- end }}
 {{- end }}
 {{- $artifactsName := printf "%s-artifacts" $fluxName }}
@@ -152,7 +153,7 @@ metadata:
   namespace: flux-system
 spec:
   interval: {{ $interval }}
-  {{- if eq (dig "metadata" "annotations" "suspend" "" $kust | toString) "true" }}
+  {{- if eq (dig "metadata" "annotations" "flux-component-generator/suspend" "" $kust | toString) "true" }}
   suspend: true
   {{- end }}
   path: ./{{ $dir }}

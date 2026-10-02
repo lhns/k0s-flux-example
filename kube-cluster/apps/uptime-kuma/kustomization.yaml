@@ -5,7 +5,7 @@ metadata:
     # The RBD data PVC needs the ceph-rbd StorageClass. The authelia middleware is
     # reflected in by traefik-reflector (eventually consistent, no hard dep).
     # Read by the root generator; inert to kustomize.
-    dependsOn: infra-ceph-csi-rbd
+    flux-component-generator/dependsOn: infra-ceph-csi-rbd
 resources:
 - resources.yaml
 - routing.yaml

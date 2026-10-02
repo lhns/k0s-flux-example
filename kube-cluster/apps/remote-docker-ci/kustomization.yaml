@@ -4,7 +4,7 @@ metadata:
   annotations:
     # ceph-rbd: the graph and state PVCs.
     # Read by the root generator; inert to kustomize.
-    dependsOn: infra-ceph-csi-rbd,infra-kube-vnet
+    flux-component-generator/dependsOn: infra-ceph-csi-rbd,infra-kube-vnet
 resources:
   - resources.yaml
   - vnet.yaml

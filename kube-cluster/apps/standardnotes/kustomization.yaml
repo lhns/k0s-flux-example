@@ -6,7 +6,7 @@ metadata:
     # through Traefik (infra-traefik). Read by the root generator; inert to
     # kustomize. No `namespace:` transformer — every object sets its own
     # metadata.namespace.
-    dependsOn: infra-traefik,infra-ceph-csi-rbd
+    flux-component-generator/dependsOn: infra-traefik,infra-ceph-csi-rbd
 resources:
 - resources.yaml
 - vnet.yaml

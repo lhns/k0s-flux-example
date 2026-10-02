@@ -1,0 +1,33 @@
+---
+# The generator's own source. Helm embeds the whole chart in its release Secret's
+# data.release, which the apiserver caps at 1 MiB -- and the repo root IS the chart, so the
+# unfiltered repo no longer fits. This keeps what the templates read and nothing else.
+# See docs/generator-chart-size.md.
+#
+# An INCLUDE list. sourceignore does not prune excluded directories, so the gitignore idiom
+# for re-including them re-admits everything.
+#
+# Also the template for every gen-* GitRepository (generate.sourceFile): they copy its
+# labels and spec, with ignore replaced by their component's filter. This file must stay
+# a single GitRepository, and must stay in its own ignore list.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: generators
+  namespace: flux-system
+  labels:
+    flux-component-generator/push-receiver: github
+spec:
+  interval: 10m0s
+  url: https://github.com/example/k0s-flux.git
+  ref:
+    branch: main
+  secretRef:
+    name: flux-system
+  ignore: |
+    *
+    !/Chart.yaml
+    !/templates/**
+    !**/k0sctl.yaml
+    !**/kustomization.yaml
+    !/kube-cluster/flux-system/generators-source.yaml

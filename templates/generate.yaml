@@ -8,9 +8,19 @@
 
   The generated releases do not carry `generate` -- that is what stops the recursion. They
   take the root's `groups` verbatim and no component name: the ignore below is the parameter.
+
+  Each GitRepository is a copy of generate.sourceFile, the root's own GitRepository: its
+  labels and spec, with ignore and interval replaced. URL, ref, credentials, submodules and
+  includes are therefore set once, there. The root's ignore must admit that file.
 */ -}}
 {{- with .Values.generate }}
-{{- $src := .source | required "generate.source is required (url, branch, secretRef of the repo this chart lives in)" }}
+{{- $path := .sourceFile | required "generate.sourceFile is required: the path of the GitRepository this chart is rendered from" }}
+{{- $src := $.Files.Get $path | fromYaml }}
+{{- if ne (dig "kind" "" $src) "GitRepository" }}
+{{- fail (printf "generate.sourceFile %s is not a single GitRepository, or is excluded by its own ignore" $path) }}
+{{- end }}
+{{- $labels := dig "metadata" "labels" dict $src }}
+{{- $baseSpec := omit $src.spec "ignore" "interval" }}
 {{- $interval := .interval | default "30m" }}
 {{- range $group := $.Values.groups }}
 {{- range $kustPath, $_ := $.Files.Glob (printf "%s/*/kustomization.yaml" $group.base) }}
@@ -23,18 +33,13 @@ kind: GitRepository
 metadata:
   name: {{ $genName }}
   namespace: flux-system
+  {{- with $labels }}
   labels:
-    # Refreshed by the GitHub push Receiver (infra/flux-webhook).
-    flux.example.com/push-receiver: github
-spec:
-  interval: {{ $interval }}
-  url: {{ $src.url | quote }}
-  ref:
-    branch: {{ $src.branch | default "main" }}
-  {{- with $src.secretRef }}
-  secretRef:
-    name: {{ . }}
+    {{- toYaml . | nindent 4 }}
   {{- end }}
+spec:
+  {{- toYaml $baseSpec | nindent 2 }}
+  interval: {{ $interval }}
   {{- /* Exclude everything, then re-include by path. sourceignore does not prune excluded
       directories, so the gitignore idiom for re-including them re-admits everything. Only
       *.yaml is ever globbed, never *.yml. */}}

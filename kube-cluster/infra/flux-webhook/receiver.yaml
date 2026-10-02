@@ -24,4 +24,4 @@ spec:
       kind: GitRepository
       name: "*"
       matchLabels:
-        flux.example.com/push-receiver: github
+        flux-component-generator/push-receiver: github

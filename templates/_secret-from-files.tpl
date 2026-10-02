@@ -19,7 +19,7 @@ A component opts in per generator entry:
       options:
         disableNameSuffixHash: true
         annotations:
-          generators.example.com/as-secret: "true"
+          flux-component-generator/as-secret: "true"
 
 disableNameSuffixHash is required. kustomize rewrites references to a hashed name
 only where it believes a ConfigMap is referenced, and the workload refers to this as
@@ -29,9 +29,12 @@ therefore do not roll the pod by themselves; rely on reloader.stakater.com/auto.
 The move is by path, not by value, so nothing here has to know the content.
 */ -}}
 {{- define "generators.secretFromFiles" -}}
+{{- /* Renaming the annotation takes three steps: match both keys, move the annotations,
+    drop the old key. The patch and the annotation reach the cluster through different
+    sources, and a ConfigMap built without the patch prunes its Secret. */}}
 - target:
     kind: ConfigMap
-    annotationSelector: generators.example.com/as-secret=true
+    annotationSelector: flux-component-generator/as-secret=true
   patch: |
     - op: replace
       path: /kind

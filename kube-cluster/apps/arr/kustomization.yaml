@@ -5,7 +5,7 @@ metadata:
     # infra-pod-gateway owns the namespace and must have the webhook up before
     # any pod here is created -- a missing webhook does not block pod creation,
     # it silently fails to mutate, and the pod comes up with internet access.
-    dependsOn: infra-ceph-csi-cephfs,infra-kube-vnet,infra-pod-gateway,infra-reflector
+    flux-component-generator/dependsOn: infra-ceph-csi-cephfs,infra-kube-vnet,infra-pod-gateway,infra-reflector
 resources:
 - storage.yaml
 - secret.yaml

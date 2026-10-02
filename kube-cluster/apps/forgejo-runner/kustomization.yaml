@@ -7,7 +7,7 @@ metadata:
     # there is no volume, and nothing here needs storage, postgres or reflector.
     # The runner reaches Forgejo through Traefik's VIP. Read by the root
     # generator; inert to kustomize.
-    dependsOn: infra-traefik
+    flux-component-generator/dependsOn: infra-traefik
 resources:
 - resources.yaml
 - secret.yaml

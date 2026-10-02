@@ -4,7 +4,7 @@ metadata:
   annotations:
     # Needs mosquitto (the broker + the `mosquitto` vnet that lets this pod reach
     # :1883). Read by the root generator; inert to kustomize.
-    dependsOn: app-mosquitto
+    flux-component-generator/dependsOn: app-mosquitto
 resources:
 - resources.yaml
 # The exporter config as a real .json file. The generator patches this ConfigMap into
@@ -19,4 +19,4 @@ configMapGenerator:
   options:
     disableNameSuffixHash: true
     annotations:
-      generators.example.com/as-secret: "true"
+      flux-component-generator/as-secret: "true"

@@ -3,7 +3,7 @@ kind: Kustomization
 metadata:
   annotations:
     # RBD PVC for the home directory. Read by the root generator; inert to kustomize.
-    dependsOn: infra-ceph-csi-rbd
+    flux-component-generator/dependsOn: infra-ceph-csi-rbd
 resources:
 - resources.yaml
 - routing.yaml

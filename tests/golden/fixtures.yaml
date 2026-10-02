@@ -25,7 +25,7 @@ spec:
             crds: Skip
     - target:
         kind: ConfigMap
-        annotationSelector: generators.example.com/as-secret=true
+        annotationSelector: flux-component-generator/as-secret=true
       patch: |
         - op: replace
           path: /kind
@@ -113,7 +113,7 @@ spec:
             crds: CreateReplace
     - target:
         kind: ConfigMap
-        annotationSelector: generators.example.com/as-secret=true
+        annotationSelector: flux-component-generator/as-secret=true
       patch: |
         - op: replace
           path: /kind
@@ -171,7 +171,7 @@ spec:
             crds: CreateReplace
     - target:
         kind: ConfigMap
-        annotationSelector: generators.example.com/as-secret=true
+        annotationSelector: flux-component-generator/as-secret=true
       patch: |
         - op: replace
           path: /kind
@@ -215,7 +215,7 @@ spec:
             crds: CreateReplace
     - target:
         kind: ConfigMap
-        annotationSelector: generators.example.com/as-secret=true
+        annotationSelector: flux-component-generator/as-secret=true
       patch: |
         - op: replace
           path: /kind
@@ -280,7 +280,7 @@ spec:
             crds: CreateReplace
     - target:
         kind: ConfigMap
-        annotationSelector: generators.example.com/as-secret=true
+        annotationSelector: flux-component-generator/as-secret=true
       patch: |
         - op: replace
           path: /kind

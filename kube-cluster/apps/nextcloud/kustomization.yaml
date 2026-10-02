@@ -7,7 +7,7 @@ metadata:
     # Read by the root generator; inert to kustomize. No `namespace:` transformer —
     # database.yaml/db-role-secret.yaml pin `namespace: postgres`, the static PVs
     # are cluster-scoped, everything else is `nextcloud`.
-    dependsOn: infra-postgres,infra-reflector,infra-ceph-csi-rbd,infra-ceph-csi-cephfs,infra-traefik,infra-cert-manager
+    flux-component-generator/dependsOn: infra-postgres,infra-reflector,infra-ceph-csi-rbd,infra-ceph-csi-cephfs,infra-traefik,infra-cert-manager
 resources:
 - resources.yaml
 - routing.yaml
