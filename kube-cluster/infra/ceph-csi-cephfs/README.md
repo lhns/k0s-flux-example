@@ -30,3 +30,24 @@ upstream's image is EL10, which needs x86-64-v3 (AVX2/FMA/BMI); kube-worker-04 (
 and the 3.18.0 image dies there with `CPU does not support x86-64-v3`. The build is upstream's, on an EL9 base:
 <https://github.com/lhns/ceph-csi-x86-64-v2>. Renovate reads the chart version and the image from that image's
 tags, so a chart bump waits until our build of that release is published.
+
+## Kernel caveat: unmounting CephFS can panic the node
+
+`kernel BUG at fs/super.c:650` ("Busy inodes after unmount of ceph"), always preceded by
+`ceph: [...]: umount timed out, 0`. The machine dies instantly; `last -x` shows `crash`.
+
+`ceph_kill_sb()` waits at most `mount_timeout` (default 60s) for in-flight OSD requests, then
+tears the superblock down with inodes still referenced. Mainline still has that bounded wait, so
+**no kernel fixes it**: Ceph trackers [#79149](https://tracker.ceph.com/issues/79149) and
+[#74156](https://tracker.ceph.com/issues/74156) are open. Do not move to trixie-backports for it:
+that kernel keeps this bug and adds CVE-2026-89646.
+
+- **It is not only draining.** Deleting or restarting *any* pod with a CephFS volume can panic
+  its node, and `umount timed out` has been fatal every time here. Let a stuck pod stay stuck
+  until Ceph is healthy rather than restarting it, and prefer an in-place container restart
+  (`kubectl exec … -- kill 1`), which never calls NodeUnstageVolume.
+- `Aborted: operation with the given Volume ID already exists` afterwards is the volume lock
+  held by the original hang: a symptom, not a second fault.
+- **Not every node crash is this bug.** Check `journalctl -b -1 -k` on the node (needs sudo) for
+  `umount timed out`. A cutoff with no kernel output at all (no BUG, Oops, hung task, OOM or MCE)
+  is the hypervisor resetting the guest, not CephFS.

@@ -1,274 +1,282 @@
 # k0s-flux
 
-GitOps for a k0s Kubernetes cluster, managed by Flux.
+GitOps for a [k0s](https://k0sproject.io) Kubernetes cluster, reconciled by
+[Flux](https://fluxcd.io).
 
-- `kube-cluster/k0sctl.yaml` — cluster definition (k0s + kube-router CNI + control
-  plane), applied with `k0sctl` (not Flux).
-- `kube-cluster/flux-system/` — Flux bootstrap (controllers, `GitRepository`, root
-  `Kustomization`) plus the generator `HelmRelease`.
-- `kube-cluster/infra/`, `kube-cluster/apps/`, `kube-cluster/rbac/` — one directory
-  per component. The root generator chart (`Chart.yaml` + `templates/`) emits one Flux
-  `Kustomization` per directory (`infra-<name>` / `app-<name>` / `rbac-<name>`).
-- `<component>/substitution-secrets/` — optional, reserved name. SOPS Secrets in
-  `flux-system` that feed `postBuild.substituteFrom`, so config stays plaintext with
-  `${VAR}` placeholders. Having the directory is the whole opt-in: the generator emits
-  its `Kustomization`, the component's `dependsOn`, and one `substituteFrom` entry per
-  manifest in it. No `kustomization.yaml`, no annotation, no list.
-  See `templates/kustomizations.yaml`.
+The core idea: **one directory is one component, and every component gets its own Flux
+`Kustomization`.** Nobody maintains a list of Kustomizations. A Helm chart at the repo root,
+`flux-component-generator`, discovers every `kube-cluster/<group>/<component>/kustomization.yaml`
+and emits the Flux objects for it. Adding an app means adding a directory. Each component is its
+own failure domain: a broken app cannot block the others.
 
-  Check `kustomize build kube-cluster/apps/<app> | grep -E '\$\{|\$\$'` before adding
-  one. Substitution is not scoped to the file you meant: Flux runs envsubst over the whole
-  component build, fails the reconcile on anything it cannot resolve, and applies `$$` as
-  `$`. Every hit has to become a substitution source, be escaped as `$${VAR}`, or sit in
-  an object annotated `kustomize.toolkit.fluxcd.io/substitute: disabled`; shell scripts
-  and regex replacements are the usual casualties. Bare `$var` is left alone.
+## How it works
 
-  Such a config cannot come from a `secretGenerator`, which base64s it into `data:` and
-  hides the `${VAR}` from envsubst. Use a `configMapGenerator` marked
-  `flux-component-generator/as-secret: "true"` and the generator patches it into a Secret with
-  the content still plaintext, so the config stays a real file
-  (`apps/mosquitto/mosquitto.conf`). The entry also needs
-  `options.disableNameSuffixHash: true`: the patch matches on the annotation rather than
-  the name, so a hashed ConfigMap still converts, but the workload's Secret reference is
-  not one kustomize rewrites and would point at a name that no longer exists. It cannot
-  be patched in either, being consumed during the component build while `spec.patches`
-  run after it. `scripts/check-substitution.py` fails the build on both mistakes: a
-  missing annotation, which would apply the credential as a ConfigMap, and a missing
-  `disableNameSuffixHash`.
+```mermaid
+flowchart TD
+  repo[("git repository")]
 
-  Better still, prefer an app-native mechanism where one exists. The config then holds no
-  credential at all: `apps/arr/autopulse` reads its secrets from `AUTOPULSE__*` env vars.
-- `<component>/artifacts/` — optional, reserved name. The component's `ImageComposition`
-  and `ImageBuild` objects, applied by their own `Kustomization`; each exports its
-  digest-pinned ref, which the component substitutes as `${VAR}`, so the caveats above
-  apply. See [`infra/oci-composer`](kube-cluster/infra/oci-composer/README.md).
+  subgraph bootstrap["Bootstrap: kube-cluster/flux-system"]
+    gr_fs["GitRepository <b>flux-system</b><br/>whole repo"]
+    ks_fs["Flux Kustomization <b>flux-system</b><br/>path ./kube-cluster/flux-system"]
+    kz_fs["kustomization.yaml<br/>gotk-components · gotk-sync ·<br/>generators-source · generators"]
+  end
 
-## Namespacing (no top-level `namespace:` transformer)
+  subgraph root["Root generator"]
+    gr_gen["GitRepository <b>generators</b><br/>filtered: Chart.yaml, templates/,<br/>**/kustomization.yaml, generators-source.yaml"]
+    hc_gen["HelmChart <b>flux-system-generators</b><br/>chart '.' = the repo root"]
+    hr_gen["HelmRelease <b>generators</b><br/>values: groups, generate.sourceFile"]
+    tpl_gen["templates/generate.yaml<br/>for every &lt;base&gt;/*/kustomization.yaml"]
+    ks_k0s["Flux Kustomization <b>k0s-upgrade</b><br/>templates/k0s-upgrade.yaml"]
+  end
 
-Every namespaced object declares its own namespace **explicitly**:
+  subgraph comp["Per component, e.g. apps/rustdesk"]
+    gr_c["GitRepository <b>gen-app-rustdesk</b><br/>copy of generators-source.yaml,<br/>filtered to this component"]
+    hc_c["HelmChart <b>flux-system-gen-app-rustdesk</b>"]
+    hr_c["HelmRelease <b>gen-app-rustdesk</b><br/>same chart, without generate"]
+    tpl_k["templates/kustomizations.yaml<br/>reads the component's annotations<br/>and subdirectories"]
+    ks_art["Flux Kustomization <b>app-rustdesk-artifacts</b><br/>path ./…/artifacts · wait"]
+    ks_sec["Flux Kustomization <b>app-rustdesk-substitution-secrets</b><br/>path ./…/substitution-secrets · SOPS"]
+    ks_c["Flux Kustomization <b>app-rustdesk</b><br/>path ./kube-cluster/apps/rustdesk<br/>patches · postBuild.substituteFrom · SOPS"]
+    kz_c["kustomization.yaml of the component<br/>resources · generators"]
+  end
 
-- hand-written resources → `metadata.namespace`
-- generated objects (`configMapGenerator` / `secretGenerator`) → a `namespace:` field
-  **on the generator entry** (a generated object with no namespace fails to apply with
-  `namespace not specified`).
+  art["ImageComposition / ImageBuild<br/>namespace oci-composer"]
+  cm_ref["ConfigMap in flux-system<br/>digest-pinned image ref"]
+  sec["SOPS Secrets in flux-system<br/>substitution values"]
+  other["other components' Kustomizations<br/>e.g. infra-metallb"]
+  out["the component's resources<br/>Namespace, HelmRelease, Deployment, …"]
+  rcv["Receiver <b>github</b><br/>infra/flux-webhook"]
 
-**Do not** put a top-level `namespace:` in a `kustomization.yaml`. That transformer
-*force-overrides* the namespace on every object — including ones deliberately pinned
-elsewhere (e.g. a CNPG `Database`/`DatabaseRole` + its reflected secret living in
-`postgres`) — silently breaking multi-namespace apps. Keeping namespaces explicit means
-one rule covers single- and multi-namespace apps alike, and any file states its own
-namespace without cross-referencing the kustomization.
+  repo --> gr_fs --> ks_fs --> kz_fs
+  kz_fs --> gr_gen
+  kz_fs --> hr_gen
+  repo --> gr_gen --> hc_gen --> hr_gen --> tpl_gen
+  hr_gen -.->|"optional: values.k0sUpgrade"| ks_k0s
+  tpl_gen --> gr_c
+  tpl_gen --> hr_c
+  repo --> gr_c --> hc_c --> hr_c --> tpl_k
+  tpl_k -.->|"optional: if artifacts/"| ks_art
+  tpl_k -.->|"optional: if substitution-secrets/"| ks_sec
+  tpl_k --> ks_c
+  ks_art -.-> art -.->|"oci-composer builds and pushes"| cm_ref
+  ks_sec -.-> sec
+  ks_art ==>|"dependsOn: Ready first"| ks_c
+  ks_sec ==>|"dependsOn: Ready first"| ks_c
+  other ==>|"dependsOn: annotation"| ks_c
+  cm_ref -.->|"substituteFrom"| ks_c
+  sec -.->|"substituteFrom"| ks_c
+  ks_c -->|"kustomize build"| kz_c -->|"patches → envsubst → apply"| out
+  rcv -.->|"push webhook: reconcile now"| gr_fs
+  rcv -.-> gr_gen
+  rcv -.-> gr_c
 
-Reference: `authelia`, `zensical` (generator with `namespace:`); `matrix`, `stalwart`
-(multi-ns, explicit `metadata.namespace` throughout).
-
-## Getting files into a workload
-
-Workloads routinely need files their upstream image does not ship — plugins, extensions,
-config bundles. **Never fetch them at pod start.** A git clone or a download in an
-initContainer makes startup depend on the network, pins versions by ref rather than by
-content, and usually leaves the result on a data PVC, turning a cache into state.
-
-In order of preference:
-
-**1. The content is already a published image → mount it directly.** No composition, no
-artifact, no build. Image volumes do this natively, and `subPath` handles layout when the
-files sit in a subdirectory of the image:
-
-```yaml
-volumes:
-  - name: app-view-plugin
-    image:
-      reference: ghcr.io/lhns/headlamp-app-view:0.3.0
-volumeMounts:
-  - name: app-view-plugin
-    mountPath: /headlamp/user-plugins
-    subPath: plugins
+  classDef source fill:#dbeafe,stroke:#1d4ed8,color:#0b1b3f
+  classDef kustomization fill:#dcfce7,stroke:#15803d,color:#052e16
+  classDef helm fill:#fef3c7,stroke:#b45309,color:#3b1d02
+  classDef file fill:#f3f4f6,stroke:#4b5563,color:#111827
+  classDef optional stroke-dasharray:5 5
+  class gr_fs,gr_gen,gr_c,hc_gen,hc_c source
+  class ks_fs,ks_c,ks_art,ks_sec,ks_k0s,other kustomization
+  class hr_gen,hr_c helm
+  class kz_fs,kz_c,tpl_gen,tpl_k,out,repo file
+  class ks_art,ks_sec,ks_k0s,art,cm_ref,sec optional
 ```
 
-Image volumes are always mounted **read-only** — that is structural, not something you opt
-into. Reference: `apps/headlamp`.
+Blue nodes are sources (source-controller), green ones are Flux Kustomizations
+(kustomize-controller), yellow ones are HelmReleases (helm-controller), and grey ones are files
+and the resources that come out. A **dashed border** marks objects that only exist when the
+component opts in. Solid arrows create or feed. **Thick arrows** are `dependsOn`, so the
+component waits for that Kustomization to be Ready. Dashed arrows reference or trigger.
 
-**2. The content is not an image → compose one.** git repositories (including `subpath`
-selection out of a monorepo), jars fetched by URL, ConfigMaps: something has to turn these
-into OCI content, and that something is [`infra/oci-composer`](kube-cluster/infra/oci-composer/README.md).
-An app declares `ImageComposition` objects in its `artifacts/` directory and names each by
-the digest-pinned ref it exports. Reference: `apps/freshrss`.
+In words:
 
-The line between the two is **whether the inputs are already images** — not how complex the
-result is. Wrapping an existing image in a composition only re-wraps it.
+1. The Flux bootstrap applies `kube-cluster/flux-system/`. Besides Flux itself, that holds the
+   generator's source and its HelmRelease.
+2. The **root release** renders the chart once. For each discovered component it emits a
+   GitRepository and a HelmRelease, `gen-<group>-<component>`.
+3. Each **per-component release** renders the same chart against a source filtered down to
+   that component, and emits its Flux Kustomization, plus the optional `-artifacts` and
+   `-substitution-secrets` ones.
 
-**Renovate caveat, easy to miss:** an image volume spells the reference as a *mapping*
-(`image: {reference: repo:tag}`), which Renovate's built-in `kubernetes` manager does not
-see — it looks for `image: <string>`. Moving a reference out of a container spec into an
-image volume therefore stops the auto-bump silently. `renovate.json` carries an
-image-volume custom manager for this, anchored on an explicit `# renovate:` comment so it
-cannot match the substituted `${VAR}` refs of composed artifacts.
+The split into one release per component is not cosmetic. Helm stores the whole chart in a
+1 MiB release Secret, and here the chart is the repository; see
+[docs/generator-chart-size.md](docs/generator-chart-size.md). The per-component GitRepositories
+copy `generate.sourceFile` (`kube-cluster/flux-system/generators-source.yaml`), so the URL,
+credentials and any submodules or includes are set once. A GitHub push webhook reconciles all
+of these sources immediately, so a push applies in seconds.
 
-## Reconciliation intervals
+## Repository layout
 
-Reconciliation is **push-driven**: a GitHub webhook → notification-controller
-`Receiver` reconciles our `GitRepository` on every push, so changes apply in
-seconds. The `interval` fields are therefore **fallbacks / drift-correction
-cadence**, not the primary trigger.
-
-| Kind | Interval | Why |
-| --- | --- | --- |
-| **Sources** — `GitRepository`, `HelmRepository`, `OCIRepository`, and a HelmRelease's `chart.spec` | **`1h`** | Our git source is reconciled in real time by the webhook, so its poll is only a safety net. Upstream Helm/OCI sources have **no** webhook, but we **pin exact versions**, so polling just re-fetches the same artifact — frequency is irrelevant. (If you ever track a mutable/floating tag, shorten that one source so the new digest gets picked up.) |
-| **Reconcilers** — `Kustomization`, `HelmRelease` | **`10m`** | They re-apply desired state and self-heal manual drift. Git changes reach them fast via webhook → GitRepository → Kustomization; `10m` is the drift-correction fallback. |
-
-Rule of thumb when adding a resource: **source → `1h`, Kustomization/HelmRelease
-→ `10m`.** Generated Kustomizations already default to `10m`.
-
-## Chart CRDs are upgraded (`crds: CreateReplace` by default)
-
-Helm never touches a chart's `crds/` directory on upgrade, and helm-controller's
-default for `spec.upgrade.crds` is **`Skip`**. Left alone, that means a chart's
-CRDs freeze at whatever version was *first installed* — permanently, and with no
-error anywhere. New optional fields simply do not exist, so the API server prunes
-them from any resource that sets one.
-
-Traefik is how we found out: its CRDs sat at the **v3.6** schema generation under
-a **v3.7.9** proxy from the `41.1.0` → `41.1.1` bump onward, missing e.g.
-`encodedCharacters`.
-
-There is no controller-level flag — `crds` exists only per `HelmRelease` — so the
-root generator emits it into every generated `Kustomization` as a patch targeting
-`kind: HelmRelease`. It is a *merge* patch, so an existing `spec.upgrade` block
-keeps its other fields.
-
-Only charts that ship a `crds/` dir are affected at all (**traefik**, **velero**).
-Charts that template their CRDs (cert-manager, cloudnative-pg, metallb) already
-upgrade them, and this is a no-op there.
-
-`CreateReplace` is a **replace**. For additive schema changes — what a CRD bump
-almost always is — that is safe. If a chart ever drops a CRD version that still
-has stored objects, the API server rejects it, so the failure is loud rather than
-destructive. Override per component on its own `kustomization.yaml`:
-
-```yaml
-metadata:
-  annotations:
-    flux-component-generator/crdPolicy: Skip   # Skip | Create | CreateReplace (default)
+```
+Chart.yaml, templates/         flux-component-generator, the root Helm chart
+kube-cluster/
+  k0sctl.yaml                  the cluster itself (k0s, CNI, control plane), applied with k0sctl
+  flux-system/                 Flux bootstrap + the generator's source and HelmRelease
+  infra/<component>/           platform: storage, ingress, databases, operators
+  apps/<component>/            applications
+  rbac/<component>/            cluster-wide RBAC
+  k0s-upgrade/                 the in-cluster k0s upgrade wrapper
+scripts/                       validation, rendering, secret handling, the public-template build
+tests/                         generator fixtures and golden output
+docs/                          design notes and operations
 ```
 
-## Moving a component between groups (non-destructive migration)
+k0sctl creates the cluster and is run by hand. Everything inside the cluster is Flux.
 
-The generator names each Flux `Kustomization` after its **directory**
-(`infra-<name>` / `app-<name>`). So moving a component's folder — e.g.
-`apps/postgres/` → `infra/postgres/` — is seen by Flux as *delete the old
-Kustomization, create a new one*. Deleting a Kustomization **prunes everything it
-manages**, so the resources are destroyed and then recreated under the new name.
+## Adding a component
 
-For **stateless** components that's harmless. For anything **stateful** (a
-database, or any PVC-backed workload) it means data loss: the PVCs are deleted
-(their `Retain` PVs are left orphaned as `Released`) and the workload
-re-bootstraps empty — nothing is copied.
-
-To move a stateful component safely, **adopt-in-place** instead: tell the old
-Kustomization to release its objects rather than delete them, so the new one
-takes ownership of the exact same resources.
-
-1. Add this annotation to every resource in the component (e.g. via the
-   component's `kustomization.yaml` `commonAnnotations:`), commit, and let it
-   reconcile so the annotation lands on the live objects:
+1. Create `kube-cluster/apps/<name>/` (or `infra/`, `rbac/`) with your manifests.
+2. Add a `kustomization.yaml` listing them. Generator settings go in its annotations:
 
    ```yaml
-   kustomize.toolkit.fluxcd.io/prune: disabled
+   apiVersion: kustomize.config.k8s.io/v1beta1
+   kind: Kustomization
+   metadata:
+     annotations:
+       flux-component-generator/dependsOn: infra-metallb,infra-ceph-csi-rbd
+   resources:
+   - resources.yaml
    ```
-2. `git mv` the directory to the new group and push. The old Kustomization is
-   pruned but, because the objects are marked `prune: disabled`, they are **kept**;
-   the new Kustomization adopts them in place — no delete, no recreate, no orphaned
-   PVs.
-3. Remove the annotation again (so normal pruning resumes) and push.
 
-> Rule: never `git mv` a stateful component between `apps/` and `infra/` without
-> the `prune: disabled` dance first — verify the workload never restarts.
+3. Commit and push. The generator emits `app-<name>` within seconds.
+4. Check that it actually applied: see
+   [Checking a deploy landed](kube-cluster/README.md#checking-a-deploy-landed).
 
-## Node maintenance (reboot, shutdown)
+## Generator reference
 
-`cordon` is **not** enough. It only sets `unschedulable`, which stops *new* pods
-landing there; it evicts nothing, so everything keeps running on the node you are
-about to stop. Use `drain`, which cordons *and* evicts:
+### Annotations
 
-```sh
-kubectl drain <node> --ignore-daemonsets --delete-emptydir-data
-# ... reboot / shut down ...
-kubectl uncordon <node>
-```
+All on the component's own `kustomization.yaml`. Kustomize ignores `metadata` there, so these
+never reach the cluster.
 
-`--ignore-daemonsets` is required because DaemonSet pods are recreated on the same
-node and can never be drained. `--delete-emptydir-data` is required because drain
-refuses to evict any pod holding an `emptyDir`, which is node-local scratch that
-dies with the pod — the flag is you accepting that loss. Without it the drain
-aborts on the first such pod and does nothing.
+| annotation | default | effect |
+| --- | --- | --- |
+| `flux-component-generator/dependsOn` | none | comma-separated Flux Kustomization names this component waits for |
+| `flux-component-generator/appInstance` | directory name | the `app.kubernetes.io/instance` label put on everything, for when a chart labels its workloads differently |
+| `flux-component-generator/crdPolicy` | `CreateReplace` | `spec.upgrade.crds` for the component's HelmReleases: `Skip`, `Create` or `CreateReplace`; see [Chart CRDs are upgraded](#chart-crds-are-upgraded) |
+| `flux-component-generator/suspend` | `false` | `"true"` suspends the component's Kustomization; its `gen-` release stays live |
 
-**Draining the node with the CNPG primary needs two eviction attempts, and that is
-normal.** The first returns `429 TooManyRequests` because the `postgres-primary`
-PDB is `minAvailable: 1` on `cnpg.io/instanceRole=primary`; CNPG reacts by
-switching over and demoting the old primary in place, its role label leaves the
-selector, and the second eviction is accepted. Measured 2026-08-09: Postgres back
-to `2/2` in 66s, whole node drained in 2m49s. See `kube-cluster/TODO.md` for the
-pathological variant, where the demoted primary would not become Ready in place
-and held the drain for 16 minutes — and for the list of hypotheses already ruled
-out with evidence.
+### Reserved subdirectories
 
-**Do not uncordon a node that is still `NotReady`.** Check it has rejoined and its
-CSI node plugins are Running first, or pods get scheduled onto a node that cannot
-mount their volumes:
+Both are opt-in by existing. Neither holds a `kustomization.yaml`: kustomize-controller
+synthesizes one.
+
+- **`substitution-secrets/`** holds SOPS Secrets in `flux-system`. They get their own
+  Kustomization, the component waits for it, and each one becomes a
+  `postBuild.substituteFrom` entry, so the component's config can stay plaintext with
+  `${VAR}` placeholders.
+- **`artifacts/`** holds the component's `ImageComposition` and `ImageBuild` objects. Each one
+  exports its digest-pinned ref into a ConfigMap, which the component substitutes as `${VAR}`.
+  See [`infra/oci-composer`](kube-cluster/infra/oci-composer/README.md).
+
+### Substitution caveats
+
+Either subdirectory turns on envsubst for the **whole component build**, not just the file you
+meant. Flux fails the reconcile on any `${VAR}` it cannot resolve, and applies `$$` as `$`.
+Before adding one, run:
 
 ```sh
-kubectl get node <node>
-kubectl get pods -A -o wide | grep -E "<node>.*(nodeplugin|Crash|Error)"
+kustomize build kube-cluster/apps/<app> | grep -E '\$\{|\$\$'
 ```
 
-> **Kernel caveat: unmounting CephFS can panic the node, and NO kernel fixes it.**
-> `kernel BUG at fs/super.c:650` ("Busy inodes after unmount of ceph"), always preceded by
-> `ceph: [...]: umount timed out, 0`. The machine dies instantly; `last -x` shows `crash`.
->
-> `ceph_kill_sb()` waits at most `mount_timeout` (default 60s) for in-flight OSD requests,
-> then abandons them and calls `kill_anon_super()` with inodes still referenced. Mainline
-> still contains that bounded wait, so there is nothing to upgrade into. Ceph trackers
-> [#79149](https://tracker.ceph.com/issues/79149) and
-> [#74156](https://tracker.ceph.com/issues/74156) are open but stalled; the one patch
-> targeting this mechanism stalled in April on a design disagreement. Nothing is filed with
-> Debian. It is NOT CVE-2026-89646 -- that was introduced in 6.15 and Debian marks trixie
-> `<not-affected>`.
->
-> This file previously claimed 6.12.105 fixed it. That traces to `cbf59617` ("fix
-> writeback_count leak"), one of three `fs/ceph` commits in 6.12.105, whose changelog says a
-> leak "can prevent the filesystem from cleanly unmounting" -- right release, wrong bug.
->
-> **Do not move to trixie-backports.** 7.1.8 keeps this bug and adds CVE-2026-89646, whose
-> fix exists in no Debian suite.
->
-> **In practice:** it is not only draining. Deleting or restarting ANY pod with a CephFS
-> volume can panic its node. `umount timed out` has a 100% fatality rate here -- 18
-> occurrences across all retained journals, 18 dead nodes, no survivals. So let a stuck pod
-> stay stuck until Ceph is healthy rather than restarting it to "clear" the problem, and
-> prefer an in-place container restart (`kubectl exec ... -- kill 1`), which re-execs the
-> process without ever calling NodeUnstageVolume.
->
-> `Aborted: operation with the given Volume ID already exists` afterwards is the volume lock
-> held by the original hang -- a symptom, not a second fault.
+Every hit has to become a substitution source, be escaped as `$${VAR}`, or sit in an object
+annotated `kustomize.toolkit.fluxcd.io/substitute: disabled`. Shell scripts and regex
+replacements are the usual casualties. A bare `$var` is left alone.
 
-### Not every node crash is that bug
+### Substituted config files: `as-secret`
 
-Of 32 crashes in the retained journals (back to 2026-04-29), **17 carry the CephFS
-signature** and **14 are abrupt cutoffs with no kernel output at all** -- no BUG, no Oops, no
-hung task, no OOM, no MCE. These are QEMU guests, so a silent cutoff means the host reset
-them; it is not a guest fault and no amount of CephFS work will prevent it.
+A `secretGenerator` base64-encodes into `data:`, where envsubst cannot see `${VAR}`. Use a
+`configMapGenerator` marked `flux-component-generator/as-secret` instead. The generator patches
+it into a Secret, with the content still plaintext, so the config stays a real file:
 
-Three of those 14 are a **single site-wide power event** on 2026-09-13: kube-worker-02 stops
-at 19:44:29, kube-worker-04 at 19:46:04, kube-worker-03 at 19:46:31, **and the jumphost
-rebooted at 00:44** -- all back roughly five hours later.
+```yaml
+configMapGenerator:
+- name: mosquitto-config
+  namespace: mosquitto
+  files:
+  - mosquitto.conf
+  options:
+    disableNameSuffixHash: true
+    annotations:
+      flux-component-generator/as-secret: "true"
+```
 
-Do not attribute a crash to the kernel bug without checking for `umount timed out` in
-`journalctl -b -1 -k` (needs sudo on the node; `lhns` is not in `adm`/`systemd-journal`).
+`disableNameSuffixHash` is required. The patch matches on the annotation, but the workload
+refers to a Secret, which is a reference kustomize does not rewrite to the hashed name.
+`scripts/check-substitution.py` fails the build on a missing annotation (the credential would
+be applied as a ConfigMap) and on a missing `disableNameSuffixHash`.
 
-## Handing over a secret
+Better still, use the app's own mechanism where it has one, so the config holds no credential
+at all. For example, `apps/arr/autopulse` reads `AUTOPULSE__*` env vars.
 
-Copy the secret, then run, or let Claude run:
+## Conventions
+
+### Namespacing
+
+Every namespaced object declares its namespace explicitly:
+
+- hand-written resources: `metadata.namespace`;
+- generated objects: a `namespace:` field **on the generator entry**. Without one, they fail to
+  apply with `namespace not specified`.
+
+**Never** put a top-level `namespace:` in a `kustomization.yaml`. That transformer
+force-overrides every object, including ones deliberately pinned elsewhere, such as a CNPG
+`Database` living in `postgres`, and silently breaks multi-namespace apps. Examples:
+`authelia`, `zensical` (generators with `namespace:`); `matrix`, `stalwart` (multi-namespace).
+
+### Getting files into a workload
+
+Never fetch plugins, extensions or config bundles at pod start. That makes startup depend on
+the network, pins by ref instead of content, and usually turns a cache into state on a PVC.
+
+1. **The content is already an image:** mount it as an image volume (always read-only). Use
+   `subPath` for layout:
+
+   ```yaml
+   volumes:
+     - name: app-view-plugin
+       image:
+         reference: ghcr.io/lhns/headlamp-app-view:0.3.0
+   volumeMounts:
+     - name: app-view-plugin
+       mountPath: /headlamp/user-plugins
+       subPath: plugins
+   ```
+
+   Example: `apps/headlamp`.
+
+2. **The content is not an image** (git repos and monorepo subpaths, jars by URL,
+   ConfigMaps): compose one with [`infra/oci-composer`](kube-cluster/infra/oci-composer/README.md)
+   from the component's `artifacts/`. Example: `apps/freshrss`.
+
+The line between the two is whether the inputs are already images, not how complex the result
+is.
+
+Renovate's `kubernetes` manager only sees `image: <string>`, not an image volume's
+`image: {reference: …}`. `renovate.json` has a custom manager for image volumes, anchored on
+an explicit `# renovate:` comment, so moving a reference into an image volume needs that
+comment or the auto-bump stops silently.
+
+### Reconciliation intervals
+
+The GitHub webhook drives reconciliation, so `interval` is only the fallback and drift
+correction.
+
+| kind | interval | why |
+| --- | --- | --- |
+| sources: `GitRepository`, `HelmRepository`, `OCIRepository`, a HelmRelease's `chart.spec` | `1h` | git is pushed by the webhook; upstream charts and images are pinned exactly, so polling re-fetches the same artifact. Shorten only for a floating tag. |
+| reconcilers: `Kustomization`, `HelmRelease` | `10m` | re-apply desired state and undo manual drift |
+
+The generated Kustomizations already default to `10m`.
+
+## Secrets
+
+Secrets are SOPS-encrypted with age. Only the cluster holds the private key
+(`flux-system/sops-age`), and the generator adds decryption to every component Kustomization.
+
+### Handing over a secret
+
+Copy the secret, then run:
 
 ```sh
 python3 scripts/secret-from-clipboard.py kube-cluster/apps/foo/secret-bar.yaml bar foo TOKEN
@@ -276,24 +284,75 @@ python3 scripts/secret-from-clipboard.py kube-cluster/apps/foo/secret-bar.yaml b
 
 A dialog shows the target and a masked field that follows the clipboard until you type or
 paste into it, so the secret can also be copied after it opens. For a binary value, pick a
-file with the folder button or drop it on the dialog (natively on Windows, with
-`tkinterdnd2` on Linux); it goes in as base64 under `data:`, text under `stringData:`, at
-most 1 MiB. OK writes a SOPS-encrypted `Secret`, which you commit. The value, and a text
-value's length, never reach the chat, a terminal, a command line or a plaintext file, and
-only the cluster can decrypt the file. That makes it one Secret per
-file: adding a key to an existing encrypted file needs the cluster's key. The script needs
-`sops` and tkinter (`python3-tk`). Its tests are in `tests/secret-from-clipboard.py` and
-need `age-keygen` and a display.
+file with the folder button or drop it on the dialog (natively on Windows, with `tkinterdnd2`
+on Linux). It goes in as base64 under `data:` (text goes under `stringData:`), at most 1 MiB.
+OK writes a SOPS-encrypted `Secret` for you to commit. The value, and a text value's length,
+never reach a terminal, a command line or a plaintext file.
 
-## Testing the generator chart
+Since only the cluster can decrypt, it is one Secret per file: adding a key to an existing
+encrypted file needs the cluster's key. Requires `sops` and tkinter (`python3-tk`); the tests in
+`tests/secret-from-clipboard.py` need `age-keygen` and a display.
 
-`scripts/validate.sh` is the single entry point, for people and CI. Among other checks it
-renders the root chart against `tests/fixtures/` and diffs the result against
-`tests/golden/fixtures.yaml`, then renders the real tree into kubeconform. It also runs
-`yamllint`, the release-size, substitution, source-pin, synapse-tag-drift and SOPS checks,
-and `scripts/run-tests.sh`. The fixtures cover the cases the live repo does not: a component with no
-annotations, every annotation set, a `substitution-secrets/` dir holding a
-wrong-namespace Secret, and artifacts with and without a resolvable `sourceRef`.
+## Validation and tests
 
-Intentional behaviour change → `bash scripts/update-golden.sh`, then review that diff:
-it *is* the change.
+`scripts/validate.sh` is the single entry point, for people and CI. It runs:
+
+- `yamllint`;
+- the `kustomize build` + strict `kubeconform` sweep over every component and the rendered
+  generator output;
+- the release-size, substitution, source-pin and SOPS checks;
+- the per-component tests (see [kube-cluster/README.md](kube-cluster/README.md)).
+
+It also renders the generator against `tests/fixtures/` and diffs the result against
+`tests/golden/fixtures.yaml`. The fixtures cover what the live tree does not: a component with no
+annotations, every annotation set, a `substitution-secrets/` dir with a wrong-namespace Secret,
+and artifacts with and without a resolvable `sourceRef`. For an intentional behaviour change,
+run `bash scripts/update-golden.sh` and review that diff: it *is* the change.
+
+## Details
+
+### Chart CRDs are upgraded
+
+Helm never touches a chart's `crds/` directory on upgrade, and helm-controller's default for
+`spec.upgrade.crds` is `Skip`. Left alone, a chart's CRDs freeze at the version first installed,
+with no error anywhere. New fields then do not exist, and the API server prunes them from every
+resource that sets one.
+
+There is no controller-wide setting, so the generator patches `crds: CreateReplace` into every
+`HelmRelease` of every component. It is a merge patch, so other `spec.upgrade` fields survive.
+This only matters for charts that ship a `crds/` directory; charts that template their CRDs
+already upgrade them.
+
+`CreateReplace` replaces. For additive schema changes, which a CRD bump almost always is, that
+is safe. If a chart drops a CRD version that still has stored objects, the API server rejects
+it, so the failure is loud. Override per component with
+`flux-component-generator/crdPolicy`.
+
+### Moving a component between groups
+
+The Flux Kustomization is named after the directory, so moving `apps/postgres/` to
+`infra/postgres/` deletes `app-postgres` and creates `infra-postgres`. **Deleting a
+Kustomization prunes everything it manages.** For a stateless component that is harmless. For a
+stateful one it deletes the PVCs, and the workload starts empty.
+
+Adopt in place instead:
+
+1. Add `kustomize.toolkit.fluxcd.io/prune: disabled` to every resource of the component (for
+   example via `commonAnnotations:`), push, and let it reconcile.
+2. `git mv` the directory to the new group and push. The old Kustomization goes, but the
+   objects are kept, and the new one adopts them.
+3. Remove the annotation again and push.
+
+Check that the workload never restarted.
+
+## Further documentation
+
+- [kube-cluster/README.md](kube-cluster/README.md): per-component tests, checking a deploy
+  landed.
+- [docs/operations.md](docs/operations.md): node maintenance.
+- [docs/generator-chart-size.md](docs/generator-chart-size.md): why there is one release per
+  component.
+- Each component's own `README.md`, e.g.
+  [infra/oci-composer](kube-cluster/infra/oci-composer/README.md),
+  [infra/ceph-csi-cephfs](kube-cluster/infra/ceph-csi-cephfs/README.md),
+  [infra/pv-reaper](kube-cluster/infra/pv-reaper/README.md).

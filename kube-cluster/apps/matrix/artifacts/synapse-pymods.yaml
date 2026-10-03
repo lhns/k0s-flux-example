@@ -21,7 +21,7 @@ spec:
       # renovate: datasource=pypi
       RUN pip install --no-cache-dir --target=/pymods --no-deps synapse-s3-storage-provider==1.7.0
       # renovate: datasource=pypi
-      RUN pip install --no-cache-dir --target=/pymods boto3==1.43.107
+      RUN pip install --no-cache-dir --target=/pymods boto3==1.43.108
       # humanize and tqdm are used only by the s3_media_upload CLI the sweep runs.
       # renovate: datasource=pypi
       RUN pip install --no-cache-dir --target=/pymods humanize==4.16.0
