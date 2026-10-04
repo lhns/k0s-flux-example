@@ -1,5 +1,5 @@
 # Several documents in one file. Only an ImageComposition or ImageBuild exporting into
-# flux-system becomes a substituteFrom entry: the GitRepository, the object exporting
+# gen-app-exported becomes a substituteFrom entry: the GitRepository, the object exporting
 # elsewhere and the object exporting nothing are applied but not substituted from.
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
@@ -28,7 +28,7 @@ spec:
       to: /
   push:
     writeRefTo:
-      namespace: flux-system
+      namespace: gen-app-exported
       keys:
         ref: EXPORTED_LAYERED_REF
 ---

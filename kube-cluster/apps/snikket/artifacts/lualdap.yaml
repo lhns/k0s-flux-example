@@ -8,7 +8,7 @@ apiVersion: oci.lhns.de/v1alpha1
 kind: ImageComposition
 metadata:
   name: snikket-lualdap
-  namespace: oci-composer
+  namespace: snikket
 spec:
   interval: 1h
   # No `base`: files mounted into the upstream Snikket image.
@@ -25,6 +25,6 @@ spec:
   push:
     history: 10
     writeRefTo:
-      namespace: flux-system
+      namespace: gen-app-snikket
       keys:
         ref: SNIKKET_LUALDAP_REF

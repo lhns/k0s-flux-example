@@ -1,4 +1,4 @@
-# Two documents in one file: only the flux-system one may become a
+# Two documents in one file: only the gen-app-with-secrets one may become a
 # substituteFrom source. The other is applied but not substituted from --
 # Flux resolves refs in the Kustomization's namespace and would never find it.
 ---
@@ -6,7 +6,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: fixture-values
-  namespace: flux-system
+  namespace: gen-app-with-secrets
 data: {}
 ---
 apiVersion: v1

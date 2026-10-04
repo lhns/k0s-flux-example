@@ -5,7 +5,7 @@ apiVersion: v1
 kind: Secret
 metadata:
     name: mosquitto-values
-    namespace: flux-system
+    namespace: gen-app-mosquitto
 type: Opaque
 stringData:
     MOSQUITTO_LDAP_BIND_PASSWORD: CHANGEME-MOSQUITTO_LDAP_BIND_PASSWORD

@@ -19,7 +19,9 @@ cd "$(dirname "$0")/.."
 # Default controller set. Add optional ones via COMPONENTS_EXTRA, e.g.
 # "image-reflector-controller,image-automation-controller,source-watcher".
 COMPONENTS="source-controller,kustomize-controller,helm-controller,notification-controller"
-COMPONENTS_EXTRA=""
+# source-watcher serves the generator's per-component ExternalArtifacts. A `flux bootstrap`
+# without --components-extra=source-watcher deletes it and its CRD, and every deploy freezes.
+COMPONENTS_EXTRA="source-watcher"
 
 NAMESPACE="flux-system"
 GIT_URL="https://github.com/example/k0s-flux.git"

@@ -103,7 +103,7 @@ manual nudges you will occasionally need:
 # a NEW app/infra dir was added — re-render the generator so its Kustomization exists:
 flux reconcile helmrelease generators -n flux-system --with-source
 # force one component, or clear a stale "failed" health after slow image pulls tripped progressDeadline:
-kubectl -n flux-system annotate kustomization app-<name> \
+kubectl -n gen-app-<name> annotate kustomization app-<name> \
   reconcile.fluxcd.io/requestedAt=$(date +%s%N) --overwrite
 ```
 

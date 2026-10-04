@@ -5,7 +5,7 @@ apiVersion: v1
 kind: Secret
 metadata:
     name: matrix-values
-    namespace: flux-system
+    namespace: gen-app-matrix
 stringData:
     MATRIX_DISCORD_AS_TOKEN: CHANGEME-MATRIX_DISCORD_AS_TOKEN
     MATRIX_DISCORD_HS_TOKEN: CHANGEME-MATRIX_DISCORD_HS_TOKEN

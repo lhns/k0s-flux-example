@@ -25,12 +25,14 @@ jobs:
     runs-on: ${{ inputs.runner == 'github-hosted' && 'ubuntu-latest' || fromJSON('["self-hosted","k0s-flux"]') }}
     steps:
       - uses: actions/checkout@v7
+      # A cached schema is never refetched: bump the prefix (here and at the save) when an
+      # upstream CRD gains a field this repo starts using.
       - name: Restore schema cache
         uses: actions/cache/restore@v6
         with:
           path: .cache/kubeconform
-          key: kubeconform-schemas-${{ github.run_id }}
-          restore-keys: kubeconform-schemas-
+          key: kubeconform-schemas-v2-${{ github.run_id }}
+          restore-keys: kubeconform-schemas-v2-
       - name: Restore fetch-digest cache
         uses: actions/cache/restore@v6
         with:
@@ -94,7 +96,7 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: .cache/kubeconform
-          key: kubeconform-schemas-${{ github.run_id }}
+          key: kubeconform-schemas-v2-${{ github.run_id }}
       - name: Save fetch-digest cache
         if: always()
         uses: actions/cache/save@v6

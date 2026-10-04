@@ -1,0 +1,107 @@
+# The app's PHP/HTML files, copied in by hand (see README). Mounted read-only.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: flip7-app
+  namespace: flip7
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: cephfs
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Room state: flock()ed files the app keeps in data/. Off CephFS for reliable locking.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: flip7-data
+  namespace: flip7
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flip7
+  namespace: flip7
+spec:
+  replicas: 1
+  # RWO RBD and file-locked state: never two pods.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: flip7
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: flip7
+        app.kubernetes.io/instance: flip7
+        kube-vnet/net.traefik.traefik: ingress
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 33 # www-data
+        runAsGroup: 33
+        fsGroup: 33
+        fsGroupChangePolicy: OnRootMismatch
+        # Lets non-root Apache bind :80, as the php image docs recommend.
+        sysctls:
+          - name: net.ipv4.ip_unprivileged_port_start
+            value: "0"
+      containers:
+        - name: flip7
+          image: php:8.5.11-apache@sha256:70d80539dcacae817d9a1320518b95c86bb9568835ef3a7a024d57a4898c90e4
+          env:
+            - name: TZ
+              value: Europe/Berlin
+          ports:
+            - name: http
+              containerPort: 80
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+          volumeMounts:
+            - name: app
+              mountPath: /var/www/html
+              readOnly: true
+            # api.php hardcodes __DIR__/data; if it is not writable it silently falls
+            # back to /tmp, losing rooms on restart.
+            - name: data
+              mountPath: /var/www/html/data
+          readinessProbe:
+            httpGet:
+              path: /index.html
+              port: http
+            periodSeconds: 10
+      volumes:
+        - name: app
+          persistentVolumeClaim:
+            claimName: flip7-app
+            readOnly: true
+        - name: data
+          persistentVolumeClaim:
+            claimName: flip7-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flip7
+  namespace: flip7
+spec:
+  selector:
+    app.kubernetes.io/name: flip7
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

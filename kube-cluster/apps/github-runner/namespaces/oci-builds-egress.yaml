@@ -1,0 +1,25 @@
+---
+# oci-composer's build Jobs for this namespace's ImageBuild: the builder (context, 8090) and the
+# registry (push, 5000), both private and so excluded by github-runner-egress. Here rather than in
+# the component: artifacts/ builds before the component applies, and waits for the build.
+# The runners cannot create pods, so they cannot borrow this label.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: github-runner-oci-builds
+  namespace: github-runner
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: kube-oci-builder
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: oci-composer
+      ports:
+        - protocol: TCP
+          port: 8090
+        - protocol: TCP
+          port: 5000

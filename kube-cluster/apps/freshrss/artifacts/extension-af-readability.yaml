@@ -4,7 +4,7 @@ apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
 metadata:
   name: freshrss-ext-af-readability
-  namespace: oci-composer
+  namespace: freshrss
 spec:
   interval: 12h
   url: https://github.com/Niehztog/freshrss-af-readability
@@ -16,7 +16,7 @@ apiVersion: oci.lhns.de/v1alpha1
 kind: ImageComposition
 metadata:
   name: freshrss-ext-af-readability
-  namespace: oci-composer
+  namespace: freshrss
 spec:
   interval: 1h
   layers:
@@ -30,6 +30,6 @@ spec:
   push:
     history: 10
     writeRefTo:
-      namespace: flux-system
+      namespace: gen-app-freshrss
       keys:
         ref: FRESHRSS_EXT_AF_READABILITY_REF

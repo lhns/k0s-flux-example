@@ -1,21 +1,10 @@
-# kube-cluster
+# Per-component tests
 
-The tree Flux reconciles. Layout, substitution and namespacing conventions are in the
-repo-root `README.md`; this file covers the per-component tests.
+`bash scripts/validate.sh` runs the repo-wide checks over every component (see the root
+[README](../README.md#validation-and-tests)) and, through `scripts/run-tests.sh`, the opt-in
+tests below. Nothing component-specific belongs in the repo-wide checks.
 
-## Per-component tests
-
-`bash scripts/validate.sh` is the single entry point, for people and for CI. It runs two
-kinds of check.
-
-**Repo-wide, unconditional.** `yamllint`, the golden generator render,
-`scripts/check-release-size.py`, `scripts/check-substitution.py`,
-`scripts/check-source-pins.py`, the synapse tag-drift check, `scripts/check-sops.py`, and
-the `kustomize build` + `kubeconform` sweep. These
-cover every component in `apps/`, `infra/` and `rbac/` whether or not it has tests, and
-are not opt-in. Nothing component-specific belongs here.
-
-**Per-component, opt-in.** A component that needs a check of its own — a generated file
+A component that needs a check of its own — a generated file
 to diff, a config language with a compiler, an invariant no schema expresses — puts it in
 
     kube-cluster/{apps,infra,rbac}/<component>/tests/run.sh
@@ -25,7 +14,7 @@ to diff, a config language with a compiler, an invariant no schema expresses —
 repo root with the component directory as `$1`, and exits non-zero if any failed. **Most
 components have none, and that is the normal case** — absence is silent, never a warning.
 
-### Contract
+## Contract
 
 - **No cluster access.** These run on a PR: no `kubectl`, no ssh, no network unless the
   test documents why.
@@ -38,7 +27,7 @@ components have none, and that is the normal case** — absence is silent, never
 - **Every skip lands in the final summary**, with its reason, after all the output — not
   as one `skipped:` line mid-scroll.
 
-### Tools manifest
+## Tools manifest
 
 Anything the test needs beyond a POSIX shell goes in `<component>/tests/tools`, one
 executable per line, optionally followed by the apt package that provides it:
@@ -52,25 +41,3 @@ FAIL or SKIP instead of a `command not found`. `.github/workflows/lint.yml` inst
 packages from these manifests, so a new component test needs no edit there — unless apt
 has no package for it, which is what `-` says: the workflow must then install it in its own
 step, and an entry lacking the `-` fails that step for the whole repo.
-
-Example: `apps/cheogram-sip/tests/`.
-
-## Checking a deploy landed
-
-`kubectl rollout status` answers the wrong question. It reports on the Deployment that is
-in the cluster, and a Kustomization that never applied leaves the old one in place and
-healthy — so a reconcile failing on a decryption error, a build error or a dependency
-reports "successfully rolled out". The same holds for a change that does not touch the pod
-template: nothing rolls, and there is nothing for it to wait on.
-
-The check is the Kustomization's own `Ready` condition:
-
-    flux get kustomizations
-    kubectl -n flux-system get kustomization <name> \
-      -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}{" "}{.status.conditions[?(@.type=="Ready")].message}{"\n"}'
-
-`Ready=True` with the pushed revision in the message is the only "deployed". Anything else
-means git and the cluster have diverged, however healthy the pods look.
-
-`scripts/check-sops-mac.sh` is the pre-push counterpart for the decryption case, which is
-the one that cannot be seen locally.

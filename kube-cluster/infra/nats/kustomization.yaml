@@ -4,7 +4,6 @@ metadata:
   annotations:
     flux-component-generator/dependsOn: infra-kube-vnet,infra-ceph-csi-rbd,infra-cert-manager
 resources:
-- namespace.yaml
 - certificates.yaml
 - release.yaml
 - vnet.yaml

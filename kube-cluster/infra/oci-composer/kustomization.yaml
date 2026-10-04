@@ -6,6 +6,5 @@ metadata:
     # Read by the root generator; inert to kustomize.
     flux-component-generator/dependsOn: infra-ceph-csi-cephfs,infra-kube-vnet
 resources:
-- namespace.yaml
 - release.yaml
 - vnet.yaml

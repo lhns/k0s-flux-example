@@ -1,0 +1,9 @@
+# Prune off. Every dependsOn names its target's control namespace; the one on
+# app-controlled-substitution-secrets resolves through its component to gen-app-controlled.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    flux-component-generator/dependsOn: app-controlled, app-controlled-substitution-secrets, app-plain
+resources:
+  - resources.yaml

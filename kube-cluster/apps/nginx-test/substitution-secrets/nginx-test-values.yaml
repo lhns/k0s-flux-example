@@ -6,7 +6,7 @@ apiVersion: v1
 kind: Secret
 metadata:
     name: nginx-test-values
-    namespace: flux-system
+    namespace: gen-app-nginx-test
 type: Opaque
 stringData:
     NGINX_TEST_VALUE: CHANGEME-NGINX_TEST_VALUE

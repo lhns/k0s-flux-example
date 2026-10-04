@@ -1,21 +1,3 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: immich-album-federation
----
-# defaultRequest only: a `default` limit would OOMKill every unsized workload.
-apiVersion: v1
-kind: LimitRange
-metadata:
-  name: default-requests
-  namespace: immich-album-federation
-spec:
-  limits:
-    - type: Container
-      defaultRequest:
-        memory: 128Mi
-        cpu: 25m
----
 # Headless sync worker — no Service, no Ingress. It reconciles albums between
 # Immich peers on an interval, keeping sync state in a dedicated CNPG database and
 # calling each peer's HTTP API. Migrated from Docker Swarm; the bundled throwaway

@@ -4,11 +4,12 @@
 # prose. Comments inside a `patch: |` block are string content, not YAML comments,
 # and are deliberately kept.
 #
-#   render.sh fixtures      -> tests/fixtures/apps, fixed values, deterministic
-#   render.sh real          -> live values with `generate` dropped: the Kustomizations,
-#                              which is what each per-component release emits
-#   render.sh real-generate -> live values verbatim: the per-component generators the
-#                              root release emits
+#   render.sh fixtures          -> tests/fixtures/apps, fixed values, deterministic
+#   render.sh fixtures-generate -> the same fixtures through the root release's generate path
+#   render.sh real              -> live values with `generate` dropped: the Kustomizations,
+#                                  which is what each per-component release emits
+#   render.sh real-generate     -> live values verbatim: the per-component generators the
+#                                  root release emits
 #
 # The `real*` values are READ from kube-cluster/flux-system/generators.yaml, so they
 # cannot drift from what is deployed. They exist to catch render errors and schema
@@ -20,6 +21,7 @@ cd "$(dirname "$0")/.."
 py=python3; command -v python3 >/dev/null 2>&1 || py=python
 
 # spec.values of the live HelmRelease as JSON, minus the top-level keys named in $@.
+# Dropping generate keeps its pruneDisabled, which the Kustomizations read at the top.
 live_values() {
   "$py" - "$@" <<'PY'
 import json, pathlib, sys, yaml
@@ -30,18 +32,27 @@ if not rel:
     sys.exit(f"no HelmRelease in {src}")
 values = rel[-1]["spec"]["values"]
 for key in sys.argv[1:]:
-    values.pop(key, None)
+    dropped = values.pop(key, None) or {}
+    if key == "generate":
+        if dropped.get("pruneDisabled"):
+            values["pruneDisabled"] = dropped["pruneDisabled"]
 json.dump(values, sys.stdout)
 PY
 }
 
+# controlled and dependent have prune off.
+fixture_cn='"pruneDisabled":["app-controlled","app-dependent"]'
+
 case "${1:-}" in
   fixtures)
-    values='{"groups":[{"base":"tests/fixtures/apps","prefix":"app"}]}'
+    values='{"groups":[{"base":"tests/fixtures/apps","prefix":"app"}],'"$fixture_cn"'}'
+    ;;
+  fixtures-generate)
+    values='{"groups":[{"base":"tests/fixtures/apps","prefix":"app"}],"generate":{'"$fixture_cn"'}}'
     ;;
   real)          values="$(live_values generate)" ;;
   real-generate) values="$(live_values)" ;;
-  *) echo "usage: $0 {fixtures|real|real-generate}" >&2; exit 2 ;;
+  *) echo "usage: $0 {fixtures|fixtures-generate|real|real-generate}" >&2; exit 2 ;;
 esac
 
 helm template generators . -f - <<<"$values" \

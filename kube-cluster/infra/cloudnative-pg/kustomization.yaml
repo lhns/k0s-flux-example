@@ -7,5 +7,4 @@ metadata:
     # a from-scratch rebuild).
     flux-component-generator/dependsOn: infra-snapshot-controller
 resources:
-- namespace.yaml
 - release.yaml

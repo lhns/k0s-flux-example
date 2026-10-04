@@ -31,3 +31,23 @@ allowlist for who may receive the secret.
 
 Only handles **Secrets/ConfigMaps** — not CRDs (so not Traefik middlewares).
 Egress-only (talks to the API server); no kube-vnet rule needed.
+
+## sops-age in control namespaces
+
+Every component decrypts with a `sops-age` in its control namespace `gen-<name>`.
+`flux-system/sops-age` exists only in the cluster (bootstrap), so it is annotated by hand,
+**once per cluster**:
+
+```sh
+kubectl -n flux-system annotate secret sops-age \
+  reflector.v1.k8s.emberstack.com/reflection-allowed=true \
+  reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces-selector=flux-component-generator/control-namespace=true \
+  reflector.v1.k8s.emberstack.com/reflection-auto-enabled=true \
+  reflector.v1.k8s.emberstack.com/reflection-auto-namespaces-selector=flux-component-generator/control-namespace=true
+```
+
+The label selectors need Reflector 10.0.65 or later. Set no `reflection-allowed-namespaces`
+next to them: either one matching admits a namespace, and both empty admits every namespace.
+The label therefore hands out the cluster's decryption key; only the generator sets it, which
+`scripts/check-substitution.py` enforces for the repo. Removing the label, or the annotations,
+deletes the copies, and every moved component then fails to decrypt.

@@ -1,21 +1,3 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: zigbee2mqtt
----
-# defaultRequest only: a `default` limit would OOMKill every unsized workload.
-apiVersion: v1
-kind: LimitRange
-metadata:
-  name: default-requests
-  namespace: zigbee2mqtt
-spec:
-  limits:
-    - type: Container
-      defaultRequest:
-        memory: 128Mi
-        cpu: 25m
----
 # zigbee2mqtt's /app/data (database.db + state.json — the paired-device network —
 # configuration.yaml, coordinator_backup.json), copied once from the old Swarm volume
 # fastappdata:/docker/zigbee2mqtt. Single-writer (one process owns the coordinator) ->

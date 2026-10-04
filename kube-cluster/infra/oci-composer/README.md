@@ -12,15 +12,20 @@ First consumer: [`../../apps/freshrss`](../../apps/freshrss/README.md).
 By the digest-pinned ref the artifact exports. Nothing names a tag.
 
 - A component's `ImageComposition` and `ImageBuild` objects live in its `artifacts/` directory,
-  in namespace `oci-composer`, and each sets `push.writeRefTo` into `flux-system`.
-- After every publish the controller writes `<registry>/oci-composer/<name>@sha256:…` into
-  ConfigMap `<kind>-oci-composer-<name>` there, labelled `reconcile.fluxcd.io/watch: Enabled`
+  in the component's own namespace, and each sets `push.writeRefTo` into the namespace of the
+  component's Kustomizations, its control namespace `gen-<name>`, which `refExport.namespaces`
+  must list. The objects' own
+  Namespace goes in the component's `namespaces/`, so it exists before `artifacts/` applies.
+  Namespace `oci-composer` is legacy and still accepted.
+- After every publish the controller writes `<registry>/<namespace>/<name>@sha256:…` into
+  ConfigMap `<kind>-<namespace>-<name>` there, labelled `reconcile.fluxcd.io/watch: Enabled`
   (`refExport` in `release.yaml`), so a new digest rolls its consumer at once.
 - The component substitutes from each of those ConfigMaps (`optional: false`) and writes the image
   as `${KEY}`. A missing ConfigMap, or a key nobody exports, fails the reconcile: kustomize-controller
   substitutes strictly. Nothing is applied with an empty image.
 - `artifacts/` is its own Flux Kustomization with `wait: true`, and the component depends on it.
-  The generator's comment in `templates/kustomizations.yaml` says why each of those is needed.
+  Both depend on `namespaces/`. The generator's comment in `templates/kustomizations.yaml` says
+  why each of those is needed.
 
 What that costs:
 
@@ -33,7 +38,25 @@ What that costs:
   opted out; see `templates/kustomizations.yaml`.
 - **Offline rendering cannot resolve the refs.** `scripts/check-substitution.py` counts every key an
   `artifacts/` object exports as defined, and fails an artifact that exports nothing, sits outside
-  `artifacts/`, or is not in namespace `oci-composer`.
+  `artifacts/`, or is in a namespace that is neither `oci-composer` nor declared in the component's
+  `namespaces/`.
+
+## Build pods run in the object's namespace
+
+An `ImageBuild`'s Job runs where the object is, and dials two things in `oci-composer`: the
+builder's context endpoint (port 8090; source fetches are proxied through it) and the registry
+(port 5000, push).
+
+- **Network: nothing to add per namespace.** kube-vnet restricts ingress only, and the chart's
+  own NetworkPolicies, `oci-composer-builder-context` and `oci-composer-registry`, admit every
+  namespace on exactly those ports. `release.yaml` pins them on. A kube-vnet network would be
+  broader: membership is not port-scoped. **Exception:** a namespace whose own Egress policy
+  selects every pod (`apps/github-runner`) also needs one for
+  `app.kubernetes.io/managed-by: kube-oci-builder` in `namespaces/`; only there, since anywhere
+  else it would cut the build off the internet. `scripts/check-substitution.py` enforces both.
+- **Pod security: the namespace must allow privileged pods.** Build pods run seccomp and
+  AppArmor `Unconfined` with privilege escalation, so a namespace enforcing the `baseline` or
+  `restricted` Pod Security level rejects them.
 
 ## Every `sourceRef` must pin `revision`
 
@@ -134,7 +157,8 @@ mirroring is not a fallback here.
 ## Verification
 
 ```sh
-kubectl -n oci-composer get helmrelease,pod,imagecomposition,imagebuild
+kubectl -n oci-composer get helmrelease,pod
+kubectl get imagecomposition,imagebuild -A
 kubectl -n flux-system get configmap -l app.kubernetes.io/managed-by=kube-oci-composer
 # from a node that is NOT running the pod — proves the NodePort hop and that containerd
 # never tried to resolve oci-composer.internal:

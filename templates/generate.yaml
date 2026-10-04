@@ -1,5 +1,5 @@
 {{- /*
-  Root release only: a GitRepository + HelmRelease per component, each running THIS SAME
+  Root release only: an ArtifactGenerator + HelmRelease per component, each running THIS SAME
   CHART against an artifact filtered to that component.
 
   Helm embeds the whole chart in its release Secret's data.release, and the apiserver caps
@@ -7,55 +7,109 @@
   of the repo. See docs/generator-chart-size.md.
 
   The generated releases do not carry `generate` -- that is what stops the recursion. They
-  take the root's `groups` verbatim and no component name: the ignore below is the parameter.
+  take the root's `groups` verbatim and no component name: the artifact is the parameter.
 
-  Each GitRepository is a copy of generate.sourceFile, the root's own GitRepository: its
-  labels and spec, with ignore and interval replaced. URL, ref, credentials, submodules and
-  includes are therefore set once, there. The root's ignore must admit that file.
+  pruneDisabled is resolved here: "*" expands, and each release gets only its own name, so a
+  change upgrades just that component.
 */ -}}
-{{- with .Values.generate }}
-{{- $path := .sourceFile | required "generate.sourceFile is required: the path of the GitRepository this chart is rendered from" }}
-{{- $src := $.Files.Get $path | fromYaml }}
-{{- if ne (dig "kind" "" $src) "GitRepository" }}
-{{- fail (printf "generate.sourceFile %s is not a single GitRepository, or is excluded by its own ignore" $path) }}
+{{- if hasKey .Values "generate" }}
+{{- $gen := .Values.generate | default dict }}
+{{- $interval := $gen.interval | default "30m" }}
+{{- $all := list }}
+{{- range $group := $.Values.groups }}
+{{- range $kustPath, $_ := $.Files.Glob (printf "%s/*/kustomization.yaml" $group.base) }}
+{{- $all = append $all (ternary (printf "%s-%s" $group.prefix (base (dir $kustPath))) (base (dir $kustPath)) (not (empty $group.prefix))) }}
 {{- end }}
-{{- $labels := dig "metadata" "labels" dict $src }}
-{{- $baseSpec := omit $src.spec "ignore" "interval" }}
-{{- $interval := .interval | default "30m" }}
+{{- end }}
+{{- range $n := $all }}
+{{- if regexMatch "-(namespaces|artifacts|substitution-secrets)$" $n }}
+{{- fail (printf "%s: a component name must not end in -namespaces, -artifacts or -substitution-secrets (generators.controlNamespace)" $n) }}
+{{- end }}
+{{- end }}
+{{- range $n := $gen.pruneDisabled | default list }}
+{{- if and (ne $n "*") (not (has $n $all)) }}
+{{- fail (printf "generate.pruneDisabled: %s is not a generated Kustomization" $n) }}
+{{- end }}
+{{- end }}
+{{- $pruneOff := ternary $all ($gen.pruneDisabled | default list) (has "*" ($gen.pruneDisabled | default list)) }}
 {{- range $group := $.Values.groups }}
 {{- range $kustPath, $_ := $.Files.Glob (printf "%s/*/kustomization.yaml" $group.base) }}
 {{- $dir := dir $kustPath }}
 {{- $component := base $dir }}
 {{- $genName := printf "gen-%s-%s" $group.prefix $component }}
+{{- $fluxName := ternary (printf "%s-%s" $group.prefix $component) $component (not (empty $group.prefix)) }}
+{{- /* Each reserved directory that kustomizations.yaml gives its own Kustomization. */}}
+{{- $reserved := list }}
+{{- range $sub := list "namespaces" "artifacts" "substitution-secrets" }}
+{{- if $.Files.Glob (printf "%s/%s/*.yaml" $dir $sub) }}{{- $reserved = append $reserved $sub }}{{- end }}
+{{- end }}
+{{- /* One per component: a failing copy stops every artifact of its generator.
+    Copy semantics (source-watcher internal/builder): a path without glob characters must
+    exist, a glob must match, and a directory copy keeps its own name under `to`. An exclude
+    without "/" also matches that name at any depth, so these are full repo paths. */}}
 ---
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: GitRepository
+apiVersion: source.extensions.fluxcd.io/v1beta1
+kind: ArtifactGenerator
 metadata:
   name: {{ $genName }}
   namespace: flux-system
-  {{- with $labels }}
-  labels:
-    {{- toYaml . | nindent 4 }}
+  {{- if $gen.keepGenerated }}
+  {{- /* Helm leaves it behind even if this release is uninstalled or reinstalled. */}}
+  annotations:
+    helm.sh/resource-policy: keep
   {{- end }}
 spec:
-  {{- toYaml $baseSpec | nindent 2 }}
-  interval: {{ $interval }}
-  {{- /* Exclude everything, then re-include by path. sourceignore does not prune excluded
-      directories, so the gitignore idiom for re-including them re-admits everything. Only
-      *.yaml is ever globbed, never *.yml. */}}
-  ignore: |
-    *
-    !/Chart.yaml
-    !/templates/**
-    !/{{ $dir }}/kustomization.yaml
-    !/{{ $dir }}/substitution-secrets/*.yaml
-    !/{{ $dir }}/artifacts/*.yaml
+  sources:
+    - alias: repo
+      kind: GitRepository
+      name: flux-system
+      namespace: flux-system
+  artifacts:
+    {{- /* The chart, under a top-level directory: Helm strips the first path component of
+        an archive and refuses Chart.yaml at its root. */}}
+    - name: {{ $genName }}
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/Chart.yaml"
+          to: "@artifact/generators/"
+        - from: "@repo/templates"
+          to: "@artifact/generators/"
+        - from: "@repo/{{ $dir }}/kustomization.yaml"
+          to: "@artifact/generators/{{ $dir }}/"
+        {{- range $reserved }}
+        - from: "@repo/{{ $dir }}/{{ . }}/*.yaml"
+          to: "@artifact/generators/"
+        {{- end }}
+    {{- /* One per Kustomization, named like it, at the repo path its spec.path names. */}}
+    - name: {{ $fluxName }}
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/{{ $dir }}"
+          to: "@artifact/{{ dir $dir }}/"
+          {{- with $reserved }}
+          exclude:
+            {{- range . }}
+            - {{ $dir }}/{{ . }}
+            {{- end }}
+          {{- end }}
+    {{- range $reserved }}
+    - name: {{ $fluxName }}-{{ . }}
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/{{ $dir }}/{{ . }}"
+          to: "@artifact/{{ $dir }}/"
+    {{- end }}
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: {{ $genName }}
   namespace: flux-system
+  {{- if $gen.keepGenerated }}
+  {{- /* Helm leaves it behind even if this release is uninstalled or reinstalled. */}}
+  annotations:
+    helm.sh/resource-policy: keep
+  {{- end }}
 spec:
   interval: {{ $interval }}
   {{- /* Each stored revision is a full copy of the chart in its own Secret. */}}
@@ -66,15 +120,13 @@ spec:
     disableWait: true
   upgrade:
     disableWait: true
-  chart:
-    spec:
-      chart: "."
-      {{- /* The chart version never moves, so without this a new file never re-renders. */}}
-      reconcileStrategy: Revision
-      sourceRef:
-        kind: GitRepository
-        name: {{ $genName }}
-        namespace: flux-system
+    {{- /* The default, Reinstall, uninstalls on a chart name change, deleting every
+        Kustomization this emits. */}}
+    chartNameChangeStrategy: InPlaceUpdate
+  chartRef:
+    kind: ExternalArtifact
+    name: {{ $genName }}
+    namespace: flux-system
   values:
     groups:
       - base: {{ $group.base }}
@@ -85,6 +137,10 @@ spec:
         {{- if hasKey $group "wait" }}
         wait: {{ $group.wait }}
         {{- end }}
+    {{- if has $fluxName $pruneOff }}
+    pruneDisabled:
+      - {{ $fluxName }}
+    {{- end }}
 {{- end }}
 {{- end }}
 {{- end }}

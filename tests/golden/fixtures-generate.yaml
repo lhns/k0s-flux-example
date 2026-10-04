@@ -1,0 +1,530 @@
+---
+apiVersion: source.extensions.fluxcd.io/v1beta1
+kind: ArtifactGenerator
+metadata:
+  name: gen-app-annotated
+  namespace: flux-system
+spec:
+  sources:
+    - alias: repo
+      kind: GitRepository
+      name: flux-system
+      namespace: flux-system
+  artifacts:
+    - name: gen-app-annotated
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/Chart.yaml"
+          to: "@artifact/generators/"
+        - from: "@repo/templates"
+          to: "@artifact/generators/"
+        - from: "@repo/tests/fixtures/apps/annotated/kustomization.yaml"
+          to: "@artifact/generators/tests/fixtures/apps/annotated/"
+    - name: app-annotated
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/tests/fixtures/apps/annotated"
+          to: "@artifact/tests/fixtures/apps/"
+---
+apiVersion: source.extensions.fluxcd.io/v1beta1
+kind: ArtifactGenerator
+metadata:
+  name: gen-app-controlled
+  namespace: flux-system
+spec:
+  sources:
+    - alias: repo
+      kind: GitRepository
+      name: flux-system
+      namespace: flux-system
+  artifacts:
+    - name: gen-app-controlled
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/Chart.yaml"
+          to: "@artifact/generators/"
+        - from: "@repo/templates"
+          to: "@artifact/generators/"
+        - from: "@repo/tests/fixtures/apps/controlled/kustomization.yaml"
+          to: "@artifact/generators/tests/fixtures/apps/controlled/"
+        - from: "@repo/tests/fixtures/apps/controlled/namespaces/*.yaml"
+          to: "@artifact/generators/"
+        - from: "@repo/tests/fixtures/apps/controlled/artifacts/*.yaml"
+          to: "@artifact/generators/"
+        - from: "@repo/tests/fixtures/apps/controlled/substitution-secrets/*.yaml"
+          to: "@artifact/generators/"
+    - name: app-controlled
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/tests/fixtures/apps/controlled"
+          to: "@artifact/tests/fixtures/apps/"
+          exclude:
+            - tests/fixtures/apps/controlled/namespaces
+            - tests/fixtures/apps/controlled/artifacts
+            - tests/fixtures/apps/controlled/substitution-secrets
+    - name: app-controlled-namespaces
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/tests/fixtures/apps/controlled/namespaces"
+          to: "@artifact/tests/fixtures/apps/controlled/"
+    - name: app-controlled-artifacts
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/tests/fixtures/apps/controlled/artifacts"
+          to: "@artifact/tests/fixtures/apps/controlled/"
+    - name: app-controlled-substitution-secrets
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/tests/fixtures/apps/controlled/substitution-secrets"
+          to: "@artifact/tests/fixtures/apps/controlled/"
+---
+apiVersion: source.extensions.fluxcd.io/v1beta1
+kind: ArtifactGenerator
+metadata:
+  name: gen-app-dependent
+  namespace: flux-system
+spec:
+  sources:
+    - alias: repo
+      kind: GitRepository
+      name: flux-system
+      namespace: flux-system
+  artifacts:
+    - name: gen-app-dependent
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/Chart.yaml"
+          to: "@artifact/generators/"
+        - from: "@repo/templates"
+          to: "@artifact/generators/"
+        - from: "@repo/tests/fixtures/apps/dependent/kustomization.yaml"
+          to: "@artifact/generators/tests/fixtures/apps/dependent/"
+    - name: app-dependent
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/tests/fixtures/apps/dependent"
+          to: "@artifact/tests/fixtures/apps/"
+---
+apiVersion: source.extensions.fluxcd.io/v1beta1
+kind: ArtifactGenerator
+metadata:
+  name: gen-app-exported
+  namespace: flux-system
+spec:
+  sources:
+    - alias: repo
+      kind: GitRepository
+      name: flux-system
+      namespace: flux-system
+  artifacts:
+    - name: gen-app-exported
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/Chart.yaml"
+          to: "@artifact/generators/"
+        - from: "@repo/templates"
+          to: "@artifact/generators/"
+        - from: "@repo/tests/fixtures/apps/exported/kustomization.yaml"
+          to: "@artifact/generators/tests/fixtures/apps/exported/"
+        - from: "@repo/tests/fixtures/apps/exported/artifacts/*.yaml"
+          to: "@artifact/generators/"
+        - from: "@repo/tests/fixtures/apps/exported/substitution-secrets/*.yaml"
+          to: "@artifact/generators/"
+    - name: app-exported
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/tests/fixtures/apps/exported"
+          to: "@artifact/tests/fixtures/apps/"
+          exclude:
+            - tests/fixtures/apps/exported/artifacts
+            - tests/fixtures/apps/exported/substitution-secrets
+    - name: app-exported-artifacts
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/tests/fixtures/apps/exported/artifacts"
+          to: "@artifact/tests/fixtures/apps/exported/"
+    - name: app-exported-substitution-secrets
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/tests/fixtures/apps/exported/substitution-secrets"
+          to: "@artifact/tests/fixtures/apps/exported/"
+---
+apiVersion: source.extensions.fluxcd.io/v1beta1
+kind: ArtifactGenerator
+metadata:
+  name: gen-app-external
+  namespace: flux-system
+spec:
+  sources:
+    - alias: repo
+      kind: GitRepository
+      name: flux-system
+      namespace: flux-system
+  artifacts:
+    - name: gen-app-external
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/Chart.yaml"
+          to: "@artifact/generators/"
+        - from: "@repo/templates"
+          to: "@artifact/generators/"
+        - from: "@repo/tests/fixtures/apps/external/kustomization.yaml"
+          to: "@artifact/generators/tests/fixtures/apps/external/"
+        - from: "@repo/tests/fixtures/apps/external/namespaces/*.yaml"
+          to: "@artifact/generators/"
+        - from: "@repo/tests/fixtures/apps/external/substitution-secrets/*.yaml"
+          to: "@artifact/generators/"
+    - name: app-external
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/tests/fixtures/apps/external"
+          to: "@artifact/tests/fixtures/apps/"
+          exclude:
+            - tests/fixtures/apps/external/namespaces
+            - tests/fixtures/apps/external/substitution-secrets
+    - name: app-external-namespaces
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/tests/fixtures/apps/external/namespaces"
+          to: "@artifact/tests/fixtures/apps/external/"
+    - name: app-external-substitution-secrets
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/tests/fixtures/apps/external/substitution-secrets"
+          to: "@artifact/tests/fixtures/apps/external/"
+---
+apiVersion: source.extensions.fluxcd.io/v1beta1
+kind: ArtifactGenerator
+metadata:
+  name: gen-app-namespaced
+  namespace: flux-system
+spec:
+  sources:
+    - alias: repo
+      kind: GitRepository
+      name: flux-system
+      namespace: flux-system
+  artifacts:
+    - name: gen-app-namespaced
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/Chart.yaml"
+          to: "@artifact/generators/"
+        - from: "@repo/templates"
+          to: "@artifact/generators/"
+        - from: "@repo/tests/fixtures/apps/namespaced/kustomization.yaml"
+          to: "@artifact/generators/tests/fixtures/apps/namespaced/"
+        - from: "@repo/tests/fixtures/apps/namespaced/namespaces/*.yaml"
+          to: "@artifact/generators/"
+        - from: "@repo/tests/fixtures/apps/namespaced/artifacts/*.yaml"
+          to: "@artifact/generators/"
+    - name: app-namespaced
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/tests/fixtures/apps/namespaced"
+          to: "@artifact/tests/fixtures/apps/"
+          exclude:
+            - tests/fixtures/apps/namespaced/namespaces
+            - tests/fixtures/apps/namespaced/artifacts
+    - name: app-namespaced-namespaces
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/tests/fixtures/apps/namespaced/namespaces"
+          to: "@artifact/tests/fixtures/apps/namespaced/"
+    - name: app-namespaced-artifacts
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/tests/fixtures/apps/namespaced/artifacts"
+          to: "@artifact/tests/fixtures/apps/namespaced/"
+---
+apiVersion: source.extensions.fluxcd.io/v1beta1
+kind: ArtifactGenerator
+metadata:
+  name: gen-app-plain
+  namespace: flux-system
+spec:
+  sources:
+    - alias: repo
+      kind: GitRepository
+      name: flux-system
+      namespace: flux-system
+  artifacts:
+    - name: gen-app-plain
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/Chart.yaml"
+          to: "@artifact/generators/"
+        - from: "@repo/templates"
+          to: "@artifact/generators/"
+        - from: "@repo/tests/fixtures/apps/plain/kustomization.yaml"
+          to: "@artifact/generators/tests/fixtures/apps/plain/"
+    - name: app-plain
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/tests/fixtures/apps/plain"
+          to: "@artifact/tests/fixtures/apps/"
+---
+apiVersion: source.extensions.fluxcd.io/v1beta1
+kind: ArtifactGenerator
+metadata:
+  name: gen-app-suspended
+  namespace: flux-system
+spec:
+  sources:
+    - alias: repo
+      kind: GitRepository
+      name: flux-system
+      namespace: flux-system
+  artifacts:
+    - name: gen-app-suspended
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/Chart.yaml"
+          to: "@artifact/generators/"
+        - from: "@repo/templates"
+          to: "@artifact/generators/"
+        - from: "@repo/tests/fixtures/apps/suspended/kustomization.yaml"
+          to: "@artifact/generators/tests/fixtures/apps/suspended/"
+    - name: app-suspended
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/tests/fixtures/apps/suspended"
+          to: "@artifact/tests/fixtures/apps/"
+---
+apiVersion: source.extensions.fluxcd.io/v1beta1
+kind: ArtifactGenerator
+metadata:
+  name: gen-app-with-secrets
+  namespace: flux-system
+spec:
+  sources:
+    - alias: repo
+      kind: GitRepository
+      name: flux-system
+      namespace: flux-system
+  artifacts:
+    - name: gen-app-with-secrets
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/Chart.yaml"
+          to: "@artifact/generators/"
+        - from: "@repo/templates"
+          to: "@artifact/generators/"
+        - from: "@repo/tests/fixtures/apps/with-secrets/kustomization.yaml"
+          to: "@artifact/generators/tests/fixtures/apps/with-secrets/"
+        - from: "@repo/tests/fixtures/apps/with-secrets/substitution-secrets/*.yaml"
+          to: "@artifact/generators/"
+    - name: app-with-secrets
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/tests/fixtures/apps/with-secrets"
+          to: "@artifact/tests/fixtures/apps/"
+          exclude:
+            - tests/fixtures/apps/with-secrets/substitution-secrets
+    - name: app-with-secrets-substitution-secrets
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/tests/fixtures/apps/with-secrets/substitution-secrets"
+          to: "@artifact/tests/fixtures/apps/with-secrets/"
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: gen-app-annotated
+  namespace: flux-system
+spec:
+  interval: 30m
+  maxHistory: 3
+  install:
+    disableWait: true
+  upgrade:
+    disableWait: true
+    chartNameChangeStrategy: InPlaceUpdate
+  chartRef:
+    kind: ExternalArtifact
+    name: gen-app-annotated
+    namespace: flux-system
+  values:
+    groups:
+      - base: tests/fixtures/apps
+        prefix: app
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: gen-app-controlled
+  namespace: flux-system
+spec:
+  interval: 30m
+  maxHistory: 3
+  install:
+    disableWait: true
+  upgrade:
+    disableWait: true
+    chartNameChangeStrategy: InPlaceUpdate
+  chartRef:
+    kind: ExternalArtifact
+    name: gen-app-controlled
+    namespace: flux-system
+  values:
+    groups:
+      - base: tests/fixtures/apps
+        prefix: app
+    pruneDisabled:
+      - app-controlled
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: gen-app-dependent
+  namespace: flux-system
+spec:
+  interval: 30m
+  maxHistory: 3
+  install:
+    disableWait: true
+  upgrade:
+    disableWait: true
+    chartNameChangeStrategy: InPlaceUpdate
+  chartRef:
+    kind: ExternalArtifact
+    name: gen-app-dependent
+    namespace: flux-system
+  values:
+    groups:
+      - base: tests/fixtures/apps
+        prefix: app
+    pruneDisabled:
+      - app-dependent
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: gen-app-exported
+  namespace: flux-system
+spec:
+  interval: 30m
+  maxHistory: 3
+  install:
+    disableWait: true
+  upgrade:
+    disableWait: true
+    chartNameChangeStrategy: InPlaceUpdate
+  chartRef:
+    kind: ExternalArtifact
+    name: gen-app-exported
+    namespace: flux-system
+  values:
+    groups:
+      - base: tests/fixtures/apps
+        prefix: app
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: gen-app-external
+  namespace: flux-system
+spec:
+  interval: 30m
+  maxHistory: 3
+  install:
+    disableWait: true
+  upgrade:
+    disableWait: true
+    chartNameChangeStrategy: InPlaceUpdate
+  chartRef:
+    kind: ExternalArtifact
+    name: gen-app-external
+    namespace: flux-system
+  values:
+    groups:
+      - base: tests/fixtures/apps
+        prefix: app
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: gen-app-namespaced
+  namespace: flux-system
+spec:
+  interval: 30m
+  maxHistory: 3
+  install:
+    disableWait: true
+  upgrade:
+    disableWait: true
+    chartNameChangeStrategy: InPlaceUpdate
+  chartRef:
+    kind: ExternalArtifact
+    name: gen-app-namespaced
+    namespace: flux-system
+  values:
+    groups:
+      - base: tests/fixtures/apps
+        prefix: app
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: gen-app-plain
+  namespace: flux-system
+spec:
+  interval: 30m
+  maxHistory: 3
+  install:
+    disableWait: true
+  upgrade:
+    disableWait: true
+    chartNameChangeStrategy: InPlaceUpdate
+  chartRef:
+    kind: ExternalArtifact
+    name: gen-app-plain
+    namespace: flux-system
+  values:
+    groups:
+      - base: tests/fixtures/apps
+        prefix: app
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: gen-app-suspended
+  namespace: flux-system
+spec:
+  interval: 30m
+  maxHistory: 3
+  install:
+    disableWait: true
+  upgrade:
+    disableWait: true
+    chartNameChangeStrategy: InPlaceUpdate
+  chartRef:
+    kind: ExternalArtifact
+    name: gen-app-suspended
+    namespace: flux-system
+  values:
+    groups:
+      - base: tests/fixtures/apps
+        prefix: app
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: gen-app-with-secrets
+  namespace: flux-system
+spec:
+  interval: 30m
+  maxHistory: 3
+  install:
+    disableWait: true
+  upgrade:
+    disableWait: true
+    chartNameChangeStrategy: InPlaceUpdate
+  chartRef:
+    kind: ExternalArtifact
+    name: gen-app-with-secrets
+    namespace: flux-system
+  values:
+    groups:
+      - base: tests/fixtures/apps
+        prefix: app

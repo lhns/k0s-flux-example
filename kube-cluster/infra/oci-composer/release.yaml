@@ -47,6 +47,12 @@ spec:
       # Same for a build context: a build's output is not reproducible from its spec, so an
       # unpinned one leaves no record of what ran.
       requirePinnedSources: true
+      # With registry.networkPolicy, the only thing admitting build pods: they run in their
+      # object's namespace and dial the builder's context port and the registry, both denied
+      # by kube-vnet.base. Ingress only, port-scoped, any namespace; see README.md.
+      networkPolicy:
+        enabled: true
+        allowedNamespaces: []
 
     registry:
       publish:
@@ -77,6 +83,11 @@ spec:
         # Fixed, because the certs.d drop-in names it.
         nodePort: 30500
 
+      # Build pods push from their object's namespace; see imageBuild.networkPolicy.
+      networkPolicy:
+        enabled: true
+        allowedNamespaces: []
+
       persistence:
         # This one IS a system of record, unlike the old serving store. A rebuild may not
         # reproduce a digest bit-for-bit, so losing this volume loses images that pods still
@@ -86,8 +97,10 @@ spec:
         size: 20Gi
 
     # push.writeRefTo targets. The label makes a new digest reconcile the consumer at once.
+    # Exact names only, no pattern: a moved component's gen-<name> goes here, rolled out before
+    # its writeRefTo points there, or the controller stalls the object (check-substitution.py).
     refExport:
-      namespaces: [flux-system]
+      namespaces: [flux-system, gen-app-freshrss, gen-app-github-runner, gen-app-jetkvm, gen-app-matrix, gen-app-snikket, gen-infra-opentelemetry-gateway]
       labels: reconcile.fluxcd.io/watch=Enabled
 
     defaultRegistry:

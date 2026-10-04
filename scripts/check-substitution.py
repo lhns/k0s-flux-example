@@ -32,11 +32,33 @@
 
 5. An artifact whose ref nothing can substitute.
 
-   Every ImageComposition and ImageBuild must sit in an artifacts/ dir and export a ref into
-   flux-system (push.writeRefTo), the only place the component's substituteFrom can read it
-   from. Its keys count as defined for (2). Everything in artifacts/ must be in namespace
-   oci-composer. Applied by the component, or into its namespace, an artifact deadlocks a
-   fresh cluster: see templates/kustomizations.yaml.
+   Every ImageComposition and ImageBuild must sit in an artifacts/ dir and export a ref
+   (push.writeRefTo) into its component's control namespace gen-<name>, the only place
+   substituteFrom can read it from, which oci-composer's refExport.namespaces must list. Its
+   keys count as defined for (2). Everything in artifacts/ must be in a namespace
+   the component's namespaces/ declares, or in oci-composer (legacy). Applied by the
+   component, or into a namespace the component creates, an artifact deadlocks a fresh
+   cluster: see templates/kustomizations.yaml.
+
+6. A Namespace owned twice, or a namespaces/ object outside it.
+
+   namespaces/ holds Namespaces and objects in them. A Namespace also in the component's
+   build has two Kustomizations owning it, and dropping it from either prunes it with
+   everything inside.
+
+8. An ImageBuild whose build Job cannot reach oci-composer.
+
+   The Job runs in the ImageBuild's namespace. Where an Egress policy there selects every pod,
+   the Job reaches only what such policies allow, and the builder (8090) and registry (5000) in
+   oci-composer are private. A policy for app.kubernetes.io/managed-by: kube-oci-builder must
+   then be in namespaces/: artifacts/ builds, and waits for it, before the component applies.
+   Nowhere else: in a namespace without one, that policy would cut the Job off the internet.
+
+7. A substitution source in flux-system, or a control-namespace label set by hand.
+
+   substitution-secrets/ objects belong in gen-<name>. The label
+   flux-component-generator/control-namespace gets a namespace the SOPS key (infra/reflector),
+   so only the generator may set it.
 
 An object annotated kustomize.toolkit.fluxcd.io/substitute: disabled is skipped by (2)
 and (3), as Flux skips it.
@@ -57,7 +79,38 @@ USE_RE = re.compile(r'(?<!\$)\$\{([A-Za-z_][A-Za-z0-9_]*)(?![A-Za-z0-9_]|:?[-=])
 BAD_RE = re.compile(r'(?<!\$)(\$\{(?![A-Za-z_][A-Za-z0-9_]*[:}])[^}]{0,40}\})')
 # $$ that is not the $${VAR} escape.
 DOUBLE_RE = re.compile(r'\$\$(?!\{)')
+CONTROL_LABEL = "flux-component-generator/control-namespace"
 failures = []
+
+
+def generator_values():
+    for doc in yaml.safe_load_all(pathlib.Path("kube-cluster/flux-system/generators.yaml").read_text(encoding="utf-8")):
+        if doc and doc.get("kind") == "HelmRelease":
+            return doc["spec"]["values"]
+    sys.exit("no HelmRelease in kube-cluster/flux-system/generators.yaml")
+
+
+VALUES = generator_values()
+PREFIX = {g["base"]: g.get("prefix") for g in VALUES["groups"]}
+
+
+def kustomization_namespace(component: pathlib.Path):
+    """(5, 7) Where the component's Kustomizations live, so where substituteFrom reads."""
+    prefix = PREFIX.get(component.parent.as_posix())
+    name = f"{prefix}-{component.name}" if prefix else component.name
+    return f"gen-{name}"
+
+
+def ref_export_namespaces():
+    """(5) The namespaces oci-composer lets an object export into besides its own."""
+    rel = pathlib.Path("kube-cluster/infra/oci-composer/release.yaml")
+    for doc in yaml.safe_load_all(rel.read_text(encoding="utf-8")):
+        if doc and doc.get("kind") == "HelmRelease":
+            return set((((doc["spec"].get("values") or {}).get("refExport") or {}).get("namespaces")) or [])
+    return set()
+
+
+REF_EXPORT_NAMESPACES = ref_export_namespaces()
 
 
 def marked_generators(component: pathlib.Path):
@@ -74,26 +127,82 @@ def marked_generators(component: pathlib.Path):
     return out
 
 
-def exported_keys(component: pathlib.Path):
-    """(5) The ConfigMap keys this component's artifacts/ export into flux-system."""
+def declared_namespaces(component: pathlib.Path):
+    """(6) The Namespaces this component's namespaces/ creates."""
+    docs = []
+    for f in sorted((component / "namespaces").glob("*.yaml")):
+        docs += [(f, d) for d in yaml.safe_load_all(f.read_text(encoding="utf-8")) if d]
+    names = {d["metadata"]["name"] for _, d in docs if d.get("kind") == "Namespace"}
+    for f, d in docs:
+        if d.get("kind") != "Namespace" and (d.get("metadata") or {}).get("namespace") not in names:
+            failures.append(f"  {f}: {d.get('kind')} is not in a Namespace namespaces/ declares")
+    return names
+
+
+def exported_keys(component: pathlib.Path, namespaces: set):
+    """(5) The ConfigMap keys this component's artifacts/ export where it can substitute them."""
+    target = kustomization_namespace(component)
     keys = set()
     for f in sorted((component / "artifacts").glob("*.yaml")):
         for doc in yaml.safe_load_all(f.read_text(encoding="utf-8")):
             if not doc:
                 continue
-            if (doc.get("metadata") or {}).get("namespace") != "oci-composer":
-                failures.append(f"  {f}: {doc.get('kind')} is not in namespace oci-composer")
+            ns = (doc.get("metadata") or {}).get("namespace")
+            if ns != "oci-composer" and ns not in namespaces:
+                failures.append(
+                    f"  {f}: {doc.get('kind')} is in namespace {ns!r}, which "
+                    f"{component / 'namespaces'} does not declare, so it deadlocks a fresh cluster"
+                )
             if doc.get("kind") not in KINDS:
                 continue
             export = ((doc.get("spec") or {}).get("push") or {}).get("writeRefTo") or {}
             exported = export.get("keys") or {}
-            if export.get("namespace") != "flux-system" or not exported.get("ref"):
+            if export.get("namespace") != target or not exported.get("ref"):
                 failures.append(
                     f"  {f}: {doc['kind']}/{doc['metadata']['name']} does not export "
-                    f"push.writeRefTo keys.ref into flux-system, so no consumer can use it"
+                    f"push.writeRefTo keys.ref into {target}, so no consumer can use it"
+                )
+            elif target != ns and target not in REF_EXPORT_NAMESPACES:
+                failures.append(
+                    f"  {f}: {doc['kind']}/{doc['metadata']['name']} exports into {target}, which "
+                    f"refExport.namespaces in kube-cluster/infra/oci-composer/release.yaml does not "
+                    f"list, so oci-composer refuses it"
                 )
             keys |= set(exported.values())
     return keys
+
+
+BUILDER_LABEL = ("app.kubernetes.io/managed-by", "kube-oci-builder")
+
+
+def build_egress(component: pathlib.Path, built: str):
+    """(8) Build Jobs in an egress-restricted namespace need their policy in namespaces/."""
+    builds = set()
+    for f in sorted((component / "artifacts").glob("*.yaml")):
+        for doc in yaml.safe_load_all(f.read_text(encoding="utf-8")):
+            ns = ((doc or {}).get("metadata") or {}).get("namespace")
+            if (doc or {}).get("kind") == "ImageBuild" and ns != "oci-composer":
+                builds.add(ns)
+    if not builds:
+        return
+    early = [d for f in sorted((component / "namespaces").glob("*.yaml"))
+             for d in yaml.safe_load_all(f.read_text(encoding="utf-8")) if d]
+    policies = [d for d in list(yaml.safe_load_all(built)) + early
+                if d and d.get("kind") == "NetworkPolicy" and "Egress" in (d["spec"].get("policyTypes") or [])]
+    for ns in sorted(builds):
+        here = [p for p in policies if p["metadata"].get("namespace") == ns]
+        if not any(not (p["spec"].get("podSelector") or {}) for p in here):
+            continue
+        allowed = any(d.get("kind") == "NetworkPolicy" and d["metadata"].get("namespace") == ns
+                      and "Egress" in (d["spec"].get("policyTypes") or [])
+                      and ((d["spec"].get("podSelector") or {}).get("matchLabels") or {}).get(BUILDER_LABEL[0])
+                      == BUILDER_LABEL[1] for d in early)
+        if not allowed:
+            failures.append(
+                f"  {component}: an Egress policy selects every pod in {ns}, where an ImageBuild runs "
+                f"its Job; add one for {BUILDER_LABEL[0]}: {BUILDER_LABEL[1]} to oci-composer "
+                f"(8090, 5000) in namespaces/, or the build cannot reach the builder or registry"
+            )
 
 
 def substituted(built: str):
@@ -130,15 +239,38 @@ for base in ("kube-cluster/apps", "kube-cluster/infra", "kube-cluster/rbac"):
         subst = component / "substitution-secrets"
         keys = set()
         if subst.is_dir():
+            target = kustomization_namespace(component)
             for f in sorted(subst.glob("*.yaml")):
-                keys |= set(KEY_RE.findall(f.read_text(encoding="utf-8")))
-        refs = exported_keys(component)
-        if not keys and not refs and not marked:
+                text = f.read_text(encoding="utf-8")
+                keys |= set(KEY_RE.findall(text))
+                # (7) the template refuses this too
+                for doc in yaml.safe_load_all(text):
+                    if (isinstance(doc, dict) and doc.get("kind") in ("Secret", "ConfigMap")
+                            and (doc.get("metadata") or {}).get("namespace") == "flux-system"):
+                        failures.append(
+                            f"  {f}: {doc['kind']}/{doc['metadata']['name']} is in flux-system, but "
+                            f"its component's Kustomizations are in {target}; move it there"
+                        )
+        namespaces = declared_namespaces(component)
+        refs = exported_keys(component, namespaces)
+        if not keys and not refs and not marked and not namespaces:
             continue
 
         built = build(component)
         if built is None:
             continue  # validate.sh's build loop reports this
+
+        build_egress(component, built)
+
+        # (6) one owner per Namespace
+        for doc in yaml.safe_load_all(built):
+            if doc and doc.get("kind") == "Namespace" and doc["metadata"]["name"] in namespaces:
+                failures.append(
+                    f"  {component}: Namespace/{doc['metadata']['name']} is in both the component "
+                    f"and namespaces/; removing it from either prunes it"
+                )
+        if not keys and not refs and not marked:
+            continue
 
         pattern = re.compile(r'\$\{(' + "|".join(sorted(keys)) + r')\}') if keys else None
         for doc in yaml.safe_load_all(built):
@@ -184,11 +316,15 @@ for base in ("kube-cluster/apps", "kube-cluster/infra", "kube-cluster/rbac"):
                         f"reconcile fails"
                     )
 
-# (5) nothing outside artifacts/
+# (5) nothing outside artifacts/, (7) no hand-set control-namespace label
 for f in sorted(pathlib.Path("kube-cluster").rglob("*.yaml")):
+    text = f.read_text(encoding="utf-8")
+    if CONTROL_LABEL in text:
+        for doc in yaml.safe_load_all(text):
+            if isinstance(doc, dict) and CONTROL_LABEL in (((doc.get("metadata") or {}).get("labels")) or {}):
+                failures.append(f"  {f}: sets label {CONTROL_LABEL}, which only the generator may: it grants sops-age")
     if f.parent.name == "artifacts":
         continue
-    text = f.read_text(encoding="utf-8")
     if not re.search(r"^kind: (ImageComposition|ImageBuild)\s*$", text, re.M):
         continue
     for doc in yaml.safe_load_all(text):

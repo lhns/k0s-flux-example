@@ -5,5 +5,4 @@ metadata:
     # Needs the Traefik CRDs (Middleware/TLSOption/ServersTransport) to watch.
     flux-component-generator/dependsOn: infra-traefik
 resources:
-- namespace.yaml
 - release.yaml

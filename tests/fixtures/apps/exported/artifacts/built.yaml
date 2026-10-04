@@ -9,6 +9,6 @@ spec:
       FROM scratch
   push:
     writeRefTo:
-      namespace: flux-system
+      namespace: gen-app-exported
       keys:
         ref: EXPORTED_BUILT_REF

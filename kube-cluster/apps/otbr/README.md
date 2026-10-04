@@ -156,7 +156,7 @@ narrowed further.
 ## Verification
 
 1. `./scripts/validate.sh` (no `-strict` — it rejects SOPS blocks), then
-   `flux get kustomizations | grep otbr`.
+   `flux get kustomizations -A | grep otbr`.
 2. Pod `Running`, and `kubectl -n otbr logs deploy/otbr` free of `Error decoding hdlc frame` /
    `Wait for response timeout`. Those two are the firmware signature from the issue above.
 3. Sysctls took: `kubectl -n otbr exec deploy/otbr -- sh -c 'cat /proc/sys/net/ipv6/conf/all/forwarding

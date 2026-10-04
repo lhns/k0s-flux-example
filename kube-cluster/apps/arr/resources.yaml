@@ -13,30 +13,6 @@
 # as root, chowns /config and drops to abc. An fsGroup fights it and forces a
 # recursive chown of /media on every start.
 ---
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: arr
-  labels:
-    # Selects this namespace for the pod-gateway mutating webhook, and is what
-    # makes every pod here routed by default. Must match a namespace listed in
-    # the reflection annotations on infra/pod-gateway's ConfigMap, or the
-    # injected init container has no settings.sh to read.
-    routed-gateway: "true"
----
-# defaultRequest only: a `default` limit would OOMKill every unsized workload.
-apiVersion: v1
-kind: LimitRange
-metadata:
-  name: default-requests
-  namespace: arr
-spec:
-  limits:
-    - type: Container
-      defaultRequest:
-        memory: 128Mi
-        cpu: 25m
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:

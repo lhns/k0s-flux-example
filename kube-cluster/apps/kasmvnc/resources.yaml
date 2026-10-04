@@ -1,21 +1,3 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: kasmvnc
----
-# defaultRequest only: a `default` limit would OOMKill every unsized workload.
-apiVersion: v1
-kind: LimitRange
-metadata:
-  name: default-requests
-  namespace: kasmvnc
-spec:
-  limits:
-    - type: Container
-      defaultRequest:
-        memory: 128Mi
-        cpu: 25m
----
 # Same reasoning as webtop: the home directory holds browser profiles, which are
 # SQLite, so this is the repo's "embedded SQLite -> block" rule rather than the
 # file-only cephfs case. Single-writer by definition.

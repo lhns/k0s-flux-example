@@ -1,5 +1,5 @@
 ---
-# Its source, the GitRepository `generators`, is in generators-source.yaml.
+# Its chart is the ExternalArtifact from generators-artifact.yaml.
 #
 # Renders the repo-root generator chart once for every group: one Flux Kustomization
 # per dir under kube-cluster/apps/ (prefix app-), kube-cluster/infra/ (prefix infra-)
@@ -23,23 +23,24 @@ spec:
     disableWait: true
   upgrade:
     disableWait: true
-  chart:
-    spec:
-      chart: "."
-      reconcileStrategy: Revision
-      sourceRef:
-        kind: GitRepository
-        name: generators
-        namespace: flux-system
+    # The default, Reinstall, uninstalls on a chart name change, deleting every gen release.
+    chartNameChangeStrategy: InPlaceUpdate
+  # The root chart from generators-artifact.yaml: re-renders only when its files change.
+  chartRef:
+    kind: ExternalArtifact
+    name: generators
+    namespace: flux-system
   values:
     groups:
       - { base: kube-cluster/apps, prefix: app }
       - { base: kube-cluster/infra, prefix: infra }
       - { base: kube-cluster/rbac, prefix: rbac }
-    # Emit a GitRepository + HelmRelease per component instead of the Kustomizations
+    # Emit an ArtifactGenerator + HelmRelease per component instead of the Kustomizations
     # themselves, so no single release carries more than one component.
     generate:
-      sourceFile: kube-cluster/flux-system/generators-source.yaml
+      # Generated Kustomization names, or "*": prune: false on all of the component's
+      # Kustomizations, for a risky change. README.md, "Control namespaces and risky changes".
+      pruneDisabled: []
     # Opt into the in-cluster k0s upgrade wrapper (templates/k0s-upgrade.yaml).
     # The generator reads the k0s version from this file and emits the k0s-upgrade
     # Flux Kustomization. Omit the block on clusters that don't use it.

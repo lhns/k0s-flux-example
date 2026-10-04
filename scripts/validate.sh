@@ -15,11 +15,13 @@ echo "== helm template (generator chart) =="
 # so a template regression is a cluster-wide one. tests/fixtures/ exercises it
 # on inputs the real tree does not have; the golden pins the OUTPUT.
 # Intentional change -> bash scripts/update-golden.sh, and review that diff.
-if ! diff -u tests/golden/fixtures.yaml <(bash scripts/render.sh fixtures); then
-  echo "== generator output moved (see diff above) ==" >&2
-  echo "   intentional? bash scripts/update-golden.sh" >&2
-  exit 1
-fi
+for mode in fixtures fixtures-generate; do
+  if ! diff -u "tests/golden/$mode.yaml" <(bash scripts/render.sh "$mode"); then
+    echo "== generator output moved (see diff above) ==" >&2
+    echo "   intentional? bash scripts/update-golden.sh" >&2
+    exit 1
+  fi
+done
 echo "golden OK"
 
 # python3 on CI, python in git-bash on Windows.
@@ -35,6 +37,11 @@ echo "== generator release size =="
 echo
 echo "== substitution: no credential in a ConfigMap, no unreachable name =="
 "$py" scripts/check-substitution.py
+
+echo
+echo "== migration gate: offline test =="
+# The gate is what stands between a risky change and a pruned component; it only runs live by hand.
+"$py" tests/check-migration.py
 
 echo
 echo "== oci-composer: every sourceRef pins the revision its source is pinned at =="
@@ -131,13 +138,14 @@ run() {
   # the component build above deliberately excludes them. Plain manifests -- feed them to
   # kubeconform as-is.
   for f in kube-cluster/{apps,infra,rbac}/*/substitution-secrets/*.yaml \
-           kube-cluster/{apps,infra,rbac}/*/artifacts/*.yaml; do
+           kube-cluster/{apps,infra,rbac}/*/artifacts/*.yaml \
+           kube-cluster/{apps,infra,rbac}/*/namespaces/*.yaml; do
     [ -f "$f" ] || continue
     echo "---"
     cat "$f"
   done
   # Everything the generator emits for the real tree, in BOTH shapes: the per-component
-  # GitRepository+HelmRelease the root release emits (real-generate), and the Kustomizations
+  # ArtifactGenerator+HelmRelease the root release emits (real-generate), and the Kustomizations
   # each of those releases then emits (real). Nothing else schema-checks either -- they are
   # created by helm-controller, which validates nothing up front.
   for mode in real real-generate; do

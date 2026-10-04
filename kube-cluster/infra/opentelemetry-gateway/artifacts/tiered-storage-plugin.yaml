@@ -4,7 +4,7 @@ apiVersion: oci.lhns.de/v1alpha1
 kind: ImageComposition
 metadata:
   name: kafka-tiered-storage
-  namespace: oci-composer
+  namespace: opentelemetry-gateway
 spec:
   interval: 1h
   # No `base`: files mounted into the upstream Strimzi Kafka image.
@@ -32,6 +32,6 @@ spec:
   push:
     history: 10
     writeRefTo:
-      namespace: flux-system
+      namespace: gen-infra-opentelemetry-gateway
       keys:
         ref: KAFKA_TIERED_STORAGE_REF

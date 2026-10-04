@@ -1,22 +1,4 @@
 ---
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: cheogram-sip
----
-# defaultRequest only: a `default` limit would OOMKill every unsized workload.
-apiVersion: v1
-kind: LimitRange
-metadata:
-  name: default-requests
-  namespace: cheogram-sip
-spec:
-  limits:
-    - type: Container
-      defaultRequest:
-        memory: 128Mi
-        cpu: 25m
----
 # XMPP to SIP gateway: an XEP-0114 component on one side, Asterisk on the other, so a
 # Conversations-family client can place and take real phone calls over Jingle.
 #

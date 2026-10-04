@@ -5,7 +5,7 @@ apiVersion: v1
 kind: Secret
 metadata:
     name: immich-album-federation-values
-    namespace: flux-system
+    namespace: gen-app-immich-album-federation
 stringData:
     IMMICH_FED_APIKEY_LHNS: CHANGEME-IMMICH_FED_APIKEY_LHNS
     IMMICH_FED_APIKEY_MAX: CHANGEME-IMMICH_FED_APIKEY_MAX

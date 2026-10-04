@@ -1,0 +1,14 @@
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageBuild
+metadata:
+  name: built
+  namespace: namespaced
+spec:
+  dockerfile:
+    inline: |
+      FROM scratch
+  push:
+    writeRefTo:
+      namespace: gen-app-namespaced
+      keys:
+        ref: NAMESPACED_BUILT_REF

@@ -5,7 +5,7 @@ Helm stores a release as base64(gzip(JSON)) in a Secret, and the release embeds 
 chart file by file. The apiserver caps a Secret at 1 MiB; there is no flag that raises it.
 This once reached 99.1% and froze every generated Kustomization with no warning.
 
-Models the ROOT release: the chart files its GitRepository admits, plus the rendered
+Models the ROOT release: the chart files its ArtifactGenerator copies, plus the rendered
 manifest. Per-component releases are bounded by one component and are not the risk.
 """
 import base64, gzip, pathlib, re, subprocess, sys
@@ -22,9 +22,10 @@ def tracked():
     out = subprocess.run(["git", "ls-files"], cwd=root, capture_output=True, text=True, check=True)
     return out.stdout.splitlines()
 
-# Mirror of the `ignore` on the generators GitRepository. Keep the two in step: a path
-# admitted there and not here is measured as free.
-KEEP = re.compile(r"(^Chart\.yaml$)|(^templates/)|((^|/)k0sctl\.yaml$)|((^|/)kustomization\.yaml$)")
+# Mirror of the copy list in kube-cluster/flux-system/generators-artifact.yaml. Keep the two in
+# step: a path copied there and not here is measured as free.
+KEEP = re.compile(r"(^Chart\.yaml$)|(^templates/)|((^|/)k0sctl\.yaml$)|((^|/)kustomization\.yaml$)"
+                  r"|(^kube-cluster/[^/]+/[^/]+/(namespaces|artifacts|substitution-secrets)/[^/]+\.yaml$)")
 
 def main():
     # Values come from the live HelmRelease so this cannot drift from what is deployed.

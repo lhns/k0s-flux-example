@@ -7,7 +7,6 @@ metadata:
     # root generator; inert to kustomize.
     flux-component-generator/dependsOn: infra-ceph-csi-cephfs
 resources:
-- namespace.yaml
 - release.yaml
 - storageclass.yaml
 - volumesnapshotclass.yaml

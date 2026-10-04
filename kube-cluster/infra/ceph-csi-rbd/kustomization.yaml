@@ -5,7 +5,6 @@ metadata:
     # VolumeSnapshotClass needs the snapshot.storage.k8s.io CRDs first.
     flux-component-generator/dependsOn: infra-snapshot-controller
 resources:
-- namespace.yaml
 - release.yaml
 - storageclass.yaml
 - volumesnapshotclass.yaml

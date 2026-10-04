@@ -3,5 +3,63 @@ kind: Kustomization
 resources:
 - gotk-components.yaml
 - gotk-sync.yaml
-- generators-source.yaml
+- generators-artifact.yaml
 - generators.yaml
+patches:
+# Without the gate, postBuild substitutes an undefined ${VAR} as an empty string and applies
+# it; with it, the reconcile fails instead. scripts/check-substitution.py checks the same offline.
+- target:
+    kind: Deployment
+    name: kustomize-controller
+  patch: |
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --feature-gates=StrictPostBuildSubstitutions=true
+# Every commit reconciles all ~190 Kustomizations (one shared source), each waiting for its
+# dependsOn to reach the new revision. At the default --concurrent=4 that took ~5 min.
+# CPU limits sized from measured peaks: every controller here sat at its old limit.
+- target:
+    kind: Deployment
+    name: kustomize-controller
+  patch: |
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --concurrent=32
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --requeue-dependency=5s
+    - op: replace
+      path: /spec/template/spec/containers/0/resources/limits
+      value: {cpu: "8", memory: 2Gi}
+# Per push, source-watcher repacks every component's artifacts and source-controller fetches
+# the repo; helm-controller re-renders any generator whose chart artifact changed.
+- target:
+    kind: Deployment
+    name: source-watcher
+  patch: |
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --concurrent=24
+    - op: replace
+      path: /spec/template/spec/containers/0/resources/limits
+      value: {cpu: "4", memory: 1Gi}
+- target:
+    kind: Deployment
+    name: source-controller
+  patch: |
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --concurrent=10
+    - op: replace
+      path: /spec/template/spec/containers/0/resources/limits
+      value: {cpu: "4", memory: 1Gi}
+- target:
+    kind: Deployment
+    name: helm-controller
+  patch: |
+    - op: add
+      path: /spec/template/spec/containers/0/args/-
+      value: --concurrent=8
+    - op: replace
+      path: /spec/template/spec/containers/0/resources/limits
+      value: {cpu: "4", memory: 1Gi}

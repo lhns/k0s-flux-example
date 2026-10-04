@@ -6,7 +6,6 @@ metadata:
     # so cert-manager's CRDs must exist. kube-vnet gates the VXLAN ingress.
     flux-component-generator/dependsOn: infra-cert-manager,infra-kube-vnet
 resources:
-- namespace.yaml
 - secret.yaml
 - release.yaml
 - vnet.yaml

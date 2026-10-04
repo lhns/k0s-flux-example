@@ -1,0 +1,34 @@
+---
+# The root chart as an ExternalArtifact, under generators/ because Helm refuses Chart.yaml at an
+# archive's root. Copies only what the templates read: Helm embeds the chart in its release
+# Secret, capped at 1 MiB (docs/generator-chart-size.md); scripts/check-release-size.py mirrors
+# this list. Its revision is a content hash, so the root re-renders only when these files change.
+apiVersion: source.extensions.fluxcd.io/v1beta1
+kind: ArtifactGenerator
+metadata:
+  name: generators
+  namespace: flux-system
+spec:
+  sources:
+    - alias: repo
+      kind: GitRepository
+      name: flux-system
+      namespace: flux-system
+  artifacts:
+    - name: generators
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/Chart.yaml"
+          to: "@artifact/generators/"
+        - from: "@repo/templates"
+          to: "@artifact/generators/"
+        - from: "@repo/kube-cluster/k0sctl.yaml"
+          to: "@artifact/generators/kube-cluster/"
+        - from: "@repo/kube-cluster/*/*/kustomization.yaml"
+          to: "@artifact/generators/"
+        - from: "@repo/kube-cluster/*/*/namespaces/*.yaml"
+          to: "@artifact/generators/"
+        - from: "@repo/kube-cluster/*/*/artifacts/*.yaml"
+          to: "@artifact/generators/"
+        - from: "@repo/kube-cluster/*/*/substitution-secrets/*.yaml"
+          to: "@artifact/generators/"

@@ -2,5 +2,5 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: exported-values
-  namespace: flux-system
+  namespace: gen-app-exported
 data: {}

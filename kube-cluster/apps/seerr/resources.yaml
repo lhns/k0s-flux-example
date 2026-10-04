@@ -1,25 +1,4 @@
 ---
-# Its own namespace, deliberately: seerr must NOT be routed through the VPN, and
-# the arr namespace routes everything in it by default. Keeping it out is a
-# stronger guarantee than an opt-out label nobody remembers to check.
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: seerr
----
-# defaultRequest only: a `default` limit would OOMKill every unsized workload.
-apiVersion: v1
-kind: LimitRange
-metadata:
-  name: default-requests
-  namespace: seerr
-spec:
-  limits:
-    - type: Container
-      defaultRequest:
-        memory: 128Mi
-        cpu: 25m
----
 # Swarm ${DATA_PATH}/jellyseerr, mounted in place. Static CephFS PV.
 apiVersion: v1
 kind: PersistentVolume

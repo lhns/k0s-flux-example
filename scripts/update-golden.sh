@@ -4,5 +4,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 bash scripts/render.sh fixtures > tests/golden/fixtures.yaml
-echo "wrote tests/golden/fixtures.yaml"
+bash scripts/render.sh fixtures-generate > tests/golden/fixtures-generate.yaml
+echo "wrote tests/golden/fixtures.yaml tests/golden/fixtures-generate.yaml"
 git --no-pager diff --stat -- tests/golden/ || true

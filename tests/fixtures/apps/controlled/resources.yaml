@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: controlled
+  namespace: controlled
+data:
+  image: ${CONTROLLED_BUILT_REF}

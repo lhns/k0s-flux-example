@@ -1,0 +1,14 @@
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageBuild
+metadata:
+  name: built
+  namespace: controlled
+spec:
+  dockerfile:
+    inline: |
+      FROM scratch
+  push:
+    writeRefTo:
+      namespace: gen-app-controlled
+      keys:
+        ref: CONTROLLED_BUILT_REF

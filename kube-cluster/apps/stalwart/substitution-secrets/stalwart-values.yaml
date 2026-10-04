@@ -5,7 +5,7 @@ apiVersion: v1
 kind: Secret
 metadata:
     name: stalwart-values
-    namespace: flux-system
+    namespace: gen-app-stalwart
 stringData:
     UMLEITER_DEST_PASSWORD: CHANGEME-UMLEITER_DEST_PASSWORD
     UMLEITER_SOURCE_PASSWORD: CHANGEME-UMLEITER_SOURCE_PASSWORD

@@ -1,11 +1,75 @@
 ---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gen-app-annotated
+  labels:
+    flux-component-generator/control-namespace: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gen-app-controlled
+  labels:
+    flux-component-generator/control-namespace: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gen-app-dependent
+  labels:
+    flux-component-generator/control-namespace: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gen-app-exported
+  labels:
+    flux-component-generator/control-namespace: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gen-app-external
+  labels:
+    flux-component-generator/control-namespace: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gen-app-namespaced
+  labels:
+    flux-component-generator/control-namespace: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gen-app-plain
+  labels:
+    flux-component-generator/control-namespace: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gen-app-suspended
+  labels:
+    flux-component-generator/control-namespace: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gen-app-with-secrets
+  labels:
+    flux-component-generator/control-namespace: "true"
+---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
   name: app-annotated
-  namespace: flux-system
+  namespace: gen-app-annotated
 spec:
   interval: 10m0s
+  retryInterval: 1m
   path: ./tests/fixtures/apps/annotated
   prune: true
   wait: true
@@ -35,10 +99,192 @@ spec:
           path: /stringData
   dependsOn:
     - name: infra-first
+      namespace: gen-infra-first
     - name: infra-second
+      namespace: gen-infra-second
   sourceRef:
-    kind: GitRepository
-    name: flux-system
+    kind: ExternalArtifact
+    name: app-annotated
+    namespace: flux-system
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: app-controlled-namespaces
+  namespace: gen-app-controlled
+spec:
+  interval: 10m0s
+  retryInterval: 1m
+  path: ./tests/fixtures/apps/controlled/namespaces
+  prune: false
+  wait: true
+  commonMetadata:
+    labels:
+      app.kubernetes.io/instance: "controlled"
+    annotations:
+      kustomize.toolkit.fluxcd.io/prune: disabled
+  dependsOn:
+    - name: infra-oci-composer
+      namespace: gen-infra-oci-composer
+  sourceRef:
+    kind: ExternalArtifact
+    name: app-controlled-namespaces
+    namespace: flux-system
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: app-controlled-artifacts
+  namespace: gen-app-controlled
+spec:
+  interval: 10m0s
+  retryInterval: 1m
+  path: ./tests/fixtures/apps/controlled/artifacts
+  prune: false
+  wait: true
+  commonMetadata:
+    labels:
+      app.kubernetes.io/instance: "controlled"
+  dependsOn:
+    - name: infra-oci-composer
+      namespace: gen-infra-oci-composer
+    - name: app-controlled-namespaces
+  sourceRef:
+    kind: ExternalArtifact
+    name: app-controlled-artifacts
+    namespace: flux-system
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: app-controlled-substitution-secrets
+  namespace: gen-app-controlled
+spec:
+  interval: 10m0s
+  retryInterval: 1m
+  path: ./tests/fixtures/apps/controlled/substitution-secrets
+  prune: false
+  wait: true
+  commonMetadata:
+    labels:
+      app.kubernetes.io/instance: "controlled"
+      reconcile.fluxcd.io/watch: Enabled
+  sourceRef:
+    kind: ExternalArtifact
+    name: app-controlled-substitution-secrets
+    namespace: flux-system
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: app-controlled
+  namespace: gen-app-controlled
+spec:
+  interval: 10m0s
+  retryInterval: 1m
+  path: ./tests/fixtures/apps/controlled
+  prune: false
+  wait: true
+  commonMetadata:
+    labels:
+      app.kubernetes.io/instance: "controlled"
+  patches:
+    - target:
+        kind: HelmRelease
+      patch: |
+        apiVersion: helm.toolkit.fluxcd.io/v2
+        kind: HelmRelease
+        metadata:
+          name: unused   # the target selector above chooses; this name is not matched against
+        spec:
+          upgrade:
+            crds: CreateReplace
+    - target:
+        kind: ConfigMap
+        annotationSelector: flux-component-generator/as-secret=true
+      patch: |
+        - op: replace
+          path: /kind
+          value: Secret
+        - op: move
+          from: /data
+          path: /stringData
+  dependsOn:
+    - name: infra-oci-composer
+      namespace: gen-infra-oci-composer
+    - name: app-controlled-namespaces
+    - name: app-controlled-artifacts
+    - name: app-controlled-substitution-secrets
+  postBuild:
+    substituteFrom:
+      - kind: Secret
+        name: controlled-values
+        optional: false
+      - kind: ConfigMap
+        name: imagebuild-controlled-built
+        optional: false
+  sourceRef:
+    kind: ExternalArtifact
+    name: app-controlled
+    namespace: flux-system
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: app-dependent
+  namespace: gen-app-dependent
+spec:
+  interval: 10m0s
+  retryInterval: 1m
+  path: ./tests/fixtures/apps/dependent
+  prune: false
+  wait: true
+  commonMetadata:
+    labels:
+      app.kubernetes.io/instance: "dependent"
+  patches:
+    - target:
+        kind: HelmRelease
+      patch: |
+        apiVersion: helm.toolkit.fluxcd.io/v2
+        kind: HelmRelease
+        metadata:
+          name: unused   # the target selector above chooses; this name is not matched against
+        spec:
+          upgrade:
+            crds: CreateReplace
+    - target:
+        kind: ConfigMap
+        annotationSelector: flux-component-generator/as-secret=true
+      patch: |
+        - op: replace
+          path: /kind
+          value: Secret
+        - op: move
+          from: /data
+          path: /stringData
+  dependsOn:
+    - name: app-controlled
+      namespace: gen-app-controlled
+    - name: app-controlled-substitution-secrets
+      namespace: gen-app-controlled
+    - name: app-plain
+      namespace: gen-app-plain
+  sourceRef:
+    kind: ExternalArtifact
+    name: app-dependent
     namespace: flux-system
   decryption:
     provider: sops
@@ -49,9 +295,10 @@ apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
   name: app-exported-artifacts
-  namespace: flux-system
+  namespace: gen-app-exported
 spec:
   interval: 10m0s
+  retryInterval: 1m
   path: ./tests/fixtures/apps/exported/artifacts
   prune: true
   wait: true
@@ -60,27 +307,30 @@ spec:
       app.kubernetes.io/instance: "exported"
   dependsOn:
     - name: infra-oci-composer
+      namespace: gen-infra-oci-composer
   sourceRef:
-    kind: GitRepository
-    name: flux-system
+    kind: ExternalArtifact
+    name: app-exported-artifacts
     namespace: flux-system
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
   name: app-exported-substitution-secrets
-  namespace: flux-system
+  namespace: gen-app-exported
 spec:
   interval: 10m0s
+  retryInterval: 1m
   path: ./tests/fixtures/apps/exported/substitution-secrets
   prune: true
   wait: true
   commonMetadata:
     labels:
       app.kubernetes.io/instance: "exported"
+      reconcile.fluxcd.io/watch: Enabled
   sourceRef:
-    kind: GitRepository
-    name: flux-system
+    kind: ExternalArtifact
+    name: app-exported-substitution-secrets
     namespace: flux-system
   decryption:
     provider: sops
@@ -91,9 +341,10 @@ apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
   name: app-exported
-  namespace: flux-system
+  namespace: gen-app-exported
 spec:
   interval: 10m0s
+  retryInterval: 1m
   path: ./tests/fixtures/apps/exported
   prune: true
   wait: true
@@ -123,6 +374,7 @@ spec:
           path: /stringData
   dependsOn:
     - name: infra-oci-composer
+      namespace: gen-infra-oci-composer
     - name: app-exported-artifacts
     - name: app-exported-substitution-secrets
   postBuild:
@@ -137,8 +389,206 @@ spec:
         name: imagecomposition-oci-composer-exported-layered
         optional: false
   sourceRef:
-    kind: GitRepository
-    name: flux-system
+    kind: ExternalArtifact
+    name: app-exported
+    namespace: flux-system
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: app-external-namespaces
+  namespace: gen-app-external
+spec:
+  interval: 10m0s
+  retryInterval: 1m
+  path: ./tests/fixtures/apps/external/namespaces
+  prune: true
+  wait: true
+  commonMetadata:
+    labels:
+      app.kubernetes.io/instance: "external"
+    annotations:
+      kustomize.toolkit.fluxcd.io/prune: disabled
+  sourceRef:
+    kind: ExternalArtifact
+    name: app-external-namespaces
+    namespace: flux-system
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: app-external-substitution-secrets
+  namespace: gen-app-external
+spec:
+  interval: 10m0s
+  retryInterval: 1m
+  path: ./tests/fixtures/apps/external/substitution-secrets
+  prune: true
+  wait: true
+  commonMetadata:
+    labels:
+      app.kubernetes.io/instance: "external"
+      reconcile.fluxcd.io/watch: Enabled
+  sourceRef:
+    kind: ExternalArtifact
+    name: app-external-substitution-secrets
+    namespace: flux-system
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: app-external
+  namespace: gen-app-external
+spec:
+  interval: 10m0s
+  retryInterval: 1m
+  path: ./tests/fixtures/apps/external
+  prune: true
+  wait: true
+  commonMetadata:
+    labels:
+      app.kubernetes.io/instance: "external"
+  patches:
+    - target:
+        kind: HelmRelease
+      patch: |
+        apiVersion: helm.toolkit.fluxcd.io/v2
+        kind: HelmRelease
+        metadata:
+          name: unused   # the target selector above chooses; this name is not matched against
+        spec:
+          upgrade:
+            crds: CreateReplace
+    - target:
+        kind: ConfigMap
+        annotationSelector: flux-component-generator/as-secret=true
+      patch: |
+        - op: replace
+          path: /kind
+          value: Secret
+        - op: move
+          from: /data
+          path: /stringData
+  dependsOn:
+    - name: app-external-namespaces
+    - name: app-external-substitution-secrets
+  postBuild:
+    substituteFrom:
+      - kind: Secret
+        name: external-values
+        optional: false
+  sourceRef:
+    kind: ExternalArtifact
+    name: app-external
+    namespace: flux-system
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: app-namespaced-namespaces
+  namespace: gen-app-namespaced
+spec:
+  interval: 10m0s
+  retryInterval: 1m
+  path: ./tests/fixtures/apps/namespaced/namespaces
+  prune: true
+  wait: true
+  commonMetadata:
+    labels:
+      app.kubernetes.io/instance: "namespaced"
+    annotations:
+      kustomize.toolkit.fluxcd.io/prune: disabled
+  dependsOn:
+    - name: infra-oci-composer
+      namespace: gen-infra-oci-composer
+  sourceRef:
+    kind: ExternalArtifact
+    name: app-namespaced-namespaces
+    namespace: flux-system
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: app-namespaced-artifacts
+  namespace: gen-app-namespaced
+spec:
+  interval: 10m0s
+  retryInterval: 1m
+  path: ./tests/fixtures/apps/namespaced/artifacts
+  prune: true
+  wait: true
+  commonMetadata:
+    labels:
+      app.kubernetes.io/instance: "namespaced"
+  dependsOn:
+    - name: infra-oci-composer
+      namespace: gen-infra-oci-composer
+    - name: app-namespaced-namespaces
+  sourceRef:
+    kind: ExternalArtifact
+    name: app-namespaced-artifacts
+    namespace: flux-system
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: app-namespaced
+  namespace: gen-app-namespaced
+spec:
+  interval: 10m0s
+  retryInterval: 1m
+  path: ./tests/fixtures/apps/namespaced
+  prune: true
+  wait: true
+  commonMetadata:
+    labels:
+      app.kubernetes.io/instance: "namespaced"
+  patches:
+    - target:
+        kind: HelmRelease
+      patch: |
+        apiVersion: helm.toolkit.fluxcd.io/v2
+        kind: HelmRelease
+        metadata:
+          name: unused   # the target selector above chooses; this name is not matched against
+        spec:
+          upgrade:
+            crds: CreateReplace
+    - target:
+        kind: ConfigMap
+        annotationSelector: flux-component-generator/as-secret=true
+      patch: |
+        - op: replace
+          path: /kind
+          value: Secret
+        - op: move
+          from: /data
+          path: /stringData
+  dependsOn:
+    - name: infra-oci-composer
+      namespace: gen-infra-oci-composer
+    - name: app-namespaced-namespaces
+    - name: app-namespaced-artifacts
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: imagebuild-namespaced-built
+        optional: false
+  sourceRef:
+    kind: ExternalArtifact
+    name: app-namespaced
     namespace: flux-system
   decryption:
     provider: sops
@@ -149,9 +599,10 @@ apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
   name: app-plain
-  namespace: flux-system
+  namespace: gen-app-plain
 spec:
   interval: 10m0s
+  retryInterval: 1m
   path: ./tests/fixtures/apps/plain
   prune: true
   wait: true
@@ -180,8 +631,8 @@ spec:
           from: /data
           path: /stringData
   sourceRef:
-    kind: GitRepository
-    name: flux-system
+    kind: ExternalArtifact
+    name: app-plain
     namespace: flux-system
   decryption:
     provider: sops
@@ -192,9 +643,10 @@ apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
   name: app-suspended
-  namespace: flux-system
+  namespace: gen-app-suspended
 spec:
   interval: 10m0s
+  retryInterval: 1m
   suspend: true
   path: ./tests/fixtures/apps/suspended
   prune: true
@@ -224,8 +676,8 @@ spec:
           from: /data
           path: /stringData
   sourceRef:
-    kind: GitRepository
-    name: flux-system
+    kind: ExternalArtifact
+    name: app-suspended
     namespace: flux-system
   decryption:
     provider: sops
@@ -236,18 +688,20 @@ apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
   name: app-with-secrets-substitution-secrets
-  namespace: flux-system
+  namespace: gen-app-with-secrets
 spec:
   interval: 10m0s
+  retryInterval: 1m
   path: ./tests/fixtures/apps/with-secrets/substitution-secrets
   prune: true
   wait: true
   commonMetadata:
     labels:
       app.kubernetes.io/instance: "with-secrets"
+      reconcile.fluxcd.io/watch: Enabled
   sourceRef:
-    kind: GitRepository
-    name: flux-system
+    kind: ExternalArtifact
+    name: app-with-secrets-substitution-secrets
     namespace: flux-system
   decryption:
     provider: sops
@@ -258,9 +712,10 @@ apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
   name: app-with-secrets
-  namespace: flux-system
+  namespace: gen-app-with-secrets
 spec:
   interval: 10m0s
+  retryInterval: 1m
   path: ./tests/fixtures/apps/with-secrets
   prune: true
   wait: true
@@ -299,8 +754,8 @@ spec:
         name: fixture-values
         optional: false
   sourceRef:
-    kind: GitRepository
-    name: flux-system
+    kind: ExternalArtifact
+    name: app-with-secrets
     namespace: flux-system
   decryption:
     provider: sops

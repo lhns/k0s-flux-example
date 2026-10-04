@@ -1,21 +1,3 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: notesnook
----
-# defaultRequest only: a `default` limit would OOMKill every unsized workload.
-apiVersion: v1
-kind: LimitRange
-metadata:
-  name: default-requests
-  namespace: notesnook
-spec:
-  limits:
-    - type: Container
-      defaultRequest:
-        memory: 128Mi
-        cpu: 25m
----
 # ===========================================================================
 # MongoDB — single instance run as a 1-member replica set `rs0` (Notesnook needs
 # multi-document transactions, which require an RS). StatefulSet + headless

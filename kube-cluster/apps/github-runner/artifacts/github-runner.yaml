@@ -4,7 +4,7 @@ apiVersion: oci.lhns.de/v1alpha1
 kind: ImageBuild
 metadata:
   name: github-runner
-  namespace: oci-composer
+  namespace: github-runner
 spec:
   interval: 1h
   platforms: [linux/amd64]
@@ -63,6 +63,6 @@ spec:
   push:
     history: 10
     writeRefTo:
-      namespace: flux-system
+      namespace: gen-app-github-runner
       keys:
         ref: GITHUB_RUNNER_REF

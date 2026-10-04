@@ -1,21 +1,3 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: homebox
----
-# defaultRequest only: a `default` limit would OOMKill every unsized workload.
-apiVersion: v1
-kind: LimitRange
-metadata:
-  name: default-requests
-  namespace: homebox
-spec:
-  limits:
-    - type: Container
-      defaultRequest:
-        memory: 128Mi
-        cpu: 25m
----
 # Homebox's /data (uploaded attachments/images). The DB lives in CNPG, so this volume
 # holds files only (the old bundled SQLite was dropped in the CephFS migration) ->
 # CephFS RWX, which lets the Deployment do start-first rolling updates.

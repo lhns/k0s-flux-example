@@ -5,7 +5,7 @@ apiVersion: oci.lhns.de/v1alpha1
 kind: ImageBuild
 metadata:
   name: synapse-pymods
-  namespace: oci-composer
+  namespace: matrix
 spec:
   interval: 1h
   platforms: [linux/amd64]
@@ -35,6 +35,6 @@ spec:
   push:
     history: 10
     writeRefTo:
-      namespace: flux-system
+      namespace: gen-app-matrix
       keys:
         ref: SYNAPSE_PYMODS_REF

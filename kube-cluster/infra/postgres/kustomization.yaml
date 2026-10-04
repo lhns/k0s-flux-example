@@ -8,7 +8,6 @@ metadata:
 # app.kubernetes.io/instance=postgres (= dir name) is applied by the root
 # generator via the Flux Kustomization's commonMetadata — nothing to add here.
 resources:
-- namespace.yaml
 - s3-secret.yaml
 - objectstore.yaml
 - cluster.yaml

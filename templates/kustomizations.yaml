@@ -54,22 +54,48 @@ substitution-secrets/ subdirectory, for injecting secret values into plaintext c
 
 artifacts/ subdirectory, for oci-composer ImageComposition and ImageBuild objects
 - Each object sets push.writeRefTo, so oci-composer writes its digest-pinned ref into a
-  ConfigMap in flux-system. The component substitutes from those (_substitution.tpl) and
-  names the image ${KEY}. That turns substitution on for the whole component: run the
-  check above first.
+  ConfigMap in the component's Kustomization namespace. The component substitutes from
+  those (_substitution.tpl) and names the image ${KEY}. That turns substitution on for the
+  whole component: run the check above first.
 - It gets its own Kustomization, which the component depends on: the ConfigMap exists
   only once the object is applied and published, so one Kustomization holding both
   deadlocks a fresh cluster. wait: true makes Ready mean published; a failing build holds
   the component back.
-- Namespace oci-composer, since the component's own does not exist yet. The Kustomization
-  inherits the component's dependsOn, which must name infra-oci-composer.
+- Objects go in the component's namespace, declared in namespaces/; a Namespace the
+  component itself creates would deadlock the same way. oci-composer is legacy, still
+  accepted. The Kustomization inherits the component's dependsOn, which must name
+  infra-oci-composer.
 - Put no kustomization.yaml in there, as for substitution-secrets/.
+
+namespaces/ subdirectory, for the component's Namespace and namespace-scoped prerequisites
+- The Namespace, plus what has to exist in it before anything else, such as a LimitRange.
+  artifacts/ and the component both depend on it, so both can target the namespace on a
+  fresh cluster. It inherits the component's dependsOn. No decryption: nothing secret.
+- Its Kustomization prunes, and pruning a Namespace deletes everything in it, PVCs
+  included, which infra/pv-reaper then reclaims (AGENTS.md). Deleting this directory, or
+  moving an existing Namespace in from the component without first annotating it
+  kustomize.toolkit.fluxcd.io/prune: disabled on both sides, deletes the namespace. Use
+  the adopt-in-place steps in README.md, "Moving a component between groups".
+- Put no kustomization.yaml in there, as for substitution-secrets/.
+
+Control namespace
+- The component's Kustomizations live in Namespace gen-<name>, which this release creates.
+  Flux reads substituteFrom and sops-age only from the Kustomization's own namespace, so its
+  substitution-secrets/ objects and writeRefTo ConfigMaps go there too (_substitution.tpl),
+  and the namespace needs a sops-age copy (infra/reflector).
+- values.pruneDisabled, set per release by generate.yaml: prune: false on all of the
+  component's Kustomizations.
+
+Sources
+- Each Kustomization reads its own ExternalArtifact, named like it, packed by the root
+  release's ArtifactGenerator (generate.yaml). A commit then wakes only what it changed.
 */ -}}
 {{- /* The root release sets .Values.generate and emits per-component generators instead
     (generate.yaml); the generated releases do not, so they land here. Both rendering would
     mean two releases owning the same objects, and uninstalling either prunes the
     component. */}}
-{{- if not .Values.generate }}
+{{- if not (hasKey .Values "generate") }}
+{{- $pruneOff := .Values.pruneDisabled | default list }}
 {{- range $group := .Values.groups }}
 {{- range $kustPath, $_ := $.Files.Glob (printf "%s/*/kustomization.yaml" $group.base) }}
 {{- $dir := dir $kustPath }}
@@ -80,12 +106,64 @@ artifacts/ subdirectory, for oci-composer ImageComposition and ImageBuild object
 {{- $instance := dig "metadata" "annotations" "flux-component-generator/appInstance" $component $kust }}
 {{- $crdPolicy := dig "metadata" "annotations" "flux-component-generator/crdPolicy" "CreateReplace" $kust }}
 {{- $interval := $group.interval | default "10m0s" }}
+{{- $ns := include "generators.controlNamespace" $fluxName }}
+{{- $prune := not (or (has $fluxName $pruneOff) (has "*" $pruneOff)) }}
 {{- $substFrom := concat
-      (include "generators.substituteFrom" (dict "root" $ "dir" $dir) | fromYamlArray)
-      (include "generators.refExports" (dict "root" $ "dir" $dir) | fromYamlArray) }}
+      (include "generators.substituteFrom" (dict "root" $ "dir" $dir "namespace" $ns) | fromYamlArray)
+      (include "generators.refExports" (dict "root" $ "dir" $dir "namespace" $ns) | fromYamlArray) }}
+{{- /* Each entry is {name, namespace}; namespace is rendered only where it differs. */}}
 {{- $dependsOn := list }}
 {{- with dig "metadata" "annotations" "flux-component-generator/dependsOn" "" $kust }}
-{{- range splitList "," . }}{{- $dependsOn = append $dependsOn (trim .) }}{{- end }}
+{{- range splitList "," . }}
+{{- $dependsOn = append $dependsOn (dict "name" (trim .) "namespace" (include "generators.controlNamespace" (trim .))) }}
+{{- end }}
+{{- end }}
+{{- if gt (len $ns) 63 }}{{- fail (printf "control namespace %s is longer than 63 characters" $ns) }}{{- end }}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $ns }}
+  labels:
+    {{- /* Reflector copies sops-age into every namespace with this label. */}}
+    flux-component-generator/control-namespace: "true"
+{{- $namespacesName := printf "%s-namespaces" $fluxName }}
+{{- with $.Files.Glob (printf "%s/namespaces/*.yaml" $dir) }}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: {{ $namespacesName }}
+  namespace: {{ $ns }}
+spec:
+  interval: {{ $interval }}
+  {{- /* Siblings do not wait for one commit: a new Namespace and its workload can race. */}}
+  retryInterval: 1m
+  path: ./{{ $dir }}/namespaces
+  prune: {{ $prune }}
+  wait: true
+  commonMetadata:
+    labels:
+      app.kubernetes.io/instance: {{ $instance | quote }}
+    {{- /* Flux never deletes these: a pruned Namespace takes its PVCs, and pv-reaper their
+        volumes. Removing a component leaves its Namespace; docs/operations.md lists them. */}}
+    annotations:
+      kustomize.toolkit.fluxcd.io/prune: disabled
+  {{- with $dependsOn }}
+  dependsOn:
+    {{- range . }}
+    - name: {{ .name }}
+      {{- if ne .namespace $ns }}
+      namespace: {{ .namespace }}
+      {{- end }}
+    {{- end }}
+  {{- end }}
+  sourceRef:
+    kind: ExternalArtifact
+    name: {{ $namespacesName }}
+    namespace: flux-system
+{{- /* Appended before artifacts/ inherits $dependsOn, so artifacts/ waits for it too. */}}
+{{- $dependsOn = append $dependsOn (dict "name" $namespacesName "namespace" $ns) }}
 {{- end }}
 {{- $artifactsName := printf "%s-artifacts" $fluxName }}
 {{- with $.Files.Glob (printf "%s/artifacts/*.yaml" $dir) }}
@@ -94,11 +172,12 @@ apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
   name: {{ $artifactsName }}
-  namespace: flux-system
+  namespace: {{ $ns }}
 spec:
   interval: {{ $interval }}
+  retryInterval: 1m
   path: ./{{ $dir }}/artifacts
-  prune: true
+  prune: {{ $prune }}
   wait: true
   commonMetadata:
     labels:
@@ -106,19 +185,24 @@ spec:
   {{- with $dependsOn }}
   dependsOn:
     {{- range . }}
-    - name: {{ . }}
+    - name: {{ .name }}
+      {{- if ne .namespace $ns }}
+      namespace: {{ .namespace }}
+      {{- end }}
     {{- end }}
   {{- end }}
   sourceRef:
-    kind: GitRepository
-    name: flux-system
+    kind: ExternalArtifact
+    name: {{ $artifactsName }}
     namespace: flux-system
-{{- $dependsOn = append $dependsOn $artifactsName }}
+{{- $dependsOn = append $dependsOn (dict "name" $artifactsName "namespace" $ns) }}
 {{- end }}
 {{- $secretsName := printf "%s-substitution-secrets" $fluxName }}
 {{- $hasSecrets := $.Files.Glob (printf "%s/substitution-secrets/*.yaml" $dir) }}
-{{- if and $hasSecrets (not (has $secretsName $dependsOn)) }}
-{{- $dependsOn = append $dependsOn $secretsName }}
+{{- $depNames := list }}
+{{- range $dependsOn }}{{- $depNames = append $depNames .name }}{{- end }}
+{{- if and $hasSecrets (not (has $secretsName $depNames)) }}
+{{- $dependsOn = append $dependsOn (dict "name" $secretsName "namespace" $ns) }}
 {{- end }}
 {{- with $hasSecrets }}
 ---
@@ -126,19 +210,23 @@ apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
   name: {{ $secretsName }}
-  namespace: flux-system
+  namespace: {{ $ns }}
 spec:
   interval: {{ $interval }}
+  retryInterval: 1m
   path: ./{{ $dir }}/substitution-secrets
-  prune: true
+  prune: {{ $prune }}
   {{- /* The component waits on this, so Ready has to mean the Secrets are applied. */}}
   wait: true
   commonMetadata:
     labels:
       app.kubernetes.io/instance: {{ $instance | quote }}
+      {{- /* kustomize-controller reconciles a substituteFrom consumer when a Secret or
+          ConfigMap with this label changes, instead of on its next interval. */}}
+      reconcile.fluxcd.io/watch: Enabled
   sourceRef:
-    kind: GitRepository
-    name: flux-system
+    kind: ExternalArtifact
+    name: {{ $secretsName }}
     namespace: flux-system
   decryption:
     provider: sops
@@ -150,14 +238,15 @@ apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
   name: {{ $fluxName }}
-  namespace: flux-system
+  namespace: {{ $ns }}
 spec:
   interval: {{ $interval }}
+  retryInterval: 1m
   {{- if eq (dig "metadata" "annotations" "flux-component-generator/suspend" "" $kust | toString) "true" }}
   suspend: true
   {{- end }}
   path: ./{{ $dir }}
-  prune: true
+  prune: {{ $prune }}
   wait: {{ if hasKey $group "wait" }}{{ $group.wait }}{{ else }}true{{ end }}
   commonMetadata:
     labels:
@@ -168,7 +257,10 @@ spec:
   {{- with $dependsOn }}
   dependsOn:
     {{- range . }}
-    - name: {{ . }}
+    - name: {{ .name }}
+      {{- if ne .namespace $ns }}
+      namespace: {{ .namespace }}
+      {{- end }}
     {{- end }}
   {{- end }}
   {{- with $substFrom }}
@@ -181,8 +273,8 @@ spec:
       {{- end }}
   {{- end }}
   sourceRef:
-    kind: GitRepository
-    name: flux-system
+    kind: ExternalArtifact
+    name: {{ $fluxName }}
     namespace: flux-system
   decryption:
     provider: sops

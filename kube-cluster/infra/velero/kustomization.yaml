@@ -5,7 +5,6 @@ metadata:
     # CSI snapshots need the snapshot.storage.k8s.io CRDs.
     flux-component-generator/dependsOn: infra-snapshot-controller
 resources:
-- namespace.yaml
 - s3-secret.yaml
 - volume-policy.yaml
 - release.yaml

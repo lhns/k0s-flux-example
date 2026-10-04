@@ -36,6 +36,7 @@ default) is never reached.
     **/kustomization.yaml                 component discovery
     **/substitution-secrets/*.yaml        postBuild.substituteFrom
     **/artifacts/*.yaml                   postBuild.substituteFrom (oci-composer ref exports)
+    **/namespaces/*.yaml                  whether to emit <name>-namespaces
     kube-cluster/k0sctl.yaml              the k0s version
 
 When this was measured the chart also parsed every top-level yaml of every component to find
@@ -122,8 +123,10 @@ it. The `ignore` does the filtering; the values are identical across every scope
 
 The root release sets `generate`, which the generated releases do not — that is what stops
 the recursion. Same guard pattern `k0s-upgrade.yaml` uses with `{{- with .Values.k0sUpgrade }}`.
-Every generator is a GitRepository + HelmRelease sharing a name: `generators` at the root,
-`gen-<prefix>-<component>` below it. See `templates/generate.yaml`.
+The filtered GitRepositories have since been replaced by ArtifactGenerators over `flux-system`
+that pack the same files into ExternalArtifacts: the root's is `generators`
+(`kube-cluster/flux-system/generators-artifact.yaml`), each component's, with its HelmRelease,
+`gen-<prefix>-<component>` (`templates/generate.yaml`).
 
 ## Hazards found while proving it
 
@@ -138,9 +141,8 @@ Every generator is a GitRepository + HelmRelease sharing a name: `generators` at
 ## Not yet proven
 
 - `reconcileStrategy: Revision` re-rendering when a component is **added** to a filtered scope.
-- Cross-scope `dependsOn` (`app-matrix` -> `infra-postgres`) while several GitRepositories
+- Cross-scope `dependsOn` (`app-matrix` -> `infra-postgres`) while several sources
   reconcile independently and briefly disagree.
-- Load of one GitRepository per component: 88 clones on their own intervals.
 
 ## The guard
 

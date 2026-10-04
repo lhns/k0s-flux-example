@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: external
+  namespace: external
+data:
+  value: ${EXTERNAL_VALUE}

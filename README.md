@@ -14,114 +14,162 @@ own failure domain: a broken app cannot block the others.
 ```mermaid
 flowchart TD
   repo[("git repository")]
+  rcv["Receiver <b>github</b><br/>infra/flux-webhook"]
 
   subgraph bootstrap["Bootstrap: kube-cluster/flux-system"]
     gr_fs["GitRepository <b>flux-system</b><br/>whole repo"]
     ks_fs["Flux Kustomization <b>flux-system</b><br/>path ./kube-cluster/flux-system"]
-    kz_fs["kustomization.yaml<br/>gotk-components · gotk-sync ·<br/>generators-source · generators"]
+    kz_fs["kustomization.yaml<br/>gotk-components · gotk-sync ·<br/>generators-artifact · generators"]
   end
 
   subgraph root["Root generator"]
-    gr_gen["GitRepository <b>generators</b><br/>filtered: Chart.yaml, templates/,<br/>**/kustomization.yaml, generators-source.yaml"]
-    hc_gen["HelmChart <b>flux-system-generators</b><br/>chart '.' = the repo root"]
-    hr_gen["HelmRelease <b>generators</b><br/>values: groups, generate.sourceFile"]
+    ag_gen["ArtifactGenerator <b>generators</b><br/>source: GitRepository flux-system"]
+    ea_gen["ExternalArtifact <b>generators</b>, revision = content hash<br/>Chart.yaml, templates/,<br/>**/kustomization.yaml, reserved dirs"]
+    hr_gen["HelmRelease <b>generators</b><br/>values: groups, generate"]
     tpl_gen["templates/generate.yaml<br/>for every &lt;base&gt;/*/kustomization.yaml"]
-    ks_k0s["Flux Kustomization <b>k0s-upgrade</b><br/>templates/k0s-upgrade.yaml"]
+
+    subgraph opt_k0s["optional: values.k0sUpgrade"]
+      k0sctl["kube-cluster/k0sctl.yaml<br/>spec.k0s.version"]
+      ks_k0s["Flux Kustomization <b>k0s-upgrade</b><br/>path ./kube-cluster/k0s-upgrade · force<br/>postBuild.substitute: K0S_VERSION, K0S_VERSION_SANITIZED"]
+      job["Job <b>k0s-upgrade-&lt;version&gt;</b><br/>namespace k0s-upgrade<br/>a bump is a new Job; Flux prunes the old"]
+      plan["Plan <b>autopilot</b><br/>autopilot.k0sproject.io/v1beta2<br/>k0supdate: controllers, workers"]
+      k0sctl -->|".Files.Get"| ks_k0s --> job -->|"recreates it if the version moved"| plan
+    end
   end
 
-  subgraph comp["Per component, e.g. apps/rustdesk"]
-    gr_c["GitRepository <b>gen-app-rustdesk</b><br/>copy of generators-source.yaml,<br/>filtered to this component"]
-    hc_c["HelmChart <b>flux-system-gen-app-rustdesk</b>"]
-    hr_c["HelmRelease <b>gen-app-rustdesk</b><br/>same chart, without generate"]
+  nodes["the cluster's nodes<br/>k0s updated by Autopilot"]
+
+  subgraph comp["Per component, e.g. apps/example-app"]
+    ag_c["ArtifactGenerator <b>gen-app-example-app</b><br/>source: GitRepository flux-system"]
+    ea_c["ExternalArtifacts, revision = content hash<br/><b>gen-app-example-app</b>: the chart<br/><b>app-example-app</b>, <b>…-namespaces</b>, …: one per Kustomization"]
+    hr_c["HelmRelease <b>gen-app-example-app</b><br/>same chart, without generate"]
     tpl_k["templates/kustomizations.yaml<br/>reads the component's annotations<br/>and subdirectories"]
-    ks_art["Flux Kustomization <b>app-rustdesk-artifacts</b><br/>path ./…/artifacts · wait"]
-    ks_sec["Flux Kustomization <b>app-rustdesk-substitution-secrets</b><br/>path ./…/substitution-secrets · SOPS"]
-    ks_c["Flux Kustomization <b>app-rustdesk</b><br/>path ./kube-cluster/apps/rustdesk<br/>patches · postBuild.substituteFrom · SOPS"]
+
+    subgraph cns["control namespace <b>gen-app-example-app</b>"]
+      subgraph opt_ns["optional: namespaces/"]
+        ks_ns["Flux Kustomization <b>app-example-app-namespaces</b><br/>path ./…/namespaces · wait"]
+      end
+
+      subgraph opt_art["optional: artifacts/"]
+        ks_art["Flux Kustomization <b>app-example-app-artifacts</b><br/>path ./…/artifacts · wait"]
+        cm_ref["ConfigMap<br/>digest-pinned image ref"]
+      end
+
+      subgraph opt_sec["optional: substitution-secrets/"]
+        ks_sec["Flux Kustomization <b>app-example-app-substitution-secrets</b><br/>path ./…/substitution-secrets · SOPS"]
+        sec["SOPS Secrets<br/>substitution values"]
+        ks_sec --> sec
+      end
+
+      ks_c["Flux Kustomization <b>app-example-app</b><br/>path ./kube-cluster/apps/example-app<br/>patches · postBuild.substituteFrom · SOPS"]
+    end
+
+    ns["Namespace <b>example-app</b><br/>and its prerequisites, e.g. a LimitRange"]
+    art["ImageComposition / ImageBuild<br/>namespace example-app"]
+
     kz_c["kustomization.yaml of the component<br/>resources · generators"]
+    out["the component's resources<br/>Namespace, HelmRelease, Deployment, …"]
   end
 
-  art["ImageComposition / ImageBuild<br/>namespace oci-composer"]
-  cm_ref["ConfigMap in flux-system<br/>digest-pinned image ref"]
-  sec["SOPS Secrets in flux-system<br/>substitution values"]
-  other["other components' Kustomizations<br/>e.g. infra-metallb"]
-  out["the component's resources<br/>Namespace, HelmRelease, Deployment, …"]
-  rcv["Receiver <b>github</b><br/>infra/flux-webhook"]
+  other["other components' Kustomizations<br/>e.g. infra-example-operator"]
 
-  repo --> gr_fs --> ks_fs --> kz_fs
-  kz_fs --> gr_gen
-  kz_fs --> hr_gen
-  repo --> gr_gen --> hc_gen --> hr_gen --> tpl_gen
-  hr_gen -.->|"optional: values.k0sUpgrade"| ks_k0s
-  tpl_gen --> gr_c
-  tpl_gen --> hr_c
-  repo --> gr_c --> hc_c --> hr_c --> tpl_k
-  tpl_k -.->|"optional: if artifacts/"| ks_art
-  tpl_k -.->|"optional: if substitution-secrets/"| ks_sec
-  tpl_k --> ks_c
-  ks_art -.-> art -.->|"oci-composer builds and pushes"| cm_ref
-  ks_sec -.-> sec
-  ks_art ==>|"dependsOn: Ready first"| ks_c
-  ks_sec ==>|"dependsOn: Ready first"| ks_c
-  other ==>|"dependsOn: annotation"| ks_c
-  cm_ref -.->|"substituteFrom"| ks_c
-  sec -.->|"substituteFrom"| ks_c
   ks_c -->|"kustomize build"| kz_c -->|"patches → envsubst → apply"| out
+  other ==>|"dependsOn: annotation"| ks_c
+  ag_gen --> ea_gen -.->|"chartRef"| hr_gen --> tpl_gen
   rcv -.->|"push webhook: reconcile now"| gr_fs
-  rcv -.-> gr_gen
-  rcv -.-> gr_c
+  ag_c --> ea_c
+  ks_ns ==> ks_art
+  plan -->|"Autopilot rolls the update"| nodes
+  tpl_gen --> ag_c
+  hr_gen -.->|"templates/k0s-upgrade.yaml"| ks_k0s
+  tpl_k -.->|"if substitution-secrets/"| ks_sec
+  repo --> gr_fs --> ks_fs --> kz_fs
+  cm_ref ==>|"dependsOn …-artifacts<br/>substituteFrom: image ref"| ks_c
+  tpl_gen --> hr_c
+  ks_ns ==>|"dependsOn …-namespaces"| ks_c
+  kz_fs --> ag_gen
+  sec ==>|"dependsOn …-substitution-secrets<br/>substituteFrom: Secrets"| ks_c
+  hr_c --> tpl_k
+  tpl_k --> ks_c
+  gr_fs -.->|"source"| ag_c
+  gr_fs -.-> ag_gen
+  ea_c -.->|"chartRef"| hr_c
+  ks_ns --> ns
+  tpl_k -.->|"if namespaces/"| ks_ns
+  ks_art --> art -->|"oci-composer builds and pushes"| cm_ref
+  tpl_k -.->|"if artifacts/"| ks_art
+  kz_fs --> hr_gen
+  ea_c -.->|"sourceRef, siblings likewise"| ks_c
 
   classDef source fill:#dbeafe,stroke:#1d4ed8,color:#0b1b3f
   classDef kustomization fill:#dcfce7,stroke:#15803d,color:#052e16
   classDef helm fill:#fef3c7,stroke:#b45309,color:#3b1d02
   classDef file fill:#f3f4f6,stroke:#4b5563,color:#111827
-  classDef optional stroke-dasharray:5 5
-  class gr_fs,gr_gen,gr_c,hc_gen,hc_c source
-  class ks_fs,ks_c,ks_art,ks_sec,ks_k0s,other kustomization
+  classDef object fill:#ede9fe,stroke:#6d28d9,color:#2e1065
+  class gr_fs,ag_gen,ea_gen,ag_c,ea_c source
+  class ks_fs,ks_c,ks_ns,ks_art,ks_sec,ks_k0s,other kustomization
   class hr_gen,hr_c helm
-  class kz_fs,kz_c,tpl_gen,tpl_k,out,repo file
-  class ks_art,ks_sec,ks_k0s,art,cm_ref,sec optional
+  class kz_fs,kz_c,tpl_gen,tpl_k,out,repo,k0sctl,nodes file
+  class ns,art,cm_ref,sec,rcv,job,plan object
+  style opt_k0s stroke-dasharray:5 5
+  style opt_ns stroke-dasharray:5 5
+  style opt_art stroke-dasharray:5 5
+  style opt_sec stroke-dasharray:5 5
 ```
 
 Blue nodes are sources (source-controller), green ones are Flux Kustomizations
-(kustomize-controller), yellow ones are HelmReleases (helm-controller), and grey ones are files
-and the resources that come out. A **dashed border** marks objects that only exist when the
-component opts in. Solid arrows create or feed. **Thick arrows** are `dependsOn`, so the
-component waits for that Kustomization to be Ready. Dashed arrows reference or trigger.
+(kustomize-controller), yellow ones are HelmReleases (helm-controller), purple ones are objects
+the Kustomizations create, and grey ones are files and the resources that come out. A **dashed
+box** marks what only exists when the component, or for k0s-upgrade the root release's
+values, opts in. Solid arrows create or feed. **Thick arrows** are `dependsOn`, so the target waits for
+that Kustomization to be Ready, and where they come from `artifacts/` or
+`substitution-secrets/`, the component also substitutes that box's values. Dashed arrows
+reference or trigger.
 
 In words:
 
 1. The Flux bootstrap applies `kube-cluster/flux-system/`. Besides Flux itself, that holds the
    generator's source and its HelmRelease.
-2. The **root release** renders the chart once. For each discovered component it emits a
-   GitRepository and a HelmRelease, `gen-<group>-<component>`.
-3. Each **per-component release** renders the same chart against a source filtered down to
-   that component, and emits its Flux Kustomization, plus the optional `-artifacts` and
-   `-substitution-secrets` ones.
+2. The **root release** renders the chart once. For each discovered component it emits an
+   ArtifactGenerator and a HelmRelease, `gen-<group>-<component>`. With `values.k0sUpgrade` it also
+   emits `k0s-upgrade`, whose Job, named after the k0s version in `k0sctl.yaml`, recreates the
+   Autopilot Plan when that version moves.
+3. Each **per-component release** renders the same chart against an artifact filtered down to
+   that component, and emits its Flux Kustomization, plus the optional `-namespaces`,
+   `-artifacts` and `-substitution-secrets` ones. They live in the component's own **control
+   namespace** `gen-<group>-<component>`, which the release also creates; see
+   [Control namespaces and risky changes](#control-namespaces-and-risky-changes).
+4. The **ArtifactGenerator** packs the component's chart and each Kustomization's files out of
+   the `flux-system` checkout into ExternalArtifacts. Their revision is a hash of their content,
+   so a commit reconciles only what it changed; see [ExternalArtifacts](#externalartifacts).
 
 The split into one release per component is not cosmetic. Helm stores the whole chart in a
 1 MiB release Secret, and here the chart is the repository; see
-[docs/generator-chart-size.md](docs/generator-chart-size.md). The per-component GitRepositories
-copy `generate.sourceFile` (`kube-cluster/flux-system/generators-source.yaml`), so the URL,
-credentials and any submodules or includes are set once. A GitHub push webhook reconciles all
-of these sources immediately, so a push applies in seconds.
+[docs/generator-chart-size.md](docs/generator-chart-size.md). A GitHub push webhook reconciles
+`flux-system` and `generators` immediately, so a push applies in seconds.
 
 ## Repository layout
 
 ```
 Chart.yaml, templates/         flux-component-generator, the root Helm chart
-kube-cluster/
+kube-cluster/                  one cluster; the directory name is the cluster's
   k0sctl.yaml                  the cluster itself (k0s, CNI, control plane), applied with k0sctl
   flux-system/                 Flux bootstrap + the generator's source and HelmRelease
   infra/<component>/           platform: storage, ingress, databases, operators
   apps/<component>/            applications
   rbac/<component>/            cluster-wide RBAC
   k0s-upgrade/                 the in-cluster k0s upgrade wrapper
+<another-cluster>/             a further cluster: same shape, its own k0sctl.yaml and flux-system/
 scripts/                       validation, rendering, secret handling, the public-template build
 tests/                         generator fixtures and golden output
 docs/                          design notes and operations
 ```
 
 k0sctl creates the cluster and is run by hand. Everything inside the cluster is Flux.
+
+Nothing in the generator is tied to the cluster directory's name. Its groups are plain `base`
+paths (`values.groups` in `<cluster>/flux-system/generators.yaml`), so a second cluster is just
+more groups, `base: <cluster>/apps` and so on, rendered by that cluster's own release.
 
 ## Adding a component
 
@@ -133,14 +181,14 @@ k0sctl creates the cluster and is run by hand. Everything inside the cluster is 
    kind: Kustomization
    metadata:
      annotations:
-       flux-component-generator/dependsOn: infra-metallb,infra-ceph-csi-rbd
+       flux-component-generator/dependsOn: infra-example-operator,infra-example-storage
    resources:
    - resources.yaml
    ```
 
 3. Commit and push. The generator emits `app-<name>` within seconds.
 4. Check that it actually applied: see
-   [Checking a deploy landed](kube-cluster/README.md#checking-a-deploy-landed).
+   [Checking a deploy landed](docs/operations.md#checking-a-deploy-landed).
 
 ## Generator reference
 
@@ -158,20 +206,31 @@ never reach the cluster.
 
 ### Reserved subdirectories
 
-Both are opt-in by existing. Neither holds a `kustomization.yaml`: kustomize-controller
+Each is opt-in by existing. None holds a `kustomization.yaml`: kustomize-controller
 synthesizes one.
 
-- **`substitution-secrets/`** holds SOPS Secrets in `flux-system`. They get their own
+- **`namespaces/`** holds the component's Namespace and what must exist in it first, such as a
+  LimitRange. It gets its own Kustomization, and both the component and `artifacts/` wait for it.
+  Flux never prunes what it holds: a pruned Namespace takes every PVC inside. Removing a component
+  therefore leaves its Namespace; see
+  [docs/operations.md](docs/operations.md#removing-a-component). Moving an existing Namespace in
+  from the component is still a prune risk, since the component Kustomization prunes what leaves
+  its build: follow [Control namespaces and risky changes](#control-namespaces-and-risky-changes).
+
+- **`substitution-secrets/`** holds SOPS Secrets in the component's control namespace. They get
+  their own
   Kustomization, the component waits for it, and each one becomes a
   `postBuild.substituteFrom` entry, so the component's config can stay plaintext with
   `${VAR}` placeholders.
 - **`artifacts/`** holds the component's `ImageComposition` and `ImageBuild` objects. Each one
-  exports its digest-pinned ref into a ConfigMap, which the component substitutes as `${VAR}`.
+  exports its digest-pinned ref into a ConfigMap in that same namespace, which the component
+  substitutes as `${VAR}`.
+  They go in the component's namespace, declared in `namespaces/`.
   See [`infra/oci-composer`](kube-cluster/infra/oci-composer/README.md).
 
 ### Substitution caveats
 
-Either subdirectory turns on envsubst for the **whole component build**, not just the file you
+`substitution-secrets/` or `artifacts/` turns on envsubst for the **whole component build**, not just the file you
 meant. Flux fails the reconcile on any `${VAR}` it cannot resolve, and applies `$$` as `$`.
 Before adding one, run:
 
@@ -191,10 +250,10 @@ it into a Secret, with the content still plaintext, so the config stays a real f
 
 ```yaml
 configMapGenerator:
-- name: mosquitto-config
-  namespace: mosquitto
+- name: example-app-config
+  namespace: example-app
   files:
-  - mosquitto.conf
+  - example-app.conf
   options:
     disableNameSuffixHash: true
     annotations:
@@ -206,8 +265,8 @@ refers to a Secret, which is a reference kustomize does not rewrite to the hashe
 `scripts/check-substitution.py` fails the build on a missing annotation (the credential would
 be applied as a ConfigMap) and on a missing `disableNameSuffixHash`.
 
-Better still, use the app's own mechanism where it has one, so the config holds no credential
-at all. For example, `apps/arr/autopulse` reads `AUTOPULSE__*` env vars.
+Better still, use the app's own mechanism where it has one, such as reading the credential from
+an env var or a mounted Secret, so the config holds no credential at all.
 
 ## Conventions
 
@@ -220,9 +279,8 @@ Every namespaced object declares its namespace explicitly:
   apply with `namespace not specified`.
 
 **Never** put a top-level `namespace:` in a `kustomization.yaml`. That transformer
-force-overrides every object, including ones deliberately pinned elsewhere, such as a CNPG
-`Database` living in `postgres`, and silently breaks multi-namespace apps. Examples:
-`authelia`, `zensical` (generators with `namespace:`); `matrix`, `stalwart` (multi-namespace).
+force-overrides every object, including ones deliberately pinned elsewhere, such as a database
+role that lives in the database operator's namespace, and silently breaks multi-namespace apps.
 
 ### Getting files into a workload
 
@@ -234,20 +292,18 @@ the network, pins by ref instead of content, and usually turns a cache into stat
 
    ```yaml
    volumes:
-     - name: app-view-plugin
+     - name: plugin
        image:
-         reference: ghcr.io/lhns/headlamp-app-view:0.3.0
+         reference: ghcr.io/example/example-plugin:1.0.0
    volumeMounts:
-     - name: app-view-plugin
-       mountPath: /headlamp/user-plugins
+     - name: plugin
+       mountPath: /app/plugins
        subPath: plugins
    ```
 
-   Example: `apps/headlamp`.
-
 2. **The content is not an image** (git repos and monorepo subpaths, jars by URL,
    ConfigMaps): compose one with [`infra/oci-composer`](kube-cluster/infra/oci-composer/README.md)
-   from the component's `artifacts/`. Example: `apps/freshrss`.
+   from the component's `artifacts/`.
 
 The line between the two is whether the inputs are already images, not how complex the result
 is.
@@ -273,6 +329,9 @@ The generated Kustomizations already default to `10m`.
 
 Secrets are SOPS-encrypted with age. Only the cluster holds the private key
 (`flux-system/sops-age`), and the generator adds decryption to every component Kustomization.
+Flux reads it from the Kustomization's own namespace, so every control namespace needs a copy:
+Reflector makes one, after a one-time annotation described in
+[infra/reflector](kube-cluster/infra/reflector/README.md#sops-age-in-control-namespaces).
 
 ### Handing over a secret
 
@@ -300,14 +359,18 @@ encrypted file needs the cluster's key. Requires `sops` and tkinter (`python3-tk
 - `yamllint`;
 - the `kustomize build` + strict `kubeconform` sweep over every component and the rendered
   generator output;
-- the release-size, substitution, source-pin and SOPS checks;
+- the release-size, substitution, source-pin and SOPS checks, and the offline test of the
+  migration gate;
 - the per-component tests (see [kube-cluster/README.md](kube-cluster/README.md)).
 
 It also renders the generator against `tests/fixtures/` and diffs the result against
 `tests/golden/fixtures.yaml`. The fixtures cover what the live tree does not: a component with no
 annotations, every annotation set, a `substitution-secrets/` dir with a wrong-namespace Secret,
-and artifacts with and without a resolvable `sourceRef`. For an intentional behaviour change,
-run `bash scripts/update-golden.sh` and review that diff: it *is* the change.
+artifacts with and without a resolvable `sourceRef`, `namespaces/` with artifacts in the
+component's own namespace, components with prune off, and one depending on another
+component's internal Kustomization. `tests/golden/fixtures-generate.yaml` pins the same
+fixtures through the root release's `generate` path. For an intentional behaviour change, run
+`bash scripts/update-golden.sh` and review that diff: it *is* the change.
 
 ## Details
 
@@ -330,8 +393,8 @@ it, so the failure is loud. Override per component with
 
 ### Moving a component between groups
 
-The Flux Kustomization is named after the directory, so moving `apps/postgres/` to
-`infra/postgres/` deletes `app-postgres` and creates `infra-postgres`. **Deleting a
+The Flux Kustomization is named after the directory, so moving `apps/example-db/` to
+`infra/example-db/` deletes `app-example-db` and creates `infra-example-db`. **Deleting a
 Kustomization prunes everything it manages.** For a stateless component that is harmless. For a
 stateful one it deletes the PVCs, and the workload starts empty.
 
@@ -345,14 +408,60 @@ Adopt in place instead:
 
 Check that the workload never restarted.
 
+### Control namespaces and risky changes
+
+The generator puts every component's Kustomizations in Namespace `gen-<group>-<component>`,
+created by its `gen-` release. Flux reads `substituteFrom` and `sops-age` only from the
+Kustomization's own namespace, so the component's `substitution-secrets/` objects and
+`writeRefTo` ConfigMaps go there too; the template and `scripts/check-substitution.py` refuse
+them in `flux-system`. Other components' `dependsOn` name that namespace.
+
+A change that can make a Kustomization build fewer objects, and so delete what it should keep,
+such as moving a Namespace into `namespaces/` or a change to what an artifact copies, runs with
+prune off. `generate.pruneDisabled` in `kube-cluster/flux-system/generators.yaml` takes
+generated Kustomization names, or `"*"`, and sets `prune: false` on all of a component's
+Kustomizations. One PR per step, and `scripts/check-migration.py` green before the next:
+
+1. `snapshot <name> --out <file outside the repo>`. PR: add it to `pruneDisabled`. After
+   deploy: `verify-prune-disabled <name>`.
+2. PR: the change. After deploy: `verify-moved <name> --snapshot <file>`: Kustomizations only
+   in `gen-<name>` with `prune: false`, each on its own ExternalArtifact, every inventory
+   object with the same UID and owned by a Kustomization of the component, PVCs, PVs and
+   namespaces unchanged, no pod restarted, `sops-age` and the substitution sources present.
+3. PR: remove it from `pruneDisabled`. After deploy: `verify-done <name> --snapshot <file>`.
+
+Any deviation: stop, and revert the last PR while prune is still off. Start with one stateless
+component.
+
+### ExternalArtifacts
+
+For each component, the root release emits an ArtifactGenerator `gen-<group>-<component>`
+(source-watcher) over the `flux-system` GitRepository, with one ExternalArtifact per consumer,
+all in `flux-system`:
+
+- `gen-<group>-<component>`: `Chart.yaml`, `templates/`, the component's `kustomization.yaml`
+  and its reserved directories' `*.yaml`, under `generators/`, since Helm refuses a chart at the
+  archive root. Its `gen-` HelmRelease reads it through `chartRef`.
+- `<name>`, plus `<name>-namespaces`, `-artifacts` and `-substitution-secrets` where those
+  directories exist: the component directory without them, and each of them, at their repo
+  paths. Each Kustomization's `sourceRef` names its own; `spec.path` is the repo path.
+
+Siblings do not wait for the same commit, so the Kustomizations get `retryInterval: 1m`.
+Substitution Secrets carry `reconcile.fluxcd.io/watch: Enabled`, so a Secret-only change still
+reaches its consumer at once.
+
+An artifact missing a file builds fewer objects, and prune deletes the rest: change what
+`templates/generate.yaml` copies as in
+[Control namespaces and risky changes](#control-namespaces-and-risky-changes).
+
+source-watcher is an extra Flux component: a `flux bootstrap` without
+`--components-extra=source-watcher` removes it and its CRD, and every component stops
+deploying. Use `scripts/gen-flux.sh`.
+
 ## Further documentation
 
-- [kube-cluster/README.md](kube-cluster/README.md): per-component tests, checking a deploy
-  landed.
-- [docs/operations.md](docs/operations.md): node maintenance.
+- [kube-cluster/README.md](kube-cluster/README.md): per-component tests.
+- [docs/operations.md](docs/operations.md): checking a deploy landed, node maintenance.
 - [docs/generator-chart-size.md](docs/generator-chart-size.md): why there is one release per
   component.
-- Each component's own `README.md`, e.g.
-  [infra/oci-composer](kube-cluster/infra/oci-composer/README.md),
-  [infra/ceph-csi-cephfs](kube-cluster/infra/ceph-csi-cephfs/README.md),
-  [infra/pv-reaper](kube-cluster/infra/pv-reaper/README.md).
+- Each component's own `README.md`, next to its manifests.

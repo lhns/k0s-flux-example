@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: namespaced
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: namespaced
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 64Mi

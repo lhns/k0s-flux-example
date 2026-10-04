@@ -4,7 +4,7 @@ description: >-
   Repo-root generator chart, run once per component. It discovers component
   directories via .Files.Glob and emits one Flux Kustomization per directory,
   giving each its own failure domain. The root release instead sets `generate`
-  and emits a GitRepository + HelmRelease per component, each running this same
+  and emits an ArtifactGenerator + HelmRelease per component, each running this same
   chart against an artifact filtered to that component.
 type: application
 version: 0.1.0

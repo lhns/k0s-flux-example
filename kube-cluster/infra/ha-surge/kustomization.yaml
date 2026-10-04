@@ -6,5 +6,4 @@ metadata:
     # Certificate + cainjector). Read by the root generator; inert to kustomize.
     flux-component-generator/dependsOn: infra-cert-manager
 resources:
-- namespace.yaml
 - release.yaml

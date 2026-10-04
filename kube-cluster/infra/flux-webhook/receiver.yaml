@@ -1,7 +1,6 @@
 ---
-# GitHub push webhook -> pokes flux-system and every generator source for instant sync.
-# Without the generator sources, a component's files land in seconds but its generated
-# Kustomization spec only on their own poll, up to 30 min later.
+# GitHub push webhook -> pokes flux-system; every ExternalArtifact follows from it.
+# Without it, a push lands only on flux-system's poll.
 # notification-controller populates .status.webhookPath (/hook/<hmac>); that
 # path + the webhook-token secret are configured on the GitHub repo webhook.
 apiVersion: notification.toolkit.fluxcd.io/v1
@@ -20,8 +19,3 @@ spec:
     - apiVersion: source.toolkit.fluxcd.io/v1
       kind: GitRepository
       name: flux-system
-    - apiVersion: source.toolkit.fluxcd.io/v1
-      kind: GitRepository
-      name: "*"
-      matchLabels:
-        flux-component-generator/push-receiver: github
