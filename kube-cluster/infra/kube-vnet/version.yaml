@@ -1,0 +1,12 @@
+# Patch onto shared/infra/kube-vnet: this cluster's chart version. A whole OCIRepository shape so
+# Renovate's flux manager reads it. scripts/validate.sh takes the CRD schema version from
+# kube-cluster's copy.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: kube-vnet
+  namespace: kube-vnet-system
+spec:
+  url: oci://ghcr.io/lhns/charts/kube-vnet
+  ref:
+    tag: "0.8.0"

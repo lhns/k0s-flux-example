@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Regenerate the Flux bootstrap manifests under kube-cluster/flux-system/ instead of
+# Regenerate the Flux bootstrap manifests under <cluster>/flux-system/ instead of
 # hand-editing those generated files. Review the diff, then commit.
 #
 #   ./scripts/gen-flux.sh && git diff kube-cluster/flux-system
+#   CLUSTER=kube-test-cluster ./scripts/gen-flux.sh
 #
 # The version is read back out of the committed manifests, so a plain re-run reproduces
 # them byte-for-byte rather than rewriting them at whatever version the script last
@@ -26,12 +27,14 @@ COMPONENTS_EXTRA="source-watcher"
 NAMESPACE="flux-system"
 GIT_URL="https://github.com/example/k0s-flux.git"
 GIT_BRANCH="main"
-GIT_PATH="./kube-cluster/flux-system"
+CLUSTER="${CLUSTER:-kube-cluster}"   # the cluster's directory; also its sync path
+[ -d "${CLUSTER}/flux-system" ] || { echo "no ${CLUSTER}/flux-system" >&2; exit 1; }
+GIT_PATH="./${CLUSTER}/flux-system"
 GIT_SECRET="flux-system"   # secret the GitRepository authenticates with (deploy key / token)
 SOURCE_INTERVAL="1h"       # how often to poll git (a webhook Receiver makes pushes instant)
 SYNC_INTERVAL="10m"
 
-OUT="kube-cluster/flux-system"
+OUT="${CLUSTER}/flux-system"
 # ─────────────────────────────────────────────────────────────────────────────
 
 # `flux install --export` writes "# Flux Version: vX.Y.Z" as the third line; that header is

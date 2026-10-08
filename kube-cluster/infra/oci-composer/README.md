@@ -113,6 +113,8 @@ is told where it really is, by a registry drop-in shipped in
 # ...and .73, .74 — no `server` line, so no node is a distinguished fallback
 ```
 
+(preceded in the real file by the same three nodes' Spegel ports, 30020 — see Availability)
+
 That mechanism is not new here: `k0s-files/registries.toml` sets `registry.config_path`, which
 containerd is already reading for Spegel.
 
@@ -150,9 +152,12 @@ or being drained stops pulls for as long as it takes to reschedule.
 That is a real dependency, because pulls are **frequent, not rare**: every rebuild publishes a new
 digest, and a new digest is a new pull on every node running the workload.
 
-**Spegel does not mirror this.** It manages the `_default` directory, which containerd consults
-only for registries with no directory of their own — and this one has one. So peer-to-peer
-mirroring is not a fallback here.
+**Spegel is a peer fallback, listed by hand.** It indexes this registry's images (metric
+`spegel_advertised_*{registry="oci-composer.internal"}`) and serves them to peers, but its
+`_default` directory is consulted only for registries with no directory of their own, and this
+one has one. So `hosts.toml` lists the three Spegel ports (30020) before the NodePorts: while the
+registry pod moves, a node missing a digest takes it from a peer that has it. A digest no node
+holds still needs the registry.
 
 ## Verification
 

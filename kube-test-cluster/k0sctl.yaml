@@ -1,0 +1,65 @@
+# PLACEHOLDER addresses: 192.0.2.0/24 is TEST-NET-1 and routes nowhere. Replace every one before
+# `k0sctl apply --config kube-test-cluster/k0sctl.yaml`.
+apiVersion: k0sctl.k0sproject.io/v1beta1
+kind: Cluster
+metadata:
+  name: kube-test-cluster
+  user: admin
+spec:
+  hosts:
+  - ssh:
+      address: 192.0.2.11   # PLACEHOLDER
+      user: root
+      port: 22
+      keyPath: ~/.ssh/id_rsa
+    role: controller
+    privateAddress: 192.0.2.11   # PLACEHOLDER
+  - ssh:
+      address: 192.0.2.21   # PLACEHOLDER
+      user: root
+      port: 22
+      keyPath: ~/.ssh/id_rsa
+    role: worker
+  - ssh:
+      address: 192.0.2.22   # PLACEHOLDER
+      user: root
+      port: 22
+      keyPath: ~/.ssh/id_rsa
+    role: worker
+  k0s:
+    # renovate: datasource=github-releases depName=k0sproject/k0s
+    version: "v1.36.4+k0s.1"
+    dynamicConfig: false
+    config:
+      apiVersion: k0s.k0sproject.io/v1beta1
+      kind: Cluster
+      metadata:
+        name: k0s
+      spec:
+        api:
+          k0sApiPort: 9443
+          port: 6443
+        storage:
+          type: etcd
+        network:
+          provider: kuberouter
+          # Prod's ranges; harmless unless the two clusters are ever routed to each other.
+          podCIDR: 172.18.0.0/16
+          serviceCIDR: 172.19.0.0/16
+          kuberouter:
+            autoMTU: true
+          kubeProxy:
+            disabled: false
+            mode: iptables
+        telemetry:
+          enabled: false
+  options:
+    wait:
+      enabled: true
+    drain:
+      enabled: true
+      gracePeriod: 2m0s
+      timeout: 5m0s
+      force: true
+      ignoreDaemonSets: true
+      deleteEmptyDirData: true

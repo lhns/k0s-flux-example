@@ -8,7 +8,7 @@ spec:
   interval: 1h0m0s
   url: oci://ghcr.io/lhns/charts/remote-docker-workspace
   ref:
-    tag: "0.8.1"
+    tag: "0.10.0"
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -22,6 +22,10 @@ spec:
     name: remote-docker-workspace
   values:
     fullnameOverride: remote-docker-ci
+    # Two independent workspaces, each with its own volumes, host key and ephemeral runs. The
+    # Service pins a runner pod's IP to one replica (README.md); `hard` anti-affinity puts them
+    # on different nodes, which 3 workers allow.
+    replicas: 2
     # One account, so the workspace's own dockerd serves it rather than a nested one.
     perUserDind: false
     # overlay2 refuses Ceph-backed volumes; see apps/remote-docker/README.md.
@@ -41,15 +45,34 @@ spec:
         memory: 512Mi
       limits:
         memory: 6Gi
+    # :9090, annotated by the chart; vnet.yaml admits the otel collector.
+    metrics:
+      enabled: true
     ingress:
       enabled: false
     commonLabels:
-      # Joins vnet.yaml's network, which is what lets runner-k0s-flux reach :2280.
+      # Joins vnet.yaml's network, which is what lets the k0s-flux scale set's pods reach :2280.
       kube-vnet/net.remote-docker-ci: ingress
-    # One key per runner-k0s-flux replica: a CLIENT is identified by its key (ADR 0029), and two
-    # replicas sharing one would fight over one reverse-tunnel port. The private halves are in
+    # Every runner pod of the k0s-flux scale set presents the one key below; the account is
+    # ephemeral, so each client process still gets its own port and volumes (ADR 0050 of
+    # remote-docker). Clients older than 0.9.0 are refused. The private half is in
     # apps/github-runner/secret-k0s-flux-ssh.yaml.
+    ephemeral:
+      accounts: [k0s-flux]
+      # Per replica (12 in all): the k0s-flux scale set's maxRunners (4), its warm pod's slot and
+      # runs still in their grace period, in case every runner lands on one replica.
+      maxClients: 6
+      grace: 2m
+      # Throwaway CI: a finished run's containers and compose networks go with it.
+      cleanupContainers: true
+    # Runtime keys live in enrolled_keys.d on the `state` claim; authorizedKeys is the
+    # declarative base. No external route, so no publicURL: add keys with `remote key add`.
+    admins: [lhns]
     authorizedKeys:
       k0s-flux: |
         ssh-ed25519 AAAA<public-key> runner-k0s-flux-0
-        ssh-ed25519 AAAA<public-key> runner-k0s-flux-1
+      # Admin account only; same keys as in apps/remote-docker.
+      lhns: |
+        ssh-ed25519 AAAA<public-key> remote-docker-vm
+        ssh-ed25519 AAAA<public-key> remote-docker-localhost
+        ssh-ed25519 AAAA<public-key> remote-docker-admin-laptop

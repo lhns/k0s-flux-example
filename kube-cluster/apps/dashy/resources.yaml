@@ -24,7 +24,7 @@ spec:
       containers:
         - name: dashy
           # Pinned to a real release tag so Renovate tracks version bumps.
-          image: lissy93/dashy:4.7.17
+          image: lissy93/dashy:4.7.19
           env:
             - name: TZ
               value: Europe/Berlin

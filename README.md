@@ -155,11 +155,13 @@ Chart.yaml, templates/         flux-component-generator, the root Helm chart
 kube-cluster/                  one cluster; the directory name is the cluster's
   k0sctl.yaml                  the cluster itself (k0s, CNI, control plane), applied with k0sctl
   flux-system/                 Flux bootstrap + the generator's source and HelmRelease
-  infra/<component>/           platform: storage, ingress, databases, operators
-  apps/<component>/            applications
+  infra/<component>/           what the cluster and other components need to function: storage,
+                               ingress, databases, shared operators
+  apps/<component>/            applications, and operators that serve only one app
   rbac/<component>/            cluster-wide RBAC
   k0s-upgrade/                 the in-cluster k0s upgrade wrapper
-<another-cluster>/             a further cluster: same shape, its own k0sctl.yaml and flux-system/
+kube-test-cluster/             a second cluster: same shape, its own k0sctl.yaml and flux-system/
+shared/                        plain kustomize bases more than one cluster deploys
 scripts/                       validation, rendering, secret handling, the public-template build
 tests/                         generator fixtures and golden output
 docs/                          design notes and operations
@@ -168,8 +170,8 @@ docs/                          design notes and operations
 k0sctl creates the cluster and is run by hand. Everything inside the cluster is Flux.
 
 Nothing in the generator is tied to the cluster directory's name. Its groups are plain `base`
-paths (`values.groups` in `<cluster>/flux-system/generators.yaml`), so a second cluster is just
-more groups, `base: <cluster>/apps` and so on, rendered by that cluster's own release.
+paths (`values.groups` of the root HelmRelease in `<cluster>/flux-system/`), and each cluster renders
+only its own, in its own root release: see [Multiple clusters](#multiple-clusters).
 
 ## Adding a component
 
@@ -203,6 +205,7 @@ never reach the cluster.
 | `flux-component-generator/appInstance` | directory name | the `app.kubernetes.io/instance` label put on everything, for when a chart labels its workloads differently |
 | `flux-component-generator/crdPolicy` | `CreateReplace` | `spec.upgrade.crds` for the component's HelmReleases: `Skip`, `Create` or `CreateReplace`; see [Chart CRDs are upgraded](#chart-crds-are-upgraded) |
 | `flux-component-generator/suspend` | `false` | `"true"` suspends the component's Kustomization; its `gen-` release stays live |
+| `flux-component-generator/bases` | none | comma-separated `shared/` directories the component's kustomization reaches through `../`; each is copied into its artifact. See [Multiple clusters](#multiple-clusters) |
 
 ### Reserved subdirectories
 
@@ -327,11 +330,12 @@ The generated Kustomizations already default to `10m`.
 
 ## Secrets
 
-Secrets are SOPS-encrypted with age. Only the cluster holds the private key
-(`flux-system/sops-age`), and the generator adds decryption to every component Kustomization.
+Secrets are SOPS-encrypted with age, one key per cluster: `.sops.yaml` has a rule per cluster
+directory, and only that cluster holds the private key (`flux-system/sops-age`). The generator
+adds decryption to every component Kustomization.
 Flux reads it from the Kustomization's own namespace, so every control namespace needs a copy:
 Reflector makes one, after a one-time annotation described in
-[infra/reflector](kube-cluster/infra/reflector/README.md#sops-age-in-control-namespaces).
+[infra/reflector](shared/infra/reflector/README.md#sops-age-in-control-namespaces).
 
 ### Handing over a secret
 
@@ -357,10 +361,14 @@ encrypted file needs the cluster's key. Requires `sops` and tkinter (`python3-tk
 `scripts/validate.sh` is the single entry point, for people and CI. It runs:
 
 - `yamllint`;
-- the `kustomize build` + strict `kubeconform` sweep over every component and the rendered
-  generator output;
+- the `kustomize build` + strict `kubeconform` sweep over every component of every cluster
+  (any `*/flux-system/kustomization.yaml`) and the rendered generator output;
 - the release-size, substitution, source-pin and SOPS checks, and the offline test of the
   migration gate;
+- `scripts/check-clusters.py`: each cluster reads only its own directory, and `shared/` holds
+  only plain bases;
+- `scripts/check-artifacts.py`: every component builds from exactly what its ExternalArtifact
+  holds, which catches a `../` out of the component;
 - the per-component tests (see [kube-cluster/README.md](kube-cluster/README.md)).
 
 It also renders the generator against `tests/fixtures/` and diffs the result against
@@ -368,9 +376,92 @@ It also renders the generator against `tests/fixtures/` and diffs the result aga
 annotations, every annotation set, a `substitution-secrets/` dir with a wrong-namespace Secret,
 artifacts with and without a resolvable `sourceRef`, `namespaces/` with artifacts in the
 component's own namespace, components with prune off, and one depending on another
-component's internal Kustomization. `tests/golden/fixtures-generate.yaml` pins the same
-fixtures through the root release's `generate` path. For an intentional behaviour change, run
+component's internal Kustomization, and one with `bases`. `tests/golden/fixtures-generate.yaml`
+pins the same fixtures through the root release's `generate` path, and
+`tests/generator-guards.sh` the renders it must refuse: two components generating one name,
+and a base outside `shared/`. For an intentional behaviour change, run
 `bash scripts/update-golden.sh` and review that diff: it *is* the change.
+
+## Multiple clusters
+
+Each cluster is a top-level directory with a `flux-system/kustomization.yaml`; the scripts and
+CI find them by that, and its generator root by content (the HelmRelease with `values.groups`,
+the ArtifactGenerator copying `Chart.yaml`), whatever the file names. `kube-cluster/` is prod,
+`kube-test-cluster/` is a second cluster, scaffolded but not yet bootstrapped
+([its README](kube-test-cluster/README.md) lists the placeholders).
+
+### What each cluster has of its own
+
+| piece | why it cannot be shared |
+| --- | --- |
+| `flux-system/gotk-sync.yaml` | syncs `./<cluster>/flux-system`; it is how a cluster knows which directory is its own |
+| `flux-system/generators-artifact.yaml` | the root chart's copy rules name `<cluster>/` paths only, never `*/`, or every root release would carry every cluster's files |
+| `flux-system/generators.yaml` | groups `<cluster>/{apps,infra,rbac}`, with the same prefixes everywhere, and `k0sUpgrade` |
+| `flux-system/gotk-components.yaml`, `kustomization.yaml` | Flux and its controller tuning, sized per cluster |
+| `k0sctl.yaml`, `k0s-upgrade/` | the cluster itself |
+| an age key and a `.sops.yaml` rule | a cluster must not be able to decrypt another's secrets |
+
+`scripts/check-clusters.py` enforces the first three and the key, and `gen-flux.sh` takes
+`CLUSTER=<dir>`.
+
+### Shared bases
+
+`shared/infra/<name>/`, `shared/components/<name>/` and `shared/k0s-upgrade/` are plain
+kustomize bases: no generator annotations, no reserved directories and no SOPS files, since a
+base reaches every cluster and each cluster decrypts only its own secrets. A cluster deploys one
+from an overlay, its own component directory:
+
+```yaml
+# kube-cluster/infra/reloader/kustomization.yaml
+metadata:
+  annotations:
+    flux-component-generator/bases: shared/infra/reloader
+resources:
+- ../../../shared/infra/reloader
+patches:
+- path: version.yaml
+```
+
+The component builds inside its ExternalArtifact, which normally holds only its own directory.
+`flux-component-generator/bases` adds each listed `shared/` directory to it at its repo path, so
+the `../` resolves there too. A missing entry builds locally and fails only in the cluster;
+`scripts/check-artifacts.py` catches it. `k0s-upgrade/` needs no annotation: its Kustomization
+reads the whole repo.
+
+**An edit to a base reaches every cluster in the same push.** So versions live in the overlays,
+never in a base: a chart version as a patch shaped like a whole HelmRelease (which Renovate's
+flux manager reads; an inline patch it does not), an image tag as kustomize `images:`. The
+overlay is also where a cluster's values, namespaces and secrets go.
+
+### Promoting a version
+
+Each cluster's overlay holds its own pin, so Renovate opens one PR per cluster. A per-path
+`packageRule` in `renovate.json` automerges minor and patch updates under `kube-test-cluster/`,
+so a version runs there before the reviewed PR for `kube-cluster/` is merged. The rules that
+hold a package back (k0s, MariaDB, ...) come later in the file and still apply.
+
+### Bootstrapping a cluster
+
+Never `flux bootstrap`: without `--components-extra=source-watcher` it removes source-watcher,
+and every component stops deploying. Instead, for `<cluster>`:
+
+1. Fill the placeholders, then `k0sctl apply --config <cluster>/k0sctl.yaml` and fetch the
+   kubeconfig. Every command below talks to the new cluster.
+2. `kubectl apply --server-side -f <cluster>/flux-system/gotk-components.yaml`, so the CRDs
+   exist before anything uses them.
+3. The git credential `gotk-sync.yaml` names: `flux create secret git flux-system
+   --url=https://github.com/example/k0s-flux.git --username=<user> --password=<token>`, or a deploy
+   key.
+4. The cluster's age key, from where you stored it, as `flux-system/sops-age` with key
+   `age.agekey`, and the Reflector annotations from
+   [infra/reflector](shared/infra/reflector/README.md#sops-age-in-control-namespaces).
+5. `kubectl apply -k <cluster>/flux-system`. From here Flux reconciles itself.
+6. Once `gen-infra-reflector` exists, copy `sops-age` into it by hand, once
+   ([why](shared/infra/reflector/README.md#sops-age-in-control-namespaces)).
+7. `flux get kustomizations -A` until every one is Ready.
+
+A new cluster also needs its own `.sops.yaml` rule and key (`age-keygen`, the private half never
+in git), and its paths in `renovate.json`'s file patterns.
 
 ## Details
 
@@ -433,6 +524,18 @@ Kustomizations. One PR per step, and `scripts/check-migration.py` green before t
 Any deviation: stop, and revert the last PR while prune is still off. Start with one stateless
 component.
 
+A change to the root release itself (its chart source or name, the release name, or a
+re-bootstrap) risks an uninstall of the root, which would delete every `gen-` release and,
+through prune, everything they applied. Around it, set `generate.keepGenerated: true`: the
+root's ArtifactGenerators and `gen-` HelmReleases get `helm.sh/resource-policy: keep`, so Helm
+leaves them in place. Not permanently: it also stops Helm from deleting a removed component's.
+
+1. PR: `pruneDisabled: ["*"]` and `keepGenerated: true`. After deploy: every `gen-` HelmRelease
+   and ArtifactGenerator carries the annotation, and `verify-prune-disabled` passes.
+2. PR: the root change. After deploy: the root release upgraded in place (same UID, history
+   +1), and `verify-moved` passes.
+3. PR: remove both values. After deploy: `verify-done`.
+
 ### ExternalArtifacts
 
 For each component, the root release emits an ArtifactGenerator `gen-<group>-<component>`
@@ -461,7 +564,11 @@ deploying. Use `scripts/gen-flux.sh`.
 ## Further documentation
 
 - [kube-cluster/README.md](kube-cluster/README.md): per-component tests.
+- [kube-test-cluster/README.md](kube-test-cluster/README.md): the second cluster and its
+  placeholders.
 - [docs/operations.md](docs/operations.md): checking a deploy landed, node maintenance.
 - [docs/generator-chart-size.md](docs/generator-chart-size.md): why there is one release per
   component.
+- [docs/adr/](docs/adr/README.md): the architecture decisions and their history. A change
+  that decides something about the cluster or the repo's structure adds one.
 - Each component's own `README.md`, next to its manifests.

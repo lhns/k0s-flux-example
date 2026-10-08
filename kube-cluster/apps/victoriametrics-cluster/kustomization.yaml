@@ -2,14 +2,16 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 metadata:
   annotations:
-    # vmstorage mounts a CephFS static PV (infra-ceph-csi-cephfs); the vmui routes
-    # through Traefik + the reflected Authelia middleware (infra-traefik). Read by
-    # the root generator; inert to kustomize.
-    flux-component-generator/dependsOn: infra-ceph-csi-cephfs,infra-traefik
+    # The vmstorages mount a CephFS static PV and fastappdata volumes (infra-ceph-csi-cephfs),
+    # an appdata volume (infra-ceph-csi-cephfs-appdata) and RBD volumes (infra-ceph-csi-rbd);
+    # the vmui routes through Traefik + the reflected Authelia middleware (infra-traefik).
+    # Read by the root generator.
+    flux-component-generator/dependsOn: infra-ceph-csi-cephfs,infra-ceph-csi-cephfs-appdata,infra-ceph-csi-rbd,infra-traefik
 resources:
 - resources.yaml
 - vnet.yaml
 - routing.yaml
+- longterm.yaml
 configMapGenerator:
 - name: victoriametrics-cluster-exporter-config
   namespace: victoriametrics-cluster

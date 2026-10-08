@@ -73,7 +73,7 @@ metadata:
   namespace: otbr
 spec:
   replicas: 1
-  # Recreate for three independent reasons: the RWO volume, the fixed macvlan address, and
+  # Recreate for two independent reasons: the fixed macvlan address, and
   # the single radio — two border routers cannot share one RCP.
   strategy:
     type: Recreate
@@ -125,7 +125,7 @@ spec:
           #
           # The failure is SILENT: otbr-agent is not PID 1, so its abort leaves the pod Running
           # with only the :8081 readiness probe red. Watch for 0/1 after any bump.
-          image: openthread/otbr@sha256:4f723b80b1976327930635cb477d62ff99ece3b39e117a1f501bce8713f9ca36
+          image: openthread/otbr@sha256:1affd00c9912808f1c4f30aa41499cc09f3e18e6316c85069e02a9dddf8c9e0b
           securityContext:
             capabilities:
               add:

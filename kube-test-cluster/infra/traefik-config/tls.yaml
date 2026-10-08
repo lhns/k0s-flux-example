@@ -1,0 +1,24 @@
+---
+# The default cert for every IngressRoute with `tls: {}`. PLACEHOLDER zone: *.test.kube.example.com,
+# signed by the self-signed test-ca (infra/cert-manager-issuers).
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: test-kube-lhns-de
+  namespace: traefik
+spec:
+  secretName: test-kube-lhns-de
+  issuerRef:
+    name: test-ca
+    kind: ClusterIssuer
+  dnsNames:
+    - "*.test.kube.example.com"
+---
+apiVersion: traefik.io/v1alpha1
+kind: TLSStore
+metadata:
+  name: default
+  namespace: traefik
+spec:
+  defaultCertificate:
+    secretName: test-kube-lhns-de

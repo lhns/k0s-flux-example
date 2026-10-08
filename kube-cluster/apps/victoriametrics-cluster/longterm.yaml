@@ -1,0 +1,207 @@
+# Long-term tier: 5y at 1m resolution. Architecture and rollout: README.md, "Long-term tier".
+# Hot/cold split of -storageDataPath, and why the sizes: README.md, "Hot/cold storage".
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vmstorage-longterm-cold
+  namespace: victoriametrics-cluster
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: cephfs-appdata
+  resources:
+    requests:
+      storage: 1Ti
+---
+# Unused since data/small moved to RBD; kept until deleted deliberately (AGENTS.md).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vmstorage-longterm-hot
+  namespace: victoriametrics-cluster
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: cephfs
+  resources:
+    requests:
+      storage: 16Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vmstorage-longterm-hot-rbd
+  namespace: victoriametrics-cluster
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 16Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vmstorage-longterm
+  namespace: victoriametrics-cluster
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vmstorage-longterm
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vmstorage-longterm
+        app.kubernetes.io/instance: victoriametrics-cluster
+        app.kubernetes.io/part-of: victoriametrics-cluster
+        kube-vnet/net.vmstorage: ingress
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            # off vmstorage's node: one node loss must not take both tiers
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: vmstorage
+                topologyKey: kubernetes.io/hostname
+            - weight: 50
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/part-of: victoriametrics-cluster
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: vmstorage
+          image: victoriametrics/vmstorage:v1.153.0-cluster
+          args:
+            - -retentionPeriod=5y
+            # Downsampling: one sample per series per minute. May be raised later (old
+            # partitions are re-thinned by the final dedup), never lowered: thinned data
+            # is gone. Deliberately NOT matched on vmselect, which stays at 1ms.
+            - -dedup.minScrapeInterval=1m
+            - -memory.allowedPercent=50
+            # Fewer, larger part and indexdb writes; an unclean stop loses up to 1m of ingest.
+            - -inmemoryDataFlushInterval=1m
+            - -storageDataPath=/storage
+          ports:
+            - {name: vminsert-rpc, containerPort: 8400}
+            - {name: vmselect-rpc, containerPort: 8401}
+            - {name: http, containerPort: 8482}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 90 # a seeded store opens slowly off the HDD tier
+          # Same series count and ingest rate as vmstorage, near-zero query load.
+          resources:
+            requests:
+              memory: 3Gi
+            limits:
+              memory: 8Gi
+          volumeMounts:
+            - name: cold
+              mountPath: /storage
+            # small/<month>/parts.json also lists the big parts, and vmstorage DELETES every
+            # big part it does not list: never start it with a stale, empty or foreign small/.
+            # subPath: ext4's lost+found at the volume root would be read as a partition.
+            - name: hot
+              mountPath: /storage/data/small
+              subPath: small
+      volumes:
+        - name: cold
+          persistentVolumeClaim:
+            claimName: vmstorage-longterm-cold
+        - name: hot
+          persistentVolumeClaim:
+            claimName: vmstorage-longterm-hot-rbd
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vmstorage-longterm
+  namespace: victoriametrics-cluster
+spec:
+  selector:
+    app.kubernetes.io/name: vmstorage-longterm
+  ports:
+    - {name: vminsert-rpc, port: 8400, targetPort: vminsert-rpc}
+    - {name: vmselect-rpc, port: 8401, targetPort: vmselect-rpc}
+    - {name: http, port: 8482, targetPort: http}
+---
+# Own vminsert so the existing one keeps writing to vmstorage only.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vminsert-longterm
+  namespace: victoriametrics-cluster
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vminsert-longterm
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: vminsert-longterm
+        app.kubernetes.io/instance: victoriametrics-cluster
+        app.kubernetes.io/part-of: victoriametrics-cluster
+        kube-vnet/net.vmstorage: egress
+        kube-vnet/net.vminsert: ingress
+    spec:
+      enableServiceLinks: false
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/part-of: victoriametrics-cluster
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: vminsert
+          image: victoriametrics/vminsert:v1.153.0-cluster
+          args:
+            - -storageNode=vmstorage-longterm:8400
+            # Must match vminsert, or the two tiers store different series.
+            - -maxLabelsPerTimeseries=50
+            - -maxLabelValueLen=32768
+            - -replicationFactor=1
+          ports:
+            - {name: http, containerPort: 8480}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: 200Mi
+            limits:
+              memory: 4Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vminsert-longterm
+  namespace: victoriametrics-cluster
+spec:
+  selector:
+    app.kubernetes.io/name: vminsert-longterm
+  ports:
+    - {name: http, port: 8480, targetPort: http}

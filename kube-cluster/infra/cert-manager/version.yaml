@@ -1,0 +1,15 @@
+# Patch onto shared/infra/cert-manager: this cluster's chart version. A whole HelmRelease shape so
+# Renovate's flux manager reads it; an inline patch in kustomization.yaml it would not.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cert-manager
+  namespace: cert-manager
+spec:
+  chart:
+    spec:
+      chart: cert-manager
+      version: "v1.21.2"
+      sourceRef:
+        kind: HelmRepository
+        name: jetstack

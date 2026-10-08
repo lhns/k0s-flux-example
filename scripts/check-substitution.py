@@ -67,6 +67,9 @@ Key names are read straight from the SOPS files; only the values are encrypted.
 """
 import pathlib, re, subprocess, sys, yaml
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import clusters
+
 ANNOTATION = "flux-component-generator/as-secret"
 DISABLED = "kustomize.toolkit.fluxcd.io/substitute"
 KINDS = ("ImageComposition", "ImageBuild")
@@ -83,15 +86,8 @@ CONTROL_LABEL = "flux-component-generator/control-namespace"
 failures = []
 
 
-def generator_values():
-    for doc in yaml.safe_load_all(pathlib.Path("kube-cluster/flux-system/generators.yaml").read_text(encoding="utf-8")):
-        if doc and doc.get("kind") == "HelmRelease":
-            return doc["spec"]["values"]
-    sys.exit("no HelmRelease in kube-cluster/flux-system/generators.yaml")
-
-
-VALUES = generator_values()
-PREFIX = {g["base"]: g.get("prefix") for g in VALUES["groups"]}
+CLUSTERS = clusters.clusters()
+PREFIX = {g["base"]: g.get("prefix") for c in CLUSTERS for g in clusters.values(c).get("groups") or []}
 
 
 def kustomization_namespace(component: pathlib.Path):
@@ -101,16 +97,18 @@ def kustomization_namespace(component: pathlib.Path):
     return f"gen-{name}"
 
 
-def ref_export_namespaces():
-    """(5) The namespaces oci-composer lets an object export into besides its own."""
-    rel = pathlib.Path("kube-cluster/infra/oci-composer/release.yaml")
+def ref_export_namespaces(cluster):
+    """(5) The namespaces the cluster's oci-composer lets an object export into besides its own."""
+    rel = pathlib.Path(cluster, "infra/oci-composer/release.yaml")
+    if not rel.is_file():
+        return set()
     for doc in yaml.safe_load_all(rel.read_text(encoding="utf-8")):
         if doc and doc.get("kind") == "HelmRelease":
             return set((((doc["spec"].get("values") or {}).get("refExport") or {}).get("namespaces")) or [])
     return set()
 
 
-REF_EXPORT_NAMESPACES = ref_export_namespaces()
+REF_EXPORT_NAMESPACES = {c: ref_export_namespaces(c) for c in CLUSTERS}
 
 
 def marked_generators(component: pathlib.Path):
@@ -162,11 +160,11 @@ def exported_keys(component: pathlib.Path, namespaces: set):
                     f"  {f}: {doc['kind']}/{doc['metadata']['name']} does not export "
                     f"push.writeRefTo keys.ref into {target}, so no consumer can use it"
                 )
-            elif target != ns and target not in REF_EXPORT_NAMESPACES:
+            elif target != ns and target not in REF_EXPORT_NAMESPACES[component.parts[0]]:
                 failures.append(
                     f"  {f}: {doc['kind']}/{doc['metadata']['name']} exports into {target}, which "
-                    f"refExport.namespaces in kube-cluster/infra/oci-composer/release.yaml does not "
-                    f"list, so oci-composer refuses it"
+                    f"refExport.namespaces in {component.parts[0]}/infra/oci-composer/release.yaml "
+                    f"does not list, so oci-composer refuses it"
                 )
             keys |= set(exported.values())
     return keys
@@ -223,7 +221,7 @@ def build(component: pathlib.Path):
     return r.stdout if r.returncode == 0 else None
 
 
-for base in ("kube-cluster/apps", "kube-cluster/infra", "kube-cluster/rbac"):
+for base in PREFIX:
     for component in sorted(p for p in pathlib.Path(base).glob("*") if p.is_dir()):
         marked = marked_generators(component)
 
@@ -317,7 +315,7 @@ for base in ("kube-cluster/apps", "kube-cluster/infra", "kube-cluster/rbac"):
                     )
 
 # (5) nothing outside artifacts/, (7) no hand-set control-namespace label
-for f in sorted(pathlib.Path("kube-cluster").rglob("*.yaml")):
+for f in sorted(f for tree in CLUSTERS + ["shared"] for f in pathlib.Path(tree).rglob("*.yaml")):
     text = f.read_text(encoding="utf-8")
     if CONTROL_LABEL in text:
         for doc in yaml.safe_load_all(text):

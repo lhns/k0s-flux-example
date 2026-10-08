@@ -48,7 +48,7 @@ spec:
     spec:
       containers:
         - name: bitwarden
-          image: ghcr.io/dani-garcia/vaultwarden:1.37.3
+          image: ghcr.io/dani-garcia/vaultwarden:1.37.4
           env:
             - name: TZ
               value: Europe/Berlin

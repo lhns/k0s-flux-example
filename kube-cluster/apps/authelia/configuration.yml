@@ -1071,13 +1071,18 @@ session:
   ##
   ## Important: Kubernetes (or HA) users must read https://www.authelia.com/t/statelessness
   ##
-  ## Sentinel HA (valkey.yaml): host/port + high_availability.nodes are Redis Sentinel
-  ## addresses (:26379). Authelia asks Sentinel for the current 'authelia' master and
-  ## transparently follows failovers. Sessions themselves are encrypted at rest with
-  ## SESSION_SECRET, so any replica serving them is safe.
+  ## Sentinel HA (valkey.yaml): host/port is the Sentinel Service (:26379). Authelia asks
+  ## Sentinel for the current 'authelia' master and follows failovers. Sessions themselves
+  ## are encrypted at rest with SESSION_SECRET, so any replica serving them is safe.
+  ## The Service, not pod names: a terminating pod's IP hangs dials until `timeout`, while
+  ## the Service drops it at once.
   redis:
-    host: 'valkey-0.valkey-headless.authelia.svc.cluster.local'
+    host: 'valkey-sentinel.authelia.svc.cluster.local'
     port: 26379
+    timeout: '2 seconds'
+    ## A write racing a failover gets READONLY from the old primary; retries (backoff
+    ## 8-512ms) span the time until +switch-master arrives.
+    max_retries: 6
     ## Use a unix socket instead
     # host: '/var/run/redis/redis.sock'
 
@@ -1134,15 +1139,10 @@ session:
         # -----END RSA PRIVATE KEY-----
 
     ## Redis Sentinel HA. sentinel_name matches `sentinel monitor <name>` in valkey.yaml.
-    ## host/port above is the first sentinel; nodes lists the other two. No auth — the
-    ## channel is isolated by kube-vnet (parity with the previous standalone redis).
+    ## No auth — the channel is isolated by kube-vnet (parity with the previous standalone
+    ## redis).
     high_availability:
       sentinel_name: 'authelia'
-      nodes:
-        - host: 'valkey-1.valkey-headless.authelia.svc.cluster.local'
-          port: 26379
-        - host: 'valkey-2.valkey-headless.authelia.svc.cluster.local'
-          port: 26379
 
 ##
 ## Regulation Configuration
@@ -1822,7 +1822,8 @@ identity_providers:
       # get wrong -- it fails only at the last hop, after the login otherwise looks fine. It is
       # derived: the fork overrides better-auth's basePath to `/auth` (its default `/api/auth`
       # would 404, because the web image's nginx only proxies ^/(trpc|auth) to the API), and
-      # genericOAuth appends /oauth2/callback/<providerId>, with providerId `oidc`.
+      # appends /callback/<providerId>, with providerId `oidc`. Releases before v2.5 used
+      # /oauth2/callback/<providerId>; Authelia's log names the URI a release actually sends.
       #
       # PKCE is not optional here: the fork registers the provider with `pkce: true`. It also
       # sets requireIssuerValidation, so the issuer in Authelia's discovery document has to match
@@ -1835,7 +1836,7 @@ identity_providers:
         require_pkce: true
         pkce_challenge_method: 'S256'
         redirect_uris:
-          - 'https://spliit.example.com/auth/oauth2/callback/oidc'
+          - 'https://spliit.example.com/auth/callback/oidc'
         scopes:
           - 'openid'
           - 'profile'

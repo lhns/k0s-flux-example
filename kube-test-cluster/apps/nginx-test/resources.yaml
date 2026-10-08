@@ -1,0 +1,79 @@
+# The test cluster's sample app: every generator feature a fresh cluster has to get right
+# (namespaces/, substitution-secrets/, as-secret, a PVC, an IngressRoute, dependsOn).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-test
+  namespace: nginx-test
+spec:
+  replicas: 1
+  # One RWO volume: never two pods on it.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: nginx-test
+  template:
+    metadata:
+      labels:
+        app: nginx-test
+        # receive traffic from traefik under kube-vnet's ingress isolation
+        kube-vnet/net.traefik.traefik: ingress
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - {containerPort: 80}
+          readinessProbe:
+            httpGet: {path: /, port: 80}
+            periodSeconds: 3
+          volumeMounts:
+            - {name: probe, mountPath: /etc/probe, readOnly: true}
+            - {name: data, mountPath: /data}
+      volumes:
+        - name: probe
+          secret:
+            secretName: nginx-test-probe
+        - name: data
+          persistentVolumeClaim:
+            claimName: nginx-test-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nginx-test-data
+  namespace: nginx-test
+spec:
+  accessModes: [ReadWriteOnce]
+  # Prod's name, local-path here: infra/local-storage.
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-test
+  namespace: nginx-test
+spec:
+  selector:
+    app: nginx-test
+  ports:
+    - {port: 80, targetPort: 80}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: nginx-test
+  namespace: nginx-test
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`nginx-test.test.kube.example.com`)   # PLACEHOLDER zone
+      services:
+        - name: nginx-test
+          port: 80
+  tls: {}

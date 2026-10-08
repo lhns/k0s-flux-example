@@ -226,7 +226,10 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: immich-redis
@@ -304,7 +307,7 @@ spec:
       # (it would trigger a multi-minute recursive chown of the library every start).
       containers:
         - name: immich-server
-          image: ghcr.io/immich-app/immich-server:v3.2.4
+          image: ghcr.io/immich-app/immich-server:v3.3.0
           # Memory only, per apps/webtop/README.md -- a CPU limit would throttle, not protect.
           resources:
             requests:

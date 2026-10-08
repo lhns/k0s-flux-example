@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Per-component tests: run every kube-cluster/{apps,infra,rbac}/*/tests/run.sh.
+# Per-component tests: run every <component>/tests/run.sh, for every component of every
+# cluster (scripts/clusters.py).
 # Called by scripts/validate.sh, which stays the single entry point. The convention
 # (opt-in, no cluster access, tools manifest) is documented in kube-cluster/README.md.
 #
@@ -16,12 +17,13 @@ pass=0; fail=0; skip=0
 
 record() { names+=("$1"); states+=("$2"); reasons+=("${3:-}"); }
 
-for run in kube-cluster/apps/*/tests/run.sh \
-           kube-cluster/infra/*/tests/run.sh \
-           kube-cluster/rbac/*/tests/run.sh; do
+py=python3; command -v python3 >/dev/null 2>&1 || py=python
+mapfile -t dirs < <("$py" scripts/clusters.py components)
+
+for dir in "${dirs[@]}"; do
+  run="$dir/tests/run.sh"
   [ -f "$run" ] || continue
-  dir="${run%/tests/run.sh}"
-  name="${dir#kube-cluster/}"
+  name="$dir"
 
   # Tools manifest: one required executable per line, optionally followed by the apt
   # package that provides it (see kube-cluster/README.md). Checked here rather than in

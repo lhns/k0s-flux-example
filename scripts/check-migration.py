@@ -11,6 +11,9 @@
 "Control namespaces and risky changes". Run it from a checkout of the commit that is live: the
 expected substitution sources are read from the working tree.
 
+--cluster names the repo directory the components are read from, default kube-cluster; point
+$JUMPHOST at a host whose kubectl talks to that cluster.
+
 Only `kubectl get` runs, through the jumphost ($JUMPHOST, default admin@10.20.5.15). Secret and
 ConfigMap contents, annotations and managedFields are dropped on the jumphost, before
 anything leaves it. Exit 0: every check passed. 1: a deviation, listed. 2: could not check.
@@ -18,6 +21,7 @@ anything leaves it. Exit 0: every check passed. 1: a deviation, listed. 2: could
 import argparse, datetime, json, os, pathlib, shlex, subprocess, sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+CLUSTER = "kube-cluster"  # --cluster
 SUFFIXES = ("", "-namespaces", "-artifacts", "-substitution-secrets")
 OWNER_NAME = "kustomize.toolkit.fluxcd.io/name"
 OWNER_NS = "kustomize.toolkit.fluxcd.io/namespace"
@@ -249,15 +253,13 @@ def read_control(cluster, ns):
 # ---------------------------------------------------------------- the repo side
 
 def component_dir(name):
-    import yaml
-    gen = ROOT / "kube-cluster/flux-system/generators.yaml"
-    for doc in yaml.safe_load_all(gen.read_text(encoding="utf-8")):
-        if doc and doc.get("kind") == "HelmRelease":
-            for g in doc["spec"]["values"]["groups"]:
-                prefix = g.get("prefix")
-                comp = name[len(prefix) + 1:] if prefix and name.startswith(prefix + "-") else (None if prefix else name)
-                if comp and (ROOT / g["base"] / comp / "kustomization.yaml").is_file():
-                    return ROOT / g["base"] / comp
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import clusters
+    for g in clusters.values(CLUSTER).get("groups") or []:
+        prefix = g.get("prefix")
+        comp = name[len(prefix) + 1:] if prefix and name.startswith(prefix + "-") else (None if prefix else name)
+        if comp and (ROOT / g["base"] / comp / "kustomization.yaml").is_file():
+            return ROOT / g["base"] / comp
     raise CannotCheck(f"{name}: no component directory for it in this checkout")
 
 
@@ -519,7 +521,12 @@ def main(argv=None, cluster=None):
     ap.add_argument("--out", help="snapshot: where to write it; never inside the repo")
     ap.add_argument("--snapshot", help="verify-moved/-done: the snapshot taken before")
     ap.add_argument("--commit", help="also require every live source's commit to contain this one")
+    ap.add_argument("--cluster", default="kube-cluster", help="the cluster's repo directory")
     a = ap.parse_args(argv)
+    global CLUSTER
+    CLUSTER = a.cluster
+    if not (ROOT / CLUSTER / "flux-system/kustomization.yaml").is_file():
+        ap.error(f"--cluster {CLUSTER}: no {CLUSTER}/flux-system/kustomization.yaml")
     cluster = cluster or Live(os.environ.get("JUMPHOST", "admin@10.20.5.15"))
     try:
         if a.command == "snapshot":

@@ -5,7 +5,7 @@ ignore: |
   # so a local `yamllint .` would lint transient state that CI never sees.
   .claude/
   templates/
-  kube-cluster/flux-system/gotk-components.yaml
+  /*/flux-system/gotk-components.yaml
 rules:
   line-length: disable # k8s has long image refs / annotations
   document-start: disable # not every file starts with ---

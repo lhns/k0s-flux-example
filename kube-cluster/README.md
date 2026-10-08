@@ -7,12 +7,13 @@ tests below. Nothing component-specific belongs in the repo-wide checks.
 A component that needs a check of its own — a generated file
 to diff, a config language with a compiler, an invariant no schema expresses — puts it in
 
-    kube-cluster/{apps,infra,rbac}/<component>/tests/run.sh
+    <cluster>/<group>/<component>/tests/run.sh
 
-`scripts/run-tests.sh` discovers those by glob (the same shape as the generator chart's
-`<base>/*/kustomization.yaml`, so a new group is picked up for free), runs each from the
-repo root with the component directory as `$1`, and exits non-zero if any failed. **Most
-components have none, and that is the normal case** — absence is silent, never a warning.
+`scripts/run-tests.sh` discovers those in every cluster's groups (the same
+`<base>/*/kustomization.yaml` the generator chart reads, so a new group is picked up for
+free), runs each from the repo root with the component directory as `$1`, and exits non-zero
+if any failed. **Most components have none, and that is the normal case** — absence is
+silent, never a warning.
 
 ## Contract
 

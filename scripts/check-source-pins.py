@@ -13,7 +13,10 @@ import sys
 
 import yaml
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import clusters
+
+ROOT = clusters.ROOT
 KINDS = ("ImageComposition", "ImageBuild")
 
 
@@ -55,8 +58,9 @@ def source_refs(doc):
             yield "context", ref
 
 
-def collect():
-    files = sorted((ROOT / "kube-cluster").rglob("*.yaml"))
+def collect(cluster):
+    """One cluster with shared/: a sourceRef only reaches a GitRepository in its own cluster."""
+    files = sorted(p for tree in (cluster, "shared") for p in (ROOT / tree).rglob("*.yaml"))
     docs = {f: load(f) for f in files}
 
     # Indexed by name alone: a sourceRef is same-namespace only, and a duplicated name would make
@@ -100,11 +104,15 @@ def collect():
 
 
 def main():
-    files, wanted, problems = collect()
-    if "--fix" in sys.argv[1:] and problems:
-        for path in files:
-            rewrite(path, wanted)
-        _, wanted, problems = collect()
+    wanted, problems = {}, []
+    for cluster in clusters.clusters():
+        files, want, probs = collect(cluster)
+        if "--fix" in sys.argv[1:] and probs:
+            for path in files:
+                rewrite(path, want)
+            _, want, probs = collect(cluster)
+        wanted.update({(cluster, k): v for k, v in want.items()})
+        problems += probs
 
     if problems:
         print("\n".join(problems), file=sys.stderr)

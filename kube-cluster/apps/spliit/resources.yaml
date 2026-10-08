@@ -9,8 +9,8 @@
 # comes from the shared CNPG cluster rather than the bundled one, and the MCP service is not
 # deployed (ENABLE_MCP defaults to false).
 #
-# All four images are pinned to ONE commit. The web<->api contract (tRPC, the nginx proxy paths)
-# is not versioned, so mixing commits is a real breakage — see the renovate.json rule that keeps
+# All four images are pinned to ONE release. The web<->api contract (tRPC, the nginx proxy paths)
+# is not versioned, so mixing releases is a real breakage — see the renovate.json rule that keeps
 # them in one PR.
 
 # ---- the API: better-auth, tRPC, and everything that touches the database ----
@@ -48,7 +48,7 @@ spec:
         # every image bump). The worker runs the same initContainer; whichever wins, the other
         # applies nothing.
         - name: migrate
-          image: ghcr.io/antonio-ivanovski/spliit-cloud-migrate:68194f9038d785b695900cc09ef08363ff7eccec@sha256:d3577084051a12536ce59df102d2e037aafbf1f35f9ebf8dd57e884ff56ffa09
+          image: ghcr.io/antonio-ivanovski/spliit-cloud-migrate:v2.5.2@sha256:c1fa7f2bd05bbf46601d1a34fbf32e8feb873cf7002b440af3db8f5d325a304a
           env:
             - name: SPLIIT_DB_PASSWORD
               valueFrom: {secretKeyRef: {name: spliit-db, key: password}}
@@ -56,7 +56,7 @@ spec:
               value: postgresql://spliit:$(SPLIIT_DB_PASSWORD)@postgres-rw.postgres.svc.cluster.local:5432/spliit?sslmode=disable
       containers:
         - name: api
-          image: ghcr.io/antonio-ivanovski/spliit-cloud-api:68194f9038d785b695900cc09ef08363ff7eccec@sha256:a632eac6561b37afb61fc0c9aef9df8bc3e10fe9c05a6b8948b1a1406e596792
+          image: ghcr.io/antonio-ivanovski/spliit-cloud-api:v2.5.2@sha256:8ac7e72b8660e38052494ad28bc6bbd7a05a9c8064e42ce677ec30da41ce3991
           env:
             - {name: PORT, value: "3001"}
             - name: SPLIIT_DB_PASSWORD
@@ -92,9 +92,9 @@ spec:
 
             # ---- SSO: Authelia as a generic OIDC provider ----
             # The redirect URI is derived, not documented: better-auth's basePath is overridden to
-            # `/auth` in the fork (apps/api/src/lib/auth/index.ts), and genericOAuth appends
-            # /oauth2/callback/<providerId>. Hence /auth/oauth2/callback/oidc, which is what the
-            # Authelia client registers. Get it wrong and everything looks healthy until the very
+            # `/auth` in the fork (apps/api/src/lib/auth/index.ts), and it appends
+            # /callback/<providerId> (before v2.5: /oauth2/callback/<providerId>). Hence
+            # /auth/callback/oidc, which is what the Authelia client registers. Get it wrong and everything looks healthy until the very
             # last hop of the login.
             - {name: OIDC_PROVIDER_ID, value: "oidc"}
             - {name: OIDC_DISPLAY_NAME, value: "Authelia"}
@@ -185,7 +185,7 @@ spec:
       enableServiceLinks: false
       initContainers:
         - name: migrate
-          image: ghcr.io/antonio-ivanovski/spliit-cloud-migrate:68194f9038d785b695900cc09ef08363ff7eccec@sha256:d3577084051a12536ce59df102d2e037aafbf1f35f9ebf8dd57e884ff56ffa09
+          image: ghcr.io/antonio-ivanovski/spliit-cloud-migrate:v2.5.2@sha256:c1fa7f2bd05bbf46601d1a34fbf32e8feb873cf7002b440af3db8f5d325a304a
           env:
             - name: SPLIIT_DB_PASSWORD
               valueFrom: {secretKeyRef: {name: spliit-db, key: password}}
@@ -193,7 +193,7 @@ spec:
               value: postgresql://spliit:$(SPLIIT_DB_PASSWORD)@postgres-rw.postgres.svc.cluster.local:5432/spliit?sslmode=disable
       containers:
         - name: worker
-          image: ghcr.io/antonio-ivanovski/spliit-cloud-worker:68194f9038d785b695900cc09ef08363ff7eccec@sha256:95c38d8ad27f91984d8b9aa0faa16e837c57f1cc49cc0c2c1a1dc50f9b55ca38
+          image: ghcr.io/antonio-ivanovski/spliit-cloud-worker:v2.5.2@sha256:a0bf59403cbd2c4836d98967ff49325154c76e9612efddc830c82d7540bee3a1
           env:
             - name: SPLIIT_DB_PASSWORD
               valueFrom: {secretKeyRef: {name: spliit-db, key: password}}
@@ -255,7 +255,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: web
-          image: ghcr.io/antonio-ivanovski/spliit-cloud-web:68194f9038d785b695900cc09ef08363ff7eccec@sha256:6e091867f2a51202786b704daad7e5c0e9343ab4e9df72cb5dbee2f101b58290
+          image: ghcr.io/antonio-ivanovski/spliit-cloud-web:v2.5.2@sha256:4662ba531bc1e4cc231e64b0b1e83d6b618823fa2971796b3ab6324498ff57b6
           ports:
             - {name: http, containerPort: 80}
           readinessProbe:

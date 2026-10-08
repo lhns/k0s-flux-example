@@ -1,0 +1,12 @@
+# EXAMPLE — placeholder values. In the source repo this file is SOPS-encrypted
+# (age, `encrypted_regex: ^(data|stringData)$`). Replace each CHANGEME-* and
+# encrypt with `sops -e -i` before applying.
+# Test fixture for the substitution pattern. A dummy value, not a credential.
+apiVersion: v1
+kind: Secret
+metadata:
+    name: nginx-test-values
+    namespace: gen-app-nginx-test
+type: Opaque
+stringData:
+    NGINX_TEST_VALUE: CHANGEME-NGINX_TEST_VALUE

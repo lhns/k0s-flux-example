@@ -24,7 +24,7 @@ branch, so Renovate's digest PRs follow it.
 | fork | base | branches |
 | --- | --- | --- |
 | [`lhns/jetkvm-cloud-api`](https://github.com/lhns/jetkvm-cloud-api) | upstream `6d5da4f` | `coturn-turn` ([TURN](#turn-coturn-credentials)), `device-sharing` ([sharing](#device-sharing)) |
-| [`lhns/jetkvm-kvm`](https://github.com/lhns/jetkvm-kvm) | `release/0.5.8`, the firmware the devices run | `device-sharing` (the UI half) |
+| [`lhns/jetkvm-kvm`](https://github.com/lhns/jetkvm-kvm) | `release/0.5.8`, the firmware the devices run | `device-sharing` (the UI half), `cloud-fullscreen` (fullscreen button at every width; covers the viewport where the Fullscreen API is missing, e.g. iPhone) |
 
 Each `lhns-build` runs CI on push: cloud-api's tests against Postgres, and the UI's lint and
 `build:prod`. The Dockerfiles stay `inline` in `artifacts/images.yaml`, not in the forks.

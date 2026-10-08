@@ -20,9 +20,10 @@ permissions:
   statuses: write
 jobs:
   validate:
-    # The k0s-flux runner in the cluster (kube-cluster/apps/github-runner). No automatic fallback:
-    # if it is down, dispatch with runner: github-hosted, which spends Actions minutes.
-    runs-on: ${{ inputs.runner == 'github-hosted' && 'ubuntu-latest' || fromJSON('["self-hosted","k0s-flux"]') }}
+    # The ARC scale set k0s-flux in the cluster (kube-cluster/apps/github-runner); its name alone,
+    # no self-hosted. No automatic fallback: if it is down, dispatch with runner: github-hosted,
+    # which spends Actions minutes.
+    runs-on: ${{ inputs.runner == 'github-hosted' && 'ubuntu-latest' || 'k0s-flux' }}
     steps:
       - uses: actions/checkout@v7
       # A cached schema is never refetched: bump the prefix (here and at the save) when an
@@ -49,18 +50,15 @@ jobs:
       - name: Install tools
         run: |
           set -euo pipefail
-          # The self-hosted image ships neither package lists nor pipx.
+          # ubuntu-latest and the k0s-flux runner base both ship yamllint.
           sudo apt-get update -qq
-          command -v pipx >/dev/null || sudo apt-get install -y -qq pipx
-          pipx install yamllint
-          pipx environment --value PIPX_BIN_DIR >> "$GITHUB_PATH"
-          # python3-yaml: scripts/check-substitution.py parses kustomize output; pipx keeps
-          # yamllint's PyYAML in its own venv, so the system interpreter needs its own copy.
+          # python3-yaml: scripts/check-substitution.py parses kustomize output; yamllint's
+          # PyYAML is not necessarily the system interpreter's.
           sudo apt-get install -y -qq python3-yaml
           t=.cache/ci-tools; mkdir -p "$t"
           fetch() { curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 "$1"; }
           # renovate: datasource=github-releases depName=kubernetes-sigs/kustomize
-          url=https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.8.2/kustomize_v5.8.2_linux_amd64.tar.gz
+          url=https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.8.3/kustomize_v5.8.3_linux_amd64.tar.gz
           [ -x "$t/kustomize" ] || fetch "$url" | tar -xz -C "$t" kustomize
           # renovate: datasource=github-releases depName=yannh/kubeconform
           url=https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz
@@ -82,7 +80,7 @@ jobs:
         # means the step above already installed it -- apt has no package for it.
         run: |
           set -euo pipefail
-          pkgs=$( (cat kube-cluster/{apps,infra,rbac}/*/tests/tools 2>/dev/null || true) | sed 's/#.*//' | awk 'NF && $2 != "-" { print ($2 == "" ? $1 : $2) }' | sort -u)
+          pkgs=$( (cat */*/*/tests/tools 2>/dev/null || true) | sed 's/#.*//' | awk 'NF && $2 != "-" { print ($2 == "" ? $1 : $2) }' | sort -u)
           echo "packages: $pkgs"
           if [ -n "$pkgs" ]; then sudo apt-get install -y -qq $pkgs; fi
       - name: Validate

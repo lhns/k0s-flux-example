@@ -21,6 +21,9 @@ means git and the cluster have diverged, however healthy the pods look.
 `scripts/check-sops-mac.sh` is the pre-push counterpart for the decryption case, which is
 the one that cannot be seen locally.
 
+With more than one cluster, all of this is per cluster: its own kubeconfig, and
+`scripts/check-sops-mac.sh <cluster>` on a host holding that cluster's key.
+
 ## Node maintenance (reboot, shutdown)
 
 `cordon` is **not** enough. It only stops *new* pods landing on the node and evicts nothing.

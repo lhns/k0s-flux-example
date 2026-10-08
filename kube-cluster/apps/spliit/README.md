@@ -12,9 +12,9 @@ can edit, and the only possible gate is a reverse proxy. SSO there is not unconf
 impossible. The fork adds real accounts on better-auth, including a **generic OIDC provider** that
 Authelia drives directly.
 
-What that costs: five images instead of one, mandatory SMTP, a single-maintainer project, and no
-semver. Upstream, for its part, came back to life in August 2026 after a quiet winter and now cuts
-proper releases — so this is a deliberate choice for per-user identity, not a rescue from an
+What that costs: five images instead of one, mandatory SMTP and a single-maintainer project.
+Upstream, for its part, came back to life in August 2026 after a quiet winter and now cuts proper
+releases — so this is a deliberate choice for per-user identity, not a rescue from an
 abandoned project.
 
 ## Shape
@@ -33,9 +33,9 @@ abandoned project.
 `proxy_pass http://api:3001` in seven places, resolved by the same-namespace DNS search path.
 Rename it and the SPA loads while every backend call 502s.
 
-All four images are pinned to **one commit sha**. The `web`↔`api` contract (tRPC, the proxied
-paths) is unversioned, so mixing commits breaks things in ways nothing checks — `renovate.json`
-groups them into a single PR for exactly that reason.
+All four images are pinned to **one release** (`vX.Y.Z@sha256`). The `web`↔`api` contract (tRPC,
+the proxied paths) is unversioned, so mixing releases breaks things in ways nothing checks —
+`renovate.json` groups them into a single PR for exactly that reason.
 
 ## Getting in
 
@@ -80,8 +80,9 @@ Still useful, but no longer how anyone gets an account — they are how someone 
   profile name taking over once they accept.
 - **An email invitation must match the address lldap holds**, since acceptance requires
   `invitation.email == accountEmail`. Invite the wrong alias and sign-in still succeeds while the
-  invitation silently fails to attach — it reads as "the invite did nothing". `maximilian` is
-  `admin@example.org`, for instance, which is not the address the name suggests.
+  invitation silently fails to attach — it reads as "the invite did nothing". An account
+  named after a person may hold an alias such as `admin@example.org`, not the address the name
+  suggests.
 - **A link invitation carries a token**, not an address, so it only counts if the person arrives
   *through the link* — the token rides in a 15-minute cookie so it survives the OAuth redirect.
   Someone who opens the bare site and signs in instead is just an ordinary new account.

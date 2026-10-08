@@ -4,8 +4,9 @@
 # Renders the repo-root generator chart once for every group: one Flux Kustomization
 # per dir under kube-cluster/apps/ (prefix app-), kube-cluster/infra/ (prefix infra-)
 # and kube-cluster/rbac/ (prefix rbac-). reconcileStrategy: Revision so a new dir
-# (no chart version bump) re-renders. The whole base path is a parameter, so a
-# second cluster is just another group (base: <cluster>/apps).
+# (no chart version bump) re-renders. A second cluster is not another group here: it has its
+# own root with its own groups (kube-test-cluster/flux-system/generators.yaml). README.md,
+# "Multiple clusters".
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -41,9 +42,15 @@ spec:
       # Generated Kustomization names, or "*": prune: false on all of the component's
       # Kustomizations, for a risky change. README.md, "Control namespaces and risky changes".
       pruneDisabled: []
+      # keepGenerated: true only while changing this release itself. Same README section.
     # Opt into the in-cluster k0s upgrade wrapper (templates/k0s-upgrade.yaml).
     # The generator reads the k0s version from this file and emits the k0s-upgrade
     # Flux Kustomization. Omit the block on clusters that don't use it.
     k0sUpgrade:
       k0sctlPath: kube-cluster/k0sctl.yaml
       path: kube-cluster/k0s-upgrade
+    # Error alerts for every generated Kustomization (templates/alerts.yaml); the Provider
+    # is infra/flux-alerts.
+    alerts:
+      providerRef: matrix
+      cluster: kube-cluster

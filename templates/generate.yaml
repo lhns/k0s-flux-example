@@ -11,6 +11,11 @@
 
   pruneDisabled is resolved here: "*" expands, and each release gets only its own name, so a
   change upgrades just that component.
+
+  flux-component-generator/bases on a component's kustomization.yaml lists shared/ directories
+  its kustomization reaches through ../. Each is copied into the component's artifact at its repo
+  path, so the relative reference resolves there too. Only shared/: a component never reads
+  another component's or another cluster's files.
 */ -}}
 {{- if hasKey .Values "generate" }}
 {{- $gen := .Values.generate | default dict }}
@@ -21,10 +26,15 @@
 {{- $all = append $all (ternary (printf "%s-%s" $group.prefix (base (dir $kustPath))) (base (dir $kustPath)) (not (empty $group.prefix))) }}
 {{- end }}
 {{- end }}
+{{- $seen := list }}
 {{- range $n := $all }}
 {{- if regexMatch "-(namespaces|artifacts|substitution-secrets)$" $n }}
 {{- fail (printf "%s: a component name must not end in -namespaces, -artifacts or -substitution-secrets (generators.controlNamespace)" $n) }}
 {{- end }}
+{{- if has $n $seen }}
+{{- fail (printf "%s: two components generate this name; give their groups different prefixes" $n) }}
+{{- end }}
+{{- $seen = append $seen $n }}
 {{- end }}
 {{- range $n := $gen.pruneDisabled | default list }}
 {{- if and (ne $n "*") (not (has $n $all)) }}
@@ -38,6 +48,17 @@
 {{- $component := base $dir }}
 {{- $genName := printf "gen-%s-%s" $group.prefix $component }}
 {{- $fluxName := ternary (printf "%s-%s" $group.prefix $component) $component (not (empty $group.prefix)) }}
+{{- $bases := list }}
+{{- with dig "metadata" "annotations" "flux-component-generator/bases" "" ($.Files.Get $kustPath | fromYaml) }}
+{{- range splitList "," . }}
+{{- $b := trimSuffix "/" (trim .) }}
+{{- /* No segment may start with a dot, so no ../ either. */}}
+{{- if not (regexMatch "^shared(/[A-Za-z0-9_][A-Za-z0-9._-]*)+$" $b) }}
+{{- fail (printf "%s: flux-component-generator/bases: %q is not a directory under shared/" $dir $b) }}
+{{- end }}
+{{- $bases = append $bases $b }}
+{{- end }}
+{{- end }}
 {{- /* Each reserved directory that kustomizations.yaml gives its own Kustomization. */}}
 {{- $reserved := list }}
 {{- range $sub := list "namespaces" "artifacts" "substitution-secrets" }}
@@ -92,6 +113,10 @@ spec:
             - {{ $dir }}/{{ . }}
             {{- end }}
           {{- end }}
+        {{- range $bases }}
+        - from: "@repo/{{ . }}"
+          to: "@artifact/{{ dir . }}/"
+        {{- end }}
     {{- range $reserved }}
     - name: {{ $fluxName }}-{{ . }}
       originRevision: "@repo"

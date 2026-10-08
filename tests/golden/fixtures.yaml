@@ -9,6 +9,13 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
+  name: gen-app-based
+  labels:
+    flux-component-generator/control-namespace: "true"
+---
+apiVersion: v1
+kind: Namespace
+metadata:
   name: gen-app-controlled
   labels:
     flux-component-generator/control-namespace: "true"
@@ -73,6 +80,10 @@ spec:
   path: ./tests/fixtures/apps/annotated
   prune: true
   wait: true
+  healthCheckExprs:
+    - apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      current: has(status.readyInstances) && status.readyInstances == spec.instances && has(status.currentPrimary) && status.currentPrimary == status.targetPrimary
   commonMetadata:
     labels:
       app.kubernetes.io/instance: "renamed-instance"
@@ -105,6 +116,54 @@ spec:
   sourceRef:
     kind: ExternalArtifact
     name: app-annotated
+    namespace: flux-system
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: app-based
+  namespace: gen-app-based
+spec:
+  interval: 10m0s
+  retryInterval: 1m
+  path: ./tests/fixtures/apps/based
+  prune: true
+  wait: true
+  healthCheckExprs:
+    - apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      current: has(status.readyInstances) && status.readyInstances == spec.instances && has(status.currentPrimary) && status.currentPrimary == status.targetPrimary
+  commonMetadata:
+    labels:
+      app.kubernetes.io/instance: "based"
+  patches:
+    - target:
+        kind: HelmRelease
+      patch: |
+        apiVersion: helm.toolkit.fluxcd.io/v2
+        kind: HelmRelease
+        metadata:
+          name: unused   # the target selector above chooses; this name is not matched against
+        spec:
+          upgrade:
+            crds: CreateReplace
+    - target:
+        kind: ConfigMap
+        annotationSelector: flux-component-generator/as-secret=true
+      patch: |
+        - op: replace
+          path: /kind
+          value: Secret
+        - op: move
+          from: /data
+          path: /stringData
+  sourceRef:
+    kind: ExternalArtifact
+    name: app-based
     namespace: flux-system
   decryption:
     provider: sops
@@ -193,6 +252,10 @@ spec:
   path: ./tests/fixtures/apps/controlled
   prune: false
   wait: true
+  healthCheckExprs:
+    - apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      current: has(status.readyInstances) && status.readyInstances == spec.instances && has(status.currentPrimary) && status.currentPrimary == status.targetPrimary
   commonMetadata:
     labels:
       app.kubernetes.io/instance: "controlled"
@@ -251,6 +314,10 @@ spec:
   path: ./tests/fixtures/apps/dependent
   prune: false
   wait: true
+  healthCheckExprs:
+    - apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      current: has(status.readyInstances) && status.readyInstances == spec.instances && has(status.currentPrimary) && status.currentPrimary == status.targetPrimary
   commonMetadata:
     labels:
       app.kubernetes.io/instance: "dependent"
@@ -348,6 +415,10 @@ spec:
   path: ./tests/fixtures/apps/exported
   prune: true
   wait: true
+  healthCheckExprs:
+    - apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      current: has(status.readyInstances) && status.readyInstances == spec.instances && has(status.currentPrimary) && status.currentPrimary == status.targetPrimary
   commonMetadata:
     labels:
       app.kubernetes.io/instance: "exported"
@@ -453,6 +524,10 @@ spec:
   path: ./tests/fixtures/apps/external
   prune: true
   wait: true
+  healthCheckExprs:
+    - apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      current: has(status.readyInstances) && status.readyInstances == spec.instances && has(status.currentPrimary) && status.currentPrimary == status.targetPrimary
   commonMetadata:
     labels:
       app.kubernetes.io/instance: "external"
@@ -552,6 +627,10 @@ spec:
   path: ./tests/fixtures/apps/namespaced
   prune: true
   wait: true
+  healthCheckExprs:
+    - apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      current: has(status.readyInstances) && status.readyInstances == spec.instances && has(status.currentPrimary) && status.currentPrimary == status.targetPrimary
   commonMetadata:
     labels:
       app.kubernetes.io/instance: "namespaced"
@@ -606,6 +685,10 @@ spec:
   path: ./tests/fixtures/apps/plain
   prune: true
   wait: true
+  healthCheckExprs:
+    - apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      current: has(status.readyInstances) && status.readyInstances == spec.instances && has(status.currentPrimary) && status.currentPrimary == status.targetPrimary
   commonMetadata:
     labels:
       app.kubernetes.io/instance: "plain"
@@ -651,6 +734,10 @@ spec:
   path: ./tests/fixtures/apps/suspended
   prune: true
   wait: true
+  healthCheckExprs:
+    - apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      current: has(status.readyInstances) && status.readyInstances == spec.instances && has(status.currentPrimary) && status.currentPrimary == status.targetPrimary
   commonMetadata:
     labels:
       app.kubernetes.io/instance: "suspended"
@@ -719,6 +806,10 @@ spec:
   path: ./tests/fixtures/apps/with-secrets
   prune: true
   wait: true
+  healthCheckExprs:
+    - apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      current: has(status.readyInstances) && status.readyInstances == spec.instances && has(status.currentPrimary) && status.currentPrimary == status.targetPrimary
   commonMetadata:
     labels:
       app.kubernetes.io/instance: "with-secrets"

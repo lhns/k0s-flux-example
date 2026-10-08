@@ -1,7 +1,12 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+metadata:
+  annotations:
+    flux-component-generator/bases: shared/infra/cert-manager
 resources:
-- release.yaml
+- ../../../shared/infra/cert-manager
 - ionos-secret.yaml
 - ionos-webhook.yaml
 - issuers.yaml
+patches:
+- path: version.yaml

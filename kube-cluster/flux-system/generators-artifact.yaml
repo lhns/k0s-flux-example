@@ -1,7 +1,7 @@
 ---
 # The root chart as an ExternalArtifact, under generators/ because Helm refuses Chart.yaml at an
 # archive's root. Copies only what the templates read: Helm embeds the chart in its release
-# Secret, capped at 1 MiB (docs/generator-chart-size.md); scripts/check-release-size.py mirrors
+# Secret, capped at 1 MiB (docs/generator-chart-size.md); scripts/check-release-size.py reads
 # this list. Its revision is a content hash, so the root re-renders only when these files change.
 apiVersion: source.extensions.fluxcd.io/v1beta1
 kind: ArtifactGenerator

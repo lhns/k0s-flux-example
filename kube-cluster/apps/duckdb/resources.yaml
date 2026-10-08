@@ -36,12 +36,14 @@ spec:
         # duckdb binary directly instead of the Swarm `sh -c "socat & duckdb"`.
         # tty+stdin keep the interactive CLI alive so the UI server keeps serving;
         # HOME=/workspace makes `INSTALL ui` cache the extension on the volume.
+        # The CLI logs to stdout and the UI polls its catalog every 284 ms: 'debug' logs
+        # two transactions per poll (~21 lines/s), 'info' each poll's query.
         - name: duckdb
-          image: duckdb/duckdb:1.5.5
+          image: duckdb/duckdb:1.5.6
           command:
             - duckdb
             - -cmd
-            - "SET enable_logging = true; SET logging_level = 'debug'; INSTALL ui; LOAD ui; CALL start_ui_server();"
+            - "SET enable_logging = true; SET logging_level = 'warning'; INSTALL ui; LOAD ui; CALL start_ui_server();"
             - database.db
           workingDir: /workspace
           tty: true

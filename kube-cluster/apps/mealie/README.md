@@ -19,7 +19,7 @@ Mealie (`ghcr.io/mealie-recipes/mealie`, recipe manager), migrated from Docker S
   (SSO-only). `OIDC_ADMIN_GROUP=mealie_admin`, `OIDC_USER_GROUP=mealie`. `BASE_URL` (the canonical
   host) drives the callback + generated links.
 - **kube-vnet**: `net.traefik.traefik: ingress` + `net.postgres.postgres: egress` (OIDC to
-  auth.example.com and OpenAI are external egress). Single replica, `strategy: Recreate` (RWO data volume,
+  auth.example.com and OpenAI are external egress). Single replica, `RollingUpdate` 0/1 (cephfs RWX data volume,
   1000Mi memory limit).
 
 ## One-time migration

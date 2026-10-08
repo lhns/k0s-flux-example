@@ -17,7 +17,7 @@ redirects here.
 - **OIDC**: confidential Authelia client (`homebox`), `AUTO_REDIRECT` + `ALLOW_LOCAL_LOGIN=false` so
   it's SSO-only. `HBOX_OPTIONS_HOSTNAME` drives the callback URL, so it must match the canonical host.
 - **kube-vnet**: `net.traefik.traefik: ingress` + `net.postgres.postgres: egress` (OIDC to
-  auth.example.com is external egress). Single replica, `strategy: Recreate` (RWO data volume).
+  auth.example.com is external egress). Single replica, `RollingUpdate` 0/1 (cephfs RWX data volume).
 
 ## One-time migration
 1. Deploy with the Deployment at `replicas: 0` (db/role + secrets come up).

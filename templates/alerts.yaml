@@ -1,0 +1,42 @@
+{{- /*
+  Opt-in via .Values.alerts (root release only). One Alert for error events from every
+  Kustomization the generator emits. notification-controller matches an eventSource
+  namespace exactly, with no wildcard, so each control namespace is listed. The Provider
+  is not rendered here (infra/flux-alerts).
+*/ -}}
+{{- with .Values.alerts }}
+{{- if hasKey $.Values "generate" }}
+{{- $nss := list }}
+{{- range $group := $.Values.groups }}
+{{- range $kustPath, $_ := $.Files.Glob (printf "%s/*/kustomization.yaml" $group.base) }}
+{{- $fluxName := base (dir $kustPath) }}
+{{- if $group.prefix }}{{- $fluxName = printf "%s-%s" $group.prefix $fluxName }}{{- end }}
+{{- $nss = append $nss (include "generators.controlNamespace" $fluxName) }}
+{{- end }}
+{{- end }}
+---
+apiVersion: notification.toolkit.fluxcd.io/v1beta3
+kind: Alert
+metadata:
+  name: flux-errors
+  namespace: flux-system
+spec:
+  providerRef:
+    name: {{ .providerRef | required "alerts.providerRef is required when alerts is set" }}
+  eventSeverity: error
+  eventMetadata:
+    cluster: {{ .cluster | required "alerts.cluster is required when alerts is set" }}
+  {{- /* A webhook call whose connection closes mid-request (EOF) fails one dry-run and
+        succeeds on the retry a minute later. A webhook that is really down refuses or
+        times out instead, and still alerts. */}}
+  exclusionList:
+    - 'failed to call webhook: Post "[^"]*": EOF\b'
+  eventSources:
+  {{- range $kind := list "Kustomization" "HelmRelease" "GitRepository" "OCIRepository" "HelmRepository" "ArtifactGenerator" "ExternalArtifact" }}
+  - { kind: {{ $kind }}, name: "*", namespace: flux-system }
+  {{- end }}
+  {{- range $ns := $nss | uniq | sortAlpha }}
+  - { kind: Kustomization, name: "*", namespace: {{ $ns }} }
+  {{- end }}
+{{- end }}
+{{- end }}

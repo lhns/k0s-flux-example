@@ -21,9 +21,9 @@
   },
   "customManagers": [
     {
-      "description": "Track the k0s version in k0sctl.yaml (the k0s-upgrade wrapper reads it from here).",
+      "description": "Track the k0s version in each cluster's k0sctl.yaml (the k0s-upgrade wrapper reads it from there).",
       "customType": "regex",
-      "managerFilePatterns": ["/kube-cluster/k0sctl\\.yaml$/"],
+      "managerFilePatterns": ["/(kube-cluster|kube-test-cluster)/k0sctl\\.yaml$/"],
       "matchStrings": [
         "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+version:\\s*\"(?<currentValue>[^\"]+)\""
       ],
@@ -32,7 +32,7 @@
     {
       "description": "Kubernetes image volumes. The built-in kubernetes manager looks for `image: <string>`, but an image volume spells it `image: {reference: repo:tag}` — a mapping — so it sees nothing and the reference would silently stop being bumped. Anchored on an explicit `# renovate: datasource=docker` comment rather than matching every `reference:` in the repo, because composed artifacts (apps/freshrss) use that same key for a ${...} ref substituted at apply time, which must NOT be tracked.",
       "customType": "regex",
-      "managerFilePatterns": ["/kube-cluster/.*\\.ya?ml$/"],
+      "managerFilePatterns": ["/(kube-cluster|kube-test-cluster|shared)/.*\\.ya?ml$/"],
       "matchStrings": [
         "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+reference:\\s*[\"']?(?<depName>[^\"'\\s:]+):(?<currentValue>[^\"'\\s@]+)"
       ]
@@ -40,7 +40,7 @@
     {
       "description": "Download URLs, each under a `# renovate:` comment: an oci-composer `fetch.url`, or a `url=` in a shell script (apps/homeassistant, lint.yml); a GitHub release asset or a Debian pool file. The version is captured bare and the match runs on through the following digest/unpack/subpath lines, so every copy of it (tag, file name, subpath) is replaced. The digest is not: check-fetch-digests.py rewrites it (packageRules) and fails the lint if it is stale.",
       "customType": "regex",
-      "managerFilePatterns": ["/kube-cluster/.*\\.ya?ml$/", "/^\\.github/workflows/lint\\.yml$/"],
+      "managerFilePatterns": ["/(kube-cluster|kube-test-cluster|shared)/.*\\.ya?ml$/", "/^\\.github/workflows/lint\\.yml$/"],
       "matchStrings": [
         "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(?:\\s+registryUrl=(?<registryUrl>\\S+))?\\s+url[:=]\\s*\\S+?/releases/download/(?:[^/\\s]*%2F)?v?(?<currentValue>[^/\\s]+)/\\S+(?:\\n[ \\t]+(?:digest|unpack|subpath)[:=][^\\n]*)*",
         "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(?:\\s+registryUrl=(?<registryUrl>\\S+))?\\s+url[:=]\\s*\\S+/pool/\\S+?_(?<currentValue>[^_/\\s]+)_[^_/\\s]+\\.deb(?:\\n[ \\t]+(?:digest|unpack|subpath)[:=][^\\n]*)*"
@@ -48,10 +48,20 @@
       "extractVersionTemplate": "^v?(?<version>.+)$"
     },
     {
+      "description": "Pinned downloads that are not GitHub release assets, under the same `# renovate:` comment and `url=` line as the manager above (arc-runner-base.yaml): dl.k8s.io (kubectl), download.docker.com (docker CLI), nodejs.org (node, held to 22 below).",
+      "customType": "regex",
+      "managerFilePatterns": ["/(kube-cluster|kube-test-cluster|shared)/.*\\.ya?ml$/"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)\\s+url[:=]\\s*https://(?:dl\\.k8s\\.io/release|nodejs\\.org/dist)/v(?<currentValue>[^/\\s]+)/\\S+(?:\\n[ \\t]+(?:digest|unpack|subpath)[:=][^\\n]*)*",
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)\\s+url[:=]\\s*https://download\\.docker\\.com/\\S+?/docker-(?<currentValue>[0-9.]+)\\.tgz(?:\\n[ \\t]+(?:digest|unpack|subpath)[:=][^\\n]*)*"
+      ],
+      "extractVersionTemplate": "^v?(?<version>.+)$"
+    },
+    {
       "description": "Base images in an ImageBuild's inline Dockerfile (apps/jetkvm). The built-in dockerfile manager only reads real Dockerfiles, so a recipe living inside a YAML string is invisible to it and its FROM pins would never be bumped. oci-composer requires every FROM to be digest-pinned, so the tag AND the digest are captured and Renovate updates them together. Anchored on an explicit `# renovate: datasource=docker` comment on the preceding line, so it matches only where we asked for it.",
       "customType": "regex",
       "managerFilePatterns": [
-        "/kube-cluster/.*\\.ya?ml$/"
+        "/(kube-cluster|kube-test-cluster|shared)/.*\\.ya?ml$/"
       ],
       "matchStrings": [
         "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+FROM\\s+(?<depName>[^:\\s]+):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"
@@ -61,10 +71,10 @@
       "description": "PyPI pins in an ImageBuild's inline Dockerfile (apps/matrix/artifacts/). Same blind spot as the FROM manager above: a pip command inside a YAML string is invisible to every built-in manager, so these pins would silently never move. The package name is read off the install line rather than a depName= in the comment, so one package per RUN. They are pinned at all so the Dockerfile says what is deployed: unpinned, a rebuild silently ships whatever PyPI serves that day.",
       "customType": "regex",
       "managerFilePatterns": [
-        "/kube-cluster/.*\\.ya?ml$/"
+        "/(kube-cluster|kube-test-cluster|shared)/.*\\.ya?ml$/"
       ],
       "matchStrings": [
-        "#\\s*renovate:\\s*datasource=(?<datasource>pypi)\\s+RUN pip install[^\\n]*?\\s(?<depName>[A-Za-z0-9._-]+)==(?<currentValue>[^\\s\"']+)"
+        "#\\s*renovate:\\s*datasource=(?<datasource>pypi)\\s+RUN pipx? install[^\\n]*?\\s(?<depName>[A-Za-z0-9._-]+)==(?<currentValue>[^\\s\"']+)"
       ]
     },
     {
@@ -105,6 +115,13 @@
       "automerge": true
     },
     {
+      "description": "Promotion: kube-test-cluster takes minor updates unreviewed, so a version runs there before the reviewed PR for kube-cluster's copy of the same pin. Each cluster's overlay holds its own pin, so the two are separate PRs. Rules below still hold back what they name (k0s, mariadb, ...).",
+      "matchFileNames": ["kube-test-cluster/**"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true,
+      "addLabels": ["kube-test-cluster"]
+    },
+    {
       "description": "Auto-merge image digest updates. Docker only: a Flux commit bump is also typed 'digest', but that is new source code.",
       "matchUpdateTypes": ["digest"],
       "matchDatasources": ["docker"],
@@ -115,6 +132,11 @@
       "matchDepNames": ["k0sproject/k0s"],
       "automerge": false,
       "addLabels": ["k0s"]
+    },
+    {
+      "description": "Node in the ARC runner base follows ubuntu-latest's default major (22, an LTS); a newer major is a deliberate change to the base.",
+      "matchDepNames": ["node"],
+      "allowedVersions": "<23"
     },
     {
       "description": "Hold semaphore at 2.17.x. The whole v2.18.x line's closed pro_impl terraform store panics 'unknown store type' on the bolt DB backend (bolt is deprecated upstream). v2.17.39 is the last bolt-compatible release. Lift this cap only after migrating semaphore off bolt.",
@@ -150,7 +172,7 @@
       "addLabels": ["thread-radio"]
     },
     {
-      "description": "The five spliit-cloud images are built from ONE commit and must move together. The web<->api contract (tRPC, and the paths nginx proxies) is not versioned, so a web from one commit against an api from another is a real breakage that Renovate cannot see -- left alone it treats them as five unrelated packages and opens five PRs that can land in any order. Grouping them into a single PR makes a mismatch impossible. The fork publishes no semver (only `latest` and full commit shas, 0 releases), which is also why these are pinned to a sha tag rather than a version.",
+      "description": "The five spliit-cloud images are built from ONE commit and must move together. The web<->api contract (tRPC, and the paths nginx proxies) is not versioned, so a web from one commit against an api from another is a real breakage that Renovate cannot see -- left alone it treats them as five unrelated packages and opens five PRs that can land in any order. Grouping them into a single PR makes a mismatch impossible. Pin the vX.Y.Z tags: a commit-sha tag is never a version to Renovate's docker versioning, so it gets no updates. allowedVersions keeps the leftover sha and -amd64/-arm64 tags out (an all-digit short sha would read as a huge major).",
       "matchPackageNames": [
         "ghcr.io/antonio-ivanovski/spliit-cloud-web",
         "ghcr.io/antonio-ivanovski/spliit-cloud-api",
@@ -158,6 +180,7 @@
         "ghcr.io/antonio-ivanovski/spliit-cloud-migrate",
         "ghcr.io/antonio-ivanovski/spliit-cloud-mcp"
       ],
+      "allowedVersions": "/^v\\d+\\.\\d+\\.\\d+$/",
       "groupName": "spliit-cloud",
       "automerge": false,
       "addLabels": ["spliit-cloud"]
@@ -167,6 +190,12 @@
       "matchPackageNames": ["Aiven-Open/tiered-storage-for-apache-kafka"],
       "automerge": false,
       "addLabels": ["kafka-plugin"]
+    },
+    {
+      "description": "ARC: the controller (apps/arc-controller) and the scale set chart (apps/github-runner) must be the same version, so one PR, reviewed: some upgrades need the scale sets removed first.",
+      "matchPackageNames": ["ghcr.io/actions/actions-runner-controller-charts/**"],
+      "groupName": "actions-runner-controller",
+      "automerge": false
     },
     {
       "description": "The runner image's remote-docker client (apps/github-runner/artifacts) moves in one PR with the workspaces it talks to.",
@@ -180,7 +209,7 @@
       "automerge": false,
       "postUpgradeTasks": {
         "commands": ["python3 scripts/check-fetch-digests.py --fix"],
-        "fileFilters": ["kube-cluster/**/*.yaml"],
+        "fileFilters": ["kube-cluster/**/*.yaml", "kube-test-cluster/**/*.yaml", "shared/**/*.yaml"],
         "executionMode": "update"
       }
     },
@@ -225,20 +254,20 @@
     },
     {
       "description": "A GitRepository pin and every oci-composer `revision:` naming it must move together; Renovate sees only the pin. The task rewrites them and check-source-pins.py fails the lint if it did not.",
-      "matchFileNames": ["kube-cluster/*/*/artifacts/*.yaml"],
+      "matchFileNames": ["kube-cluster/*/*/artifacts/*.yaml", "kube-test-cluster/*/*/artifacts/*.yaml"],
       "postUpgradeTasks": {
         "commands": ["python3 scripts/check-source-pins.py --fix"],
-        "fileFilters": ["kube-cluster/**/*.yaml"],
+        "fileFilters": ["kube-cluster/**/*.yaml", "kube-test-cluster/**/*.yaml", "shared/**/*.yaml"],
         "executionMode": "branch"
       }
     },
     {
       "description": "A fetch.url bump needs the digest of the new bytes. Replaces the rule above for these deps, so it repeats its command. `update`, not `branch`: a group's branch-mode tasks come from its first upgrade, which may be a chart.",
-      "matchFileNames": ["kube-cluster/*/*/artifacts/*.yaml"],
-      "matchDatasources": ["github-releases", "deb"],
+      "matchFileNames": ["kube-cluster/*/*/artifacts/*.yaml", "kube-test-cluster/*/*/artifacts/*.yaml"],
+      "matchDatasources": ["github-releases", "github-tags", "node-version", "deb"],
       "postUpgradeTasks": {
         "commands": ["python3 scripts/check-source-pins.py --fix", "python3 scripts/check-fetch-digests.py --fix"],
-        "fileFilters": ["kube-cluster/**/*.yaml"],
+        "fileFilters": ["kube-cluster/**/*.yaml", "kube-test-cluster/**/*.yaml", "shared/**/*.yaml"],
         "executionMode": "update"
       }
     },

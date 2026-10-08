@@ -1,0 +1,76 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: descheduler
+  namespace: descheduler
+spec:
+  interval: 1h0m0s
+  url: https://kubernetes-sigs.github.io/descheduler/
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: descheduler
+  namespace: descheduler
+spec:
+  interval: 10m0s
+  chart:
+    spec:
+      chart: descheduler
+      interval: 1h0m0s
+      sourceRef:
+        kind: HelmRepository
+        name: descheduler
+  values:
+    kind: Deployment
+    deschedulingInterval: 15m
+    replicas: 1
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: null
+        memory: 256Mi
+    cmdOptions:
+      v: 3
+    deschedulerPolicyAPIVersion: descheduler/v1alpha2
+    # `profiles` is a list, so this replaces the chart's default profile instead of merging into it.
+    deschedulerPolicy:
+      maxNoOfPodsToEvictPerNode: 1
+      maxNoOfPodsToEvictTotal: 3
+      profiles:
+      - name: spread
+        pluginConfig:
+        - name: DefaultEvictor
+          args:
+            nodeFit: true
+            minReplicas: 2
+            minPodAge: 15m
+            podProtections:
+              defaultDisabled:
+              - PodsWithLocalStorage
+              extraEnabled:
+              - PodsWithPVC
+        - name: RemoveDuplicates
+          args:
+            namespaces:
+              exclude: [kube-system]
+        - name: RemovePodsViolatingTopologySpreadConstraint
+          args:
+            constraints: [DoNotSchedule, ScheduleAnyway]
+            namespaces:
+              exclude: [kube-system]
+        - name: RemovePodsViolatingInterPodAntiAffinity
+          args:
+            namespaces:
+              exclude: [kube-system]
+        plugins:
+          balance:
+            enabled:
+            - RemoveDuplicates
+            - RemovePodsViolatingTopologySpreadConstraint
+          deschedule:
+            enabled:
+            - RemovePodsViolatingInterPodAntiAffinity

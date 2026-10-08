@@ -9,7 +9,7 @@ spec:
   url: oci://ghcr.io/lhns/charts/remote-docker-workspace
   ref:
     # Bump to roll a new version.
-    tag: "0.8.1"
+    tag: "0.10.0"
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -92,4 +92,9 @@ spec:
         ssh-ed25519 AAAA<public-key> remote-docker-vm
         ssh-ed25519 AAAA<public-key> remote-docker-localhost
         ssh-ed25519 AAAA<public-key> remote-docker-admin-laptop
-      example-repo: "ssh-ed25519 AAAA<public-key> example-repo runner"
+
+    # Runtime key management (remote key add|rm, token enrolment). Runtime keys live in
+    # enrolled_keys.d on the `state` claim; authorizedKeys above stays the declarative base.
+    admins: [lhns]
+    # Traefik routes here, not the chart's Ingress, which would otherwise name the invite URL.
+    publicURL: wss://docker.example.com/

@@ -1,0 +1,26 @@
+---
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: traefik
+  namespace: traefik
+spec:
+  description: "Egress channel for traefik pods to reach backend services across managed namespaces."
+  # Any namespace's pods may join this vnet (as either direction).
+  # Receivers in other NSes opt in explicitly via their own label/binding/baseline.
+  allowedNamespaces:
+    all: true
+---
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetworkBinding
+metadata:
+  name: traefik-pods-egress
+  namespace: traefik
+spec:
+  virtualNetworkRef:
+    name: traefik
+    namespace: traefik
+  direction: egress
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: traefik

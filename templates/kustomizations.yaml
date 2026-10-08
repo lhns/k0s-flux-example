@@ -248,6 +248,13 @@ spec:
   path: ./{{ $dir }}
   prune: {{ $prune }}
   wait: {{ if hasKey $group "wait" }}{{ $group.wait }}{{ else }}true{{ end }}
+  {{- /* CNPG sets Ready only when its whole reconcile finishes, so a stuck loop (a replica
+        that missed a config reload) held every dependent while the database served.
+        Healthy here = all instances ready and no switchover pending. */}}
+  healthCheckExprs:
+    - apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      current: has(status.readyInstances) && status.readyInstances == spec.instances && has(status.currentPrimary) && status.currentPrimary == status.targetPrimary
   commonMetadata:
     labels:
       app.kubernetes.io/instance: {{ $instance | quote }}

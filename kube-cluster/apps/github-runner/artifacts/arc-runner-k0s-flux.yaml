@@ -1,0 +1,141 @@
+# The `k0s-flux` scale set's image: the base plus the remote-docker client, so Lint and Renovate get
+# a Docker daemon. Infrastructure, not tools. The Dockerfile is the same as in arc-runner-base.yaml
+# (scripts/check-arc-dockerfile.py); this builds its `k0s-flux` stage.
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageBuild
+metadata:
+  name: arc-runner-k0s-flux
+  namespace: github-runner
+spec:
+  interval: 1h
+  platforms: [linux/amd64]
+  dockerfile:
+    inline: |
+      # renovate: datasource=docker
+      FROM ghcr.io/actions/actions-runner:2.338.0@sha256:4ffadc0002b2581327e06101fc8c06cd189232baf79fe561fac9caeb76f5e807 AS base
+      USER root
+
+      # Versions may be newer than ubuntu-latest's; Renovate keeps them current. The apt packages
+      # come from Ubuntu 24.04, as there.
+      RUN apt-get update \
+       && apt-get install -y --no-install-recommends \
+            build-essential bzip2 ca-certificates curl git git-lfs gnupg jq openssh-client \
+            php8.3-cli pipx python3 python3-pip python3-venv unzip wget xz-utils zip \
+       && rm -rf /var/lib/apt/lists/*
+
+      # Every download is verified against a digest, which check-fetch-digests.py keeps in step
+      # with the url.
+      RUN <<'EOS'
+      set -eu
+      fetch() { # url digest dest
+        curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o "$3" "$1"
+        echo "$(echo "$2" | cut -d: -f2)  $3" | sha256sum -c -
+      }
+      t=/tmp/dl; mkdir -p $t
+
+      # renovate: datasource=github-releases depName=cli/cli
+      url=https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_linux_amd64.tar.gz
+      digest=sha256:bb766f710eef8ede859c18578c72c327597cd4c8a85b06001b1f3843c6019386
+      fetch "$url" "$digest" $t/gh.tgz
+      tar -xzf $t/gh.tgz -C /usr/local --strip-components=1 --wildcards '*/bin/gh'
+
+      # renovate: datasource=github-releases depName=mikefarah/yq
+      url=https://github.com/mikefarah/yq/releases/download/v4.54.1/yq_linux_amd64
+      digest=sha256:8e34fc298390875de416e6a4afcb8cabeceb25d9aa8506c1a2f9353cf702ea5f
+      fetch "$url" "$digest" $t/yq
+      install -m 0755 $t/yq /usr/local/bin/yq
+
+      # renovate: datasource=github-releases depName=kubernetes-sigs/kustomize
+      url=https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.8.3/kustomize_v5.8.3_linux_amd64.tar.gz
+      digest=sha256:cb9e31198d3f63b44848bd0afc4c8efc56e6cfef9c93a4a39a211940e6decd61
+      fetch "$url" "$digest" $t/kustomize.tgz
+      tar -xzf $t/kustomize.tgz -C /usr/local/bin kustomize
+
+      # Not tracked by Renovate: pinned at 3.16.4.
+      url=https://get.helm.sh/helm-v3.16.4-linux-amd64.tar.gz
+      digest=sha256:fc307327959aa38ed8f9f7e66d45492bb022a66c3e5da6063958254b9767d179
+      fetch "$url" "$digest" $t/helm.tgz
+      tar -xzf $t/helm.tgz -C /usr/local/bin --strip-components=1 linux-amd64/helm
+
+      # renovate: datasource=github-tags depName=kubernetes/kubernetes
+      url=https://dl.k8s.io/release/v1.37.1/bin/linux/amd64/kubectl
+      digest=sha256:65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8
+      fetch "$url" "$digest" $t/kubectl
+      install -m 0755 $t/kubectl /usr/local/bin/kubectl
+
+      # The Docker CLI alone, with the buildx and compose plugins: no daemon here.
+      # renovate: datasource=github-tags depName=moby/moby
+      url=https://download.docker.com/linux/static/stable/x86_64/docker-28.5.2.tgz
+      digest=sha256:ea90cfd12e1eeb12aa1c971741adb8bd4ed88e2a574eaac13f5029a1dbc6300d
+      fetch "$url" "$digest" $t/docker.tgz
+      tar -xzf $t/docker.tgz -C /usr/bin --strip-components=1 docker/docker
+      mkdir -p /usr/libexec/docker/cli-plugins
+
+      # renovate: datasource=github-releases depName=docker/buildx
+      url=https://github.com/docker/buildx/releases/download/v0.38.0/buildx-v0.38.0.linux-amd64
+      digest=sha256:4fe4cc38adf48169132749b6ca22a990928db0118e3407584ee553723115d287
+      fetch "$url" "$digest" $t/buildx
+      install -m 0755 $t/buildx /usr/libexec/docker/cli-plugins/docker-buildx
+
+      # renovate: datasource=github-releases depName=docker/compose
+      url=https://github.com/docker/compose/releases/download/v5.6.0/docker-compose-linux-x86_64
+      digest=sha256:40343e21ca777173e69cff5dbafeb37c6f81f3b0d57d9e597f036e95eb63e76a
+      fetch "$url" "$digest" $t/compose
+      install -m 0755 $t/compose /usr/libexec/docker/cli-plugins/docker-compose
+
+      # Node 22, ubuntu-latest's default.
+      # renovate: datasource=node-version depName=node
+      url=https://nodejs.org/dist/v22.23.3/node-v22.23.3-linux-x64.tar.xz
+      digest=sha256:df450af89261115ef9f9e3830c3eeb2cc9213b63c720b1af623cb5dcbe2e02de
+      fetch "$url" "$digest" $t/node.txz
+      tar -xJf $t/node.txz -C /usr/local --strip-components=1 \
+        --exclude='*/share/doc' --exclude='*/share/man' --exclude='*/*.md' --exclude='*/LICENSE'
+
+      rm -rf $t
+      EOS
+
+      # yamllint is on ubuntu-latest through pipx, so under the same names.
+      ENV PIPX_HOME=/opt/pipx PIPX_BIN_DIR=/usr/local/bin
+      # renovate: datasource=pypi
+      RUN pipx install yamllint==1.38.0
+
+      USER runner
+
+      # The `k0s-flux` scale set: the remote-docker client, which is the Docker CLI
+      # when named `docker` and shadows the real one in /usr/bin. The client must be in this
+      # container, not a sidecar: README.md.
+      FROM base AS k0s-flux
+      USER root
+      RUN <<'EOS'
+      set -eu
+      # renovate: datasource=github-releases depName=lhns/remote-docker
+      url=https://github.com/lhns/remote-docker/releases/download/v0.10.0/remote-docker_0.10.0_linux_amd64.tar.gz
+      digest=sha256:b93a4cbc2ca0d1805484d62d6a15febb1b1f771ea0a52e284d1f360808eee0e4
+      curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/rd.tgz "$url"
+      echo "$(echo "$digest" | cut -d: -f2)  /tmp/rd.tgz" | sha256sum -c -
+      tar -xzf /tmp/rd.tgz -C /usr/local/bin remote-docker
+      ln -s remote-docker /usr/local/bin/docker
+      rm /tmp/rd.tgz
+      EOS
+
+      # The scale set's command is `with-remote-docker /home/runner/run.sh`: the session must be up
+      # before the first Docker call. The account is ephemeral (apps/remote-docker-ci), so every
+      # pod presents the same key and still gets its own tunnel port and volumes.
+      COPY <<'EOF2' /usr/local/bin/with-remote-docker
+      #!/bin/sh
+      set -eu
+      mkdir -p "$REMOTE_DOCKER_STATE_DIR"
+      install -m 0600 /secrets/id_ed25519 "$REMOTE_DOCKER_STATE_DIR/id_ed25519"
+      # No `remote create`: the REMOTE_DOCKER_* env alone configures the client.
+      remote-docker remote start
+      exec "$@"
+      EOF2
+      RUN chmod 0755 /usr/local/bin/with-remote-docker
+      USER runner
+  target: k0s-flux
+  push:
+    history: 10
+    writeRefTo:
+      namespace: gen-app-github-runner
+      keys:
+        ref: ARC_RUNNER_K0S_FLUX_REF

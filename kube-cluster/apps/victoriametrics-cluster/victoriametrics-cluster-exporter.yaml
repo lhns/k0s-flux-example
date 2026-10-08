@@ -32,6 +32,16 @@ receivers:
           static_configs:
             - targets:
               - 'vmstorage:8482'
+        - job_name: 'vminsert-longterm'
+          scrape_interval: 15s
+          static_configs:
+            - targets:
+              - 'vminsert-longterm:8480'
+        - job_name: 'vmstorage-longterm'
+          scrape_interval: 15s
+          static_configs:
+            - targets:
+              - 'vmstorage-longterm:8482'
 
   kafka/metrics:
     protocol_version: 2.1.0
@@ -123,6 +133,46 @@ receivers:
       max_interval: 10s
       max_elapsed_time: 30s
 
+  # Long-term tier feed. A new group_id starts at `earliest`, replaying the topic's full
+  # retention: renaming it re-feeds ~10 days (harmless, dedup absorbs it, but slow).
+  kafka/metrics_longterm:
+    protocol_version: 2.1.0
+    brokers:
+      - otel-kafka-bootstrap.opentelemetry-gateway.svc.cluster.local:9092
+    metrics:
+      topics:
+        - otlp_metrics
+    group_id: victoriametrics-cluster-exporter-longterm
+    initial_offset: earliest
+    message_marking:
+      after: true
+      on_error: false
+    # same as kafka/metrics
+    error_backoff:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 1m
+      max_elapsed_time: 5m
+
+  kafka/meta_metrics_longterm:
+    protocol_version: 2.1.0
+    brokers:
+      - otel-kafka-bootstrap.opentelemetry-gateway.svc.cluster.local:9092
+    metrics:
+      topics:
+        - otlp_meta_metrics
+    group_id: victoriametrics-cluster-exporter-longterm
+    initial_offset: earliest
+    message_marking:
+      after: true
+      on_error: false
+    # same as kafka/metrics
+    error_backoff:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 1m
+      max_elapsed_time: 5m
+
 exporters:
   otlp/feedback:
     endpoint: opentelemetry-gateway.opentelemetry-gateway.svc.cluster.local:4317
@@ -131,6 +181,15 @@ exporters:
 
   otlphttp/victoriametrics:
     metrics_endpoint: http://vminsert:8480/insert/0/opentelemetry/v1/metrics
+    http2_read_idle_timeout: 10s
+    http2_ping_timeout: 5s
+    sending_queue:
+      enabled: false
+    retry_on_failure:
+      enabled: false
+
+  otlphttp/victoriametrics_longterm:
+    metrics_endpoint: http://vminsert-longterm:8480/insert/0/opentelemetry/v1/metrics
     http2_read_idle_timeout: 10s
     http2_ping_timeout: 5s
     sending_queue:
@@ -167,3 +226,6 @@ service:
       receivers: [kafka/meta_metrics_latest, kafka/metrics_latest]
       processors: [transform/truncate_attributes, interval/downsample]
       exporters: [otlphttp/victoriametrics]
+    # Long-term tier (README, "Long-term tier").
+    # No metrics/latest counterpart: lag is harmless here and dedup thins to 1m anyway.
+    metrics/longterm: {receivers: [kafka/meta_metrics_longterm, kafka/metrics_longterm], processors: [transform/truncate_attributes], exporters: [otlphttp/victoriametrics_longterm]}

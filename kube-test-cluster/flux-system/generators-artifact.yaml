@@ -1,0 +1,32 @@
+---
+# kube-cluster/flux-system/generators-artifact.yaml with kube-cluster/ replaced: copy only this
+# cluster's paths, never another's. A */ wildcard would put every cluster's files into each root release.
+apiVersion: source.extensions.fluxcd.io/v1beta1
+kind: ArtifactGenerator
+metadata:
+  name: generators
+  namespace: flux-system
+spec:
+  sources:
+    - alias: repo
+      kind: GitRepository
+      name: flux-system
+      namespace: flux-system
+  artifacts:
+    - name: generators
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/Chart.yaml"
+          to: "@artifact/generators/"
+        - from: "@repo/templates"
+          to: "@artifact/generators/"
+        - from: "@repo/kube-test-cluster/k0sctl.yaml"
+          to: "@artifact/generators/kube-test-cluster/"
+        - from: "@repo/kube-test-cluster/*/*/kustomization.yaml"
+          to: "@artifact/generators/"
+        - from: "@repo/kube-test-cluster/*/*/namespaces/*.yaml"
+          to: "@artifact/generators/"
+        # No artifacts/ glob yet: a glob that matches nothing fails the whole artifact. Add it
+        # with the first artifacts/ directory.
+        - from: "@repo/kube-test-cluster/*/*/substitution-secrets/*.yaml"
+          to: "@artifact/generators/"

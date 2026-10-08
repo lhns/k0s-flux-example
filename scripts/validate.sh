@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Validate the repo. Two halves: the repo-wide checks below, which cover every component
-# unconditionally, and the opt-in per-component tests that scripts/run-tests.sh discovers
-# (convention: kube-cluster/README.md). Runs in CI (.github/workflows/lint.yml) and
-# locally — needs yamllint, kustomize and kubeconform on PATH.
+# Validate the repo. Two halves: the repo-wide checks below, which cover every component of
+# every cluster (any */flux-system/kustomization.yaml) unconditionally, and the opt-in
+# per-component tests that scripts/run-tests.sh discovers (convention: kube-cluster/README.md).
+# Runs in CI (.github/workflows/lint.yml) and locally — needs yamllint, kustomize and
+# kubeconform on PATH.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -23,9 +24,11 @@ for mode in fixtures fixtures-generate; do
   fi
 done
 echo "golden OK"
+bash tests/generator-guards.sh
 
 # python3 on CI, python in git-bash on Windows.
 py=python3; command -v python3 >/dev/null 2>&1 || py=python
+mapfile -t clusters < <("$py" scripts/clusters.py)
 
 echo
 echo "== generator release size =="
@@ -56,6 +59,10 @@ echo "== oci-composer: every fetch digest matches what its url serves =="
 "$py" scripts/check-fetch-digests.py
 
 echo
+echo "== arc runner images: one Dockerfile in both ImageBuilds =="
+"$py" scripts/check-arc-dockerfile.py
+
+echo
 echo "== matrix: synapse-pymods FROM matches the synapse image =="
 # The modules in /pymods are resolved against the base image's interpreter, and two
 # different renovate managers see the two pins as unrelated deps. A split bump is an
@@ -81,6 +88,15 @@ echo "== sops: every encrypted file is whole and encrypted to the cluster's key 
 "$py" scripts/check-sops.py
 
 echo
+echo "== clusters: each reads only its own directory, shared/ holds plain bases =="
+"$py" scripts/check-clusters.py
+
+echo
+echo "== artifacts: every component builds from what its ExternalArtifact holds =="
+# A ../ reference out of the component builds here and fails only in the cluster.
+"$py" scripts/check-artifacts.py
+
+echo
 echo "== kustomize build + kubeconform =="
 # Schemas are cached on disk (the CI runner persists .cache/ between runs), so once
 # warm this needs no network.
@@ -92,7 +108,7 @@ mkdir -p "$cache"
 # OCIRepository tag, so it can't drift and needs no separate bump here. A release
 # X.Y.Z is git tag vX.Y.Z; a dev build 0.0.0-dev.SHA (no `g`, unlike oci-composer)
 # carries the commit.
-kvver="$(grep -oE 'tag: *"[^"]+"' kube-cluster/infra/kube-vnet/release.yaml | head -1 | grep -oE '"[^"]+"' | tr -d '"')"
+kvver="$(grep -oE 'tag: *"[^"]+"' kube-cluster/infra/kube-vnet/version.yaml | head -1 | grep -oE '"[^"]+"' | tr -d '"')"
 case "$kvver" in
   0.0.0-dev.*) kvref="${kvver#0.0.0-dev.}" ;;
   *)           kvref="v${kvver}" ;;
@@ -118,42 +134,41 @@ ocschema="https://raw.githubusercontent.com/lhns/kube-oci-composer/${ocref}/sche
 # would not survive. Without this the build error prints, kubeconform still summarises the
 # components that did build, and the script exits 0 -- CI green on a broken component.
 buildfail="$(mktemp)"
-# The same stream, kept for check-coverage.py so nothing is built twice.
-rendered="$(mktemp)"
-trap 'rm -f "$buildfail" "$rendered"' EXIT
+# The same stream per cluster, kept for check-coverage.py so nothing is built twice.
+rendered="$(mktemp -d)"
+trap 'rm -rf "$buildfail" "$rendered"' EXIT
 
 run() {
   : > "$buildfail"   # truncate: run() is retried, and stale entries would fail a healthy repo
+  for c in "${clusters[@]}"; do
   {
-  for k in kube-cluster/infra/*/kustomization.yaml \
-           kube-cluster/apps/*/kustomization.yaml \
-           kube-cluster/rbac/*/kustomization.yaml \
-           kube-cluster/flux-system/kustomization.yaml; do
-    [ -f "$k" ] || continue
-    echo "  $(dirname "$k")" >&2
+  mapfile -t comps < <("$py" scripts/clusters.py components "$c")
+  for d in "${comps[@]}" "$c/flux-system" $("$py" scripts/clusters.py k0s-upgrade "$c"); do
+    echo "  $d" >&2
     echo "---"
-    kustomize build "$(dirname "$k")" || echo "$(dirname "$k")" >> "$buildfail"
+    kustomize build "$d" || echo "$d" >> "$buildfail"
   done
   # No kustomization.yaml in these by design (kustomize-controller synthesizes one), and
   # the component build above deliberately excludes them. Plain manifests -- feed them to
   # kubeconform as-is.
-  for f in kube-cluster/{apps,infra,rbac}/*/substitution-secrets/*.yaml \
-           kube-cluster/{apps,infra,rbac}/*/artifacts/*.yaml \
-           kube-cluster/{apps,infra,rbac}/*/namespaces/*.yaml; do
-    [ -f "$f" ] || continue
-    echo "---"
-    cat "$f"
+  for d in "${comps[@]}"; do
+    for f in "$d"/substitution-secrets/*.yaml "$d"/artifacts/*.yaml "$d"/namespaces/*.yaml; do
+      [ -f "$f" ] || continue
+      echo "---"
+      cat "$f"
+    done
   done
   # Everything the generator emits for the real tree, in BOTH shapes: the per-component
   # ArtifactGenerator+HelmRelease the root release emits (real-generate), and the Kustomizations
   # each of those releases then emits (real). Nothing else schema-checks either -- they are
   # created by helm-controller, which validates nothing up front.
   for mode in real real-generate; do
-    echo "  generator output ($mode)" >&2
+    echo "  generator output ($mode, $c)" >&2
     echo "---"
-    bash scripts/render.sh "$mode" || echo "generator-chart ($mode)" >> "$buildfail"
+    bash scripts/render.sh "$mode" "$c" || echo "generator-chart ($mode, $c)" >> "$buildfail"
   done
-  } | tee "$rendered" | python3 scripts/strip-sops-metadata.py | kubeconform \
+  } | tee "$rendered/$c"
+  done | python3 scripts/strip-sops-metadata.py | kubeconform \
     -ignore-missing-schemas \
     -strict \
     -cache "$cache" \
@@ -194,7 +209,9 @@ echo "kubeconform OK"
 
 echo
 echo "== coverage: every CSI StorageClass has a snapshot class, every CNPG Cluster a backup =="
-"$py" scripts/check-coverage.py "$rendered"
+for c in "${clusters[@]}"; do
+  "$py" scripts/check-coverage.py "$c" "$rendered/$c"
+done
 
 echo
 echo "== per-component tests =="

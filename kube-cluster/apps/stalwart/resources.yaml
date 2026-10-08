@@ -41,7 +41,7 @@ spec:
         runAsGroup: 0
       containers:
         - name: stalwart
-          image: stalwartlabs/stalwart:v0.16.24
+          image: stalwartlabs/stalwart:v0.16.25
           env:
             - name: STALWART_PUBLIC_URL
               value: https://mail.example.com
@@ -177,7 +177,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: bulwark
-          image: ghcr.io/bulwarkmail/webmail:1.11.2
+          image: ghcr.io/bulwarkmail/webmail:1.13.0
           env:
             - name: APP_NAME
               value: Mail

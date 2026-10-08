@@ -3,12 +3,13 @@ kind: Kustomization
 metadata:
   annotations:
     # app-remote-docker(-ci): the Docker daemons the runners use; without them they have nothing
-    # to talk to. infra-oci-composer: artifacts/ is built there.
+    # to talk to. infra-oci-composer: artifacts/ is built there. app-arc-controller: the
+    # scale sets' CRDs.
     # Read by the root generator; inert to kustomize.
-    flux-component-generator/dependsOn: app-remote-docker,app-remote-docker-ci,infra-kube-vnet,infra-oci-composer
+    flux-component-generator/dependsOn: app-remote-docker,app-remote-docker-ci,infra-kube-vnet,infra-oci-composer,app-arc-controller
 resources:
   - resources.yaml
-  - secret.yaml
-  - secret-k0s-flux.yaml
   - secret-k0s-flux-ssh.yaml
   - networkpolicy.yaml
+  - scale-sets.yaml
+  - secret-arc-k0s-flux.yaml

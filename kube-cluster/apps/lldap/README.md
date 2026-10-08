@@ -14,7 +14,7 @@ from Docker Swarm into its own namespace. Web UI at `lldap.example.com` (behind 
 - **kube-vnet**: `net.postgres.postgres: egress` (CNPG) + `net.traefik.traefik: ingress` (web UI) + a
   `lldap` VirtualNetwork (`vnet.yaml`) that Authelia + mosquitto join (egress) to reach LDAP `:3890`.
   In-cluster only — no external LDAP port.
-- Single replica, `strategy: Recreate`.
+- Single replica, `RollingUpdate` 0/1 (ha-surge cover).
 
 ## One-time migration
 1. Deploy at `replicas: 0` (db/role + secrets come up).

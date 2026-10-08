@@ -1,0 +1,28 @@
+---
+# PLACEHOLDER storage decision: no Ceph here. These carry prod's StorageClass names
+# (kube-cluster/infra/ceph-csi-*) on node-local disk, so a shared base or a test app that names
+# one gets a volume. Node-local: a volume is pinned to its node and lost with it, ReadWriteMany
+# claims do not provision, and there are no snapshots and no pv-reaper.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: ceph-rbd
+provisioner: rancher.io/local-path
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: cephfs
+provisioner: rancher.io/local-path
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: cephfs-appdata
+provisioner: rancher.io/local-path
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer

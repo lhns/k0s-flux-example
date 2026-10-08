@@ -6,8 +6,8 @@
 # 10.20.2.101-103, the Kubernetes API server, every LAN host and every other pod.
 #
 # WHAT IT DOES NOT COVER: job CONTAINERS. They run on a remote-docker workspace and inherit that
-# pod's reach: unrestricted for apps/remote-docker (runner-example-repo), confined to the internet by
-# apps/remote-docker-ci's own policy (runner-k0s-flux).
+# pod's reach, confined to the internet by apps/remote-docker-ci's own policy (the
+# k0s-flux scale set).
 #
 # WHY IT DOES NOT CONFLICT WITH kube-vnet: the cluster baseline is INGRESS-only
 # (`ingressIsolationLevel: pod`) and states that egress is unrestricted. A `policyTypes: [Egress]`
@@ -60,28 +60,8 @@ spec:
               - 192.168.0.0/16
               - 169.254.0.0/16
 ---
-# The remote-docker workspace, for its vnet members only. Explicit because it is a ClusterIP inside
-# 172.16.0.0/12, which the internet rule above excludes; without it those runners have no daemon.
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: github-runner-remote-docker
-  namespace: github-runner
-spec:
-  podSelector:
-    matchLabels:
-      kube-vnet/net.remote-docker.remote-docker: egress
-  policyTypes: [Egress]
-  egress:
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: remote-docker
-      ports:
-        - protocol: TCP
-          port: 2280
----
-# The same for apps/remote-docker-ci's members.
+# The remote-docker-ci workspace, for its vnet members only. Explicit because it is a ClusterIP
+# inside 172.16.0.0/12, which the internet rule above excludes; without it those runners have no daemon.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

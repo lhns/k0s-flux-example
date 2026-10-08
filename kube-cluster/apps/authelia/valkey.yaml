@@ -46,6 +46,18 @@ spec:
   ports:
     - {name: sentinel, port: 26379, targetPort: sentinel}
 ---
+# Drains evict one valkey pod at a time; the preStop handover needs the other two up.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: valkey
+  namespace: authelia
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: valkey
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -66,6 +78,8 @@ spec:
         # valkey-peers (direction: both) for replication+gossip, and the `valkey`
         # client channel (ingress) for Authelia. No per-pod net.* label needed.
     spec:
+      # preStop handover waits up to 20s for the new primary.
+      terminationGracePeriodSeconds: 30
       # valkey runs as uid 999; ceph-rbd (fsGroupPolicy: File) chowns /data to this
       # gid before start so AOF/RDB writes succeed (same rationale as the old redis).
       securityContext:
@@ -80,10 +94,13 @@ spec:
               app.kubernetes.io/name: valkey
       containers:
         - name: valkey
-          image: valkey/valkey:9
+          image: valkey/valkey:9.1.2
           command: ["sh", "/scripts/start-valkey.sh"]
           ports:
             - {name: valkey, containerPort: 6379}
+          lifecycle:
+            preStop:
+              exec: {command: ["sh", "/scripts/prestop-valkey.sh"]}
           # valkey opens its port only after replaying AOF/RDB; give it generous grace
           # on the slow Ceph before liveness can kill it.
           startupProbe:
@@ -114,10 +131,14 @@ spec:
             - {name: data, mountPath: /data}
             - {name: scripts, mountPath: /scripts, readOnly: true}
         - name: sentinel
-          image: valkey/valkey:9
+          image: valkey/valkey:9.1.2
           command: ["sh", "/scripts/start-sentinel.sh"]
           ports:
             - {name: sentinel, containerPort: 26379}
+          # Stay up while the valkey preStop asks this sentinel for the handover.
+          lifecycle:
+            preStop:
+              exec: {command: ["sleep", "22"]}
           readinessProbe:
             tcpSocket: {port: sentinel}
             initialDelaySeconds: 5

@@ -10,8 +10,7 @@ Migrated from the Swarm compose service that served `docker.example.com`.
 ## Who uses it
 
 - **People**, from machines that need not have Docker installed at all.
-- **`apps/github-runner`**'s `runner-example-repo`, whose pod is consequently unprivileged — the
-  daemon it uses is here. `runner-k0s-flux` uses `apps/remote-docker-ci`, a second workspace, so a
+- Not `apps/github-runner`: its `k0s-flux` scale set uses `apps/remote-docker-ci`, a second workspace, so a
   pod-level egress policy can confine its jobs without confining everyone here.
 
 `apps/gitea-runner` and `apps/forgejo-runner` deliberately still run their own dind sidecars.
@@ -49,7 +48,7 @@ sops round-trip instead of a one-line reviewable diff. The chart renders them in
 the object kind is a Secret only because `templates/statefulset.yaml` hardcodes `secretName:`.
 
 **The graph volume holds every account's images.** Per-account daemons keep their `/var/lib/docker`
-as named volumes on this one, so it is shared by humans and `runner-example-repo`. Grow it by
+as named volumes on this one, so it is shared by every account. Grow it by
 patching the PVC (`ceph-rbd` has `allowVolumeExpansion`), not the values: see `release.yaml`. A
 full graph stalls builds, so notice before it bites.
 
@@ -71,6 +70,21 @@ cluster that is worth weighing — a worker kernel-panicked five times in the we
 Losing the **state** volume is not losing a cache: the SSH host keys change, so every client that
 has connected before reports `REMOTE HOST IDENTIFICATION HAS CHANGED`, and each account's uid
 moves, which moves its reverse-tunnel port.
+
+## Adding a key at runtime
+
+`lhns` is an admin (`admins` in `release.yaml`). Runtime keys are stored in `enrolled_keys.d` on the
+`state` claim; `authorizedKeys` stays the declarative base. Losing the claim revokes them.
+
+```sh
+remote-docker remote key add <file|->        # own account; --account <name> as admin
+remote-docker remote key rm SHA256:...
+remote-docker remote key ls
+remote-docker remote token create --account <name>   # prints the line the new device runs
+```
+
+Token links use `publicURL` (`wss://docker.example.com/`). Server side:
+`kubectl exec -n remote-docker remote-docker-0 -- ls /etc/workspace/enrolled_keys.d`.
 
 ## Verifying
 

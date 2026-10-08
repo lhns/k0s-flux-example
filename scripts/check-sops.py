@@ -25,13 +25,18 @@ pass every check here and still be undecryptable by Flux. `scripts/check-sops-ma
 run on a host that holds the key, is the only check for that.
 
 Encrypted files are found by the ENC[AES256_GCM marker rather than by filename, the same
-way scripts/make-public.py does: a glob silently skips whatever it has not heard of.
+way scripts/make-public.py does: a glob silently skips whatever it has not heard of. They are
+searched in every cluster's directory and in shared/, where none may be: a base reaches every
+cluster, and each cluster holds only its own key.
 """
 import pathlib
 import re
 import sys
 
 import yaml
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import clusters
 
 MARKER = "ENC[AES256_GCM"
 ENC_VALUE = re.compile(r"^ENC\[AES256_GCM,data:.*,type:\w+\]$")
@@ -63,13 +68,17 @@ def recipients(rule):
 rules = creation_rules()
 
 files = sorted(
-    p for p in (ROOT / "kube-cluster").rglob("*")
+    p for tree in clusters.clusters() + ["shared"] for p in (ROOT / tree).rglob("*")
     if p.is_file() and p.suffix in {".yaml", ".yml"}
     and MARKER in p.read_text(encoding="utf-8", errors="replace")
 )
 
 for path in files:
     rel = path.relative_to(ROOT).as_posix()
+    if rel.startswith("shared/"):
+        failures.append(f"  {rel}: encrypted, but shared/ bases reach every cluster and each "
+                        f"cluster decrypts only with its own key -- put it in the cluster's overlay")
+        continue
     rule = rule_for(rel, rules)
     if rule is None:
         failures.append(f"  {rel}: encrypted, but no creation_rule in .sops.yaml matches "
@@ -131,7 +140,7 @@ for path in files:
 
 if not files:
     print("== sops check failed ==", file=sys.stderr)
-    print("  no encrypted files found under kube-cluster/ -- the marker search is broken",
+    print("  no encrypted files found in any cluster -- the marker search is broken",
           file=sys.stderr)
     sys.exit(1)
 

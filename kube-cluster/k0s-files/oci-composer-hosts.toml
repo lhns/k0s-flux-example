@@ -1,7 +1,7 @@
 # containerd registry config for the in-cluster OCI registry, uploaded to each worker's
 # /etc/k0s/registries/oci-composer/oci-composer.internal_30500_/hosts.toml via k0sctl (see
-# k0sctl.yaml host `files`). Why it exists, who pulls, and why Spegel does not mirror this
-# registry: infra/oci-composer/README.md. Why it gets a root of its own, and why that root must
+# k0sctl.yaml host `files`). Why it exists, who pulls, and why Spegel is listed here by hand:
+# infra/oci-composer/README.md. Why it gets a root of its own, and why that root must
 # stay first and carry no `_default`: k0s-files/registries.toml.
 #
 # THE PORT IS PART OF THE DIRECTORY NAME. containerd looks the directory up by the exact host
@@ -9,15 +9,31 @@
 # `oci-composer.internal` is never consulted and every pull fails as if this file did not exist.
 # `_30500_` is containerd's own conversion of `:30500` and the spelling it tries first.
 #
-# All three nodes, NO `server` line. The registry is one pod behind a NodePort, so every node
-# answers and the three are interchangeable; containerd tries the entries in order and uses
+# Spegel first: the registry is one pod, and while it moves (drains, upgrades) a node that
+# lacks a digest can still get it from a peer. Spegel's own `_default` never applies to this
+# registry (it has a directory of its own), so the mirror is listed by hand. This file is the
+# same on every node, so all three Spegel ports are listed, not a per-node $NODE_IP; any
+# instance resolves through the p2p router, and a miss fails in ~20ms to the next entry.
+# containerd sends the original registry as `?ns=`, which Spegel needs.
+#
+# Then all three NodePorts, NO `server` line. The registry is one pod behind a NodePort, so every
+# node answers and the three are interchangeable; containerd tries the entries in order and uses
 # `server` only as a final upstream, which would make one node a distinguished fallback for no
 # reason. `server = "http://oci-composer.internal:30500"` is not an option — that name resolves
 # nowhere, which is why this file exists.
 #
 # Node IPs appear ONLY here, never in an image reference. Adding or replacing a worker means
-# updating this list and re-running `k0sctl apply`; nothing in Flux notices if that is missed,
+# updating these lists and re-running `k0sctl apply`; nothing in Flux notices if that is missed,
 # and it shows up as ImagePullBackOff on the affected node only.
+
+[host."http://10.20.2.72:30020"]
+  capabilities = ["pull", "resolve"]
+
+[host."http://10.20.2.73:30020"]
+  capabilities = ["pull", "resolve"]
+
+[host."http://10.20.2.74:30020"]
+  capabilities = ["pull", "resolve"]
 
 [host."http://10.20.2.72:30500"]
   capabilities = ["pull", "resolve"]

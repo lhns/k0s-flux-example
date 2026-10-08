@@ -1,0 +1,5 @@
+# The chart version is set by each cluster's overlay: a change here reaches every cluster at once.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- release.yaml

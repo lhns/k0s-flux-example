@@ -14,9 +14,15 @@
 #
 #     ssh admin@10.20.5.15 'cd k0s-flux && git pull --ff-only && bash scripts/check-sops-mac.sh'
 #
+# Checks one cluster's directory, kube-cluster unless named: each cluster has its own key.
+#
+#     bash scripts/check-sops-mac.sh kube-test-cluster
+#
 # Decrypted output is discarded, never printed and never written to disk.
 set -uo pipefail
 cd "$(dirname "$0")/.."
+cluster="${1:-kube-cluster}"
+[ -f "$cluster/flux-system/kustomization.yaml" ] || { echo "$cluster is not a cluster directory" >&2; exit 1; }
 
 command -v sops >/dev/null || { echo "sops not on PATH -- run this on the jumphost" >&2; exit 1; }
 
@@ -32,7 +38,7 @@ while IFS= read -r f; do
     printf '  FAIL  %s: %s\n' "$f" "$(printf '%s' "$err" | tr '\n' ' ')" >&2
     fail=$((fail + 1))
   fi
-done < <(grep -rl 'ENC\[AES256_GCM' kube-cluster/ --include='*.yaml' --include='*.yml' | sort)
+done < <(grep -rl 'ENC\[AES256_GCM' "$cluster/" --include='*.yaml' --include='*.yml' | sort)
 
 [ "$n" -gt 0 ] || { echo "no encrypted files found -- wrong directory?" >&2; exit 1; }
 

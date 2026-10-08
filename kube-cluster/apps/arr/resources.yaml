@@ -544,7 +544,10 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: autopulse
@@ -610,7 +613,10 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: decluttarr
@@ -625,7 +631,7 @@ spec:
       containers:
         - name: decluttarr
           # renovate: datasource=docker
-          image: ghcr.io/manimatter/decluttarr:v2.1.0
+          image: ghcr.io/manimatter/decluttarr:v2.2.0
           securityContext:
             capabilities:
               drop: [NET_ADMIN, NET_RAW]

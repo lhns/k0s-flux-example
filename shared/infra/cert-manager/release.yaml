@@ -1,0 +1,55 @@
+---
+# jetstack's OCI chart doesn't extract cleanly via a Flux OCIRepository
+# ("gzip: invalid header"), so pull it through a HelmRepository type: oci,
+# which uses helm's native OCI puller.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: jetstack
+  namespace: cert-manager
+spec:
+  type: oci
+  interval: 1h0m0s
+  url: oci://quay.io/jetstack/charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cert-manager
+  namespace: cert-manager
+spec:
+  interval: 10m0s
+  # releaseName/storageNamespace default to name/namespace; renaming either orphans kube-cluster's
+  # adopted release.
+  chart:
+    spec:
+      chart: cert-manager
+      interval: 1h0m0s
+      sourceRef:
+        kind: HelmRepository
+        name: jetstack
+  values:
+    crds:
+      enabled: true
+    # The webhook gates every Certificate/Issuer apply: while it is down, infra-cert-manager and
+    # every Kustomization depending on it go NotReady.
+    webhook:
+      # A second replica keeps admission serving across a restart.
+      replicaCount: 2
+      # The chart spreads nothing by default, so both could land on one node.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: webhook
+              app.kubernetes.io/instance: cert-manager
+      # Chart default is 1s x3, which a loaded node trips easily.
+      livenessProbe:
+        timeoutSeconds: 5
+      # Chart default {} means BestEffort, throttled first under contention.
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi

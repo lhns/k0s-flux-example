@@ -98,7 +98,7 @@ spec:
     hooks: *worker-hooks
   k0s:
     # renovate: datasource=github-releases depName=k0sproject/k0s
-    version: "v1.36.3+k0s.1"
+    version: "v1.36.4+k0s.1"
     dynamicConfig: false
     config:
       apiVersion: k0s.k0sproject.io/v1beta1
@@ -165,6 +165,12 @@ spec:
               allowedUnsafeSysctls:
                 - net.ipv6.conf.all.disable_ipv6
                 - net.ipv6.conf.default.disable_ipv6
+              # Drain waves queue dozens of pulls; one at a time they waited ~15x longer
+              # than the pulling took. registryPullQPS limits starts per second, not
+              # concurrency. serializeImagePulls stays unset: kubelet turns it off when
+              # this is >1. A worker reads its profile only at k0s start: after
+              # `k0sctl apply`, restart k0sworker on each worker (pods survive).
+              maxParallelImagePulls: 6
   options:
     wait:
       enabled: true

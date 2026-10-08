@@ -17,6 +17,12 @@ forwardAuth** in front of it.
 - `grafana-config-secret.yaml` — the OIDC client-secret + SMTP password (SOPS,
   `grafana` ns) for `GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET` / `GF_SMTP_PASSWORD`.
 
+**Provisioned dashboards:** JSON in `dashboards/` is shipped by a `configMapGenerator`
+(`/var/lib/grafana-dashboards`, folder `CI`, provider in `dashboard-provider.yaml`). They are
+read-only in the UI; edit the JSON in git ([ADR 0053](../../../docs/adr/0053-grafana-dashboards-provisioned-from-git.md)).
+Dashboards in the database are untouched. The JSON uses a `datasource` variable of type
+`victoriametrics-metrics-datasource`, since the metrics have dotted names (MetricsQL).
+
 Grafana's state lives in **Postgres** (`GF_DATABASE_*` → `postgres-rw`, dedicated
 `grafana` role/db) rather than SQLite. The pod joins the `postgres` vnet (egress) to
 reach the primary and the `traefik` vnet (ingress) to be served.

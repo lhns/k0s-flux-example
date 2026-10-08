@@ -16,12 +16,16 @@ Not checked: uptime monitoring. uptime-kuma keeps its monitors in its SQLite DB,
 
 Exemptions go in EXEMPT below, each with a non-empty reason.
 
-Usage: check-coverage.py [RENDERED]  -- RENDERED is the multi-document stream validate.sh
-already builds; without it every component is built here.
+Usage: check-coverage.py CLUSTER [RENDERED]  -- RENDERED is the cluster's multi-document stream
+validate.sh already builds; without it every component of CLUSTER is built here. Each cluster
+is checked on its own: one cluster's snapshot class does not cover another's StorageClass.
 """
 import pathlib, re, subprocess, sys
 
 import yaml
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import clusters
 
 Loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
@@ -39,15 +43,19 @@ KIND_RE = re.compile(r"^kind: (%s)\s*$" % "|".join(KINDS), re.M)
 failures, notes = [], []
 
 
+if len(sys.argv) < 2 or sys.argv[1] not in clusters.clusters():
+    sys.exit(f"usage: check-coverage.py CLUSTER [RENDERED]; clusters: {' '.join(clusters.clusters())}")
+CLUSTER = sys.argv[1]
+
+
 def rendered():
-    if len(sys.argv) > 1:
-        return pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+    if len(sys.argv) > 2:
+        return pathlib.Path(sys.argv[2]).read_text(encoding="utf-8")
     out = []
-    for k in sorted(ROOT.glob("kube-cluster/*/*/kustomization.yaml")) + \
-            [ROOT / "kube-cluster/flux-system/kustomization.yaml"]:
-        r = subprocess.run(["kustomize", "build", str(k.parent)], capture_output=True, text=True)
+    for d in [d for d, _ in clusters.components(CLUSTER)] + [f"{CLUSTER}/flux-system"]:
+        r = subprocess.run(["kustomize", "build", str(ROOT / d)], capture_output=True, text=True)
         if r.returncode:
-            sys.exit(f"kustomize build {k.parent} failed:\n{r.stderr}")
+            sys.exit(f"kustomize build {d} failed:\n{r.stderr}")
         out.append(r.stdout)
     return "\n---\n".join(out)
 
@@ -69,7 +77,7 @@ for key, entry in EXEMPT.items():
     if not str((entry or {}).get("reason") or "").strip():
         failures.append(f"  EXEMPT{key}: no reason -- every exemption must say why")
 
-storageclasses, snapclasses, clusters, backups, static_pvs = {}, set(), {}, set(), []
+storageclasses, snapclasses, cnpg_clusters, backups, static_pvs = {}, set(), {}, set(), []
 skipped_drivers = None
 for d in docs(rendered()):
     kind, api = d.get("kind"), str(d.get("apiVersion", ""))
@@ -81,7 +89,7 @@ for d in docs(rendered()):
         if str((meta.get("labels") or {}).get(VELERO_LABEL)) == "true":
             snapclasses.add(d.get("driver"))
     elif kind == "Cluster" and api.startswith("postgresql.cnpg.io/"):
-        clusters[f"{meta.get('namespace')}/{meta.get('name')}"] = spec
+        cnpg_clusters[f"{meta.get('namespace')}/{meta.get('name')}"] = spec
     elif kind == "ScheduledBackup" and api.startswith("postgresql.cnpg.io/"):
         backups.add(f"{meta.get('namespace')}/{(spec.get('cluster') or {}).get('name')}")
     elif kind == "PersistentVolume":
@@ -107,7 +115,7 @@ for name, prov in sorted(storageclasses.items()):
         f'{VELERO_LABEL}: "true" -- every Velero backup of its volumes fails')
 
 # 2. CNPG
-for key, spec in sorted(clusters.items()):
+for key, spec in sorted(cnpg_clusters.items()):
     if exempt("cnpg", key):
         continue
     if not any(p.get("name") == BARMAN and p.get("isWALArchiver") is True
@@ -134,13 +142,16 @@ for (invariant, obj), entry in EXEMPT.items():
 if notes:
     print(*notes, sep="\n")
 
-if not storageclasses or not clusters:
-    failures.append("  no StorageClass or no CNPG Cluster in the rendered stream -- input is broken")
+# A cluster without the CNPG operator has no Clusters to find.
+cnpg = any(d.endswith("/cloudnative-pg") for d, _ in clusters.components(CLUSTER))
+if not storageclasses or (cnpg and not cnpg_clusters):
+    failures.append(f"  {CLUSTER}: no StorageClass, or no CNPG Cluster beside the operator, in "
+                    f"the rendered stream -- input is broken")
 
 if failures:
     print("== coverage check failed ==", file=sys.stderr)
     print(*failures, sep="\n", file=sys.stderr)
     sys.exit(1)
 
-print(f"{len(storageclasses)} StorageClass(es) snapshot-covered, {len(clusters)} CNPG "
+print(f"{CLUSTER}: {len(storageclasses)} StorageClass(es) snapshot-covered, {len(cnpg_clusters)} CNPG "
       f"Cluster(s) WAL-archived and scheduled, {len(static_pvs)} static PV(s) seen")

@@ -80,6 +80,7 @@ spec:
         runAsUser: 0
         runAsGroup: 0
         fsGroup: 0
+        fsGroupChangePolicy: OnRootMismatch
       containers:
         - name: navidrome
           # Digest-pinned: navidrome migrates its DB on start, so an unpinned :latest makes

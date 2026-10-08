@@ -14,6 +14,12 @@ spec:
   # databases. The third instance is what makes the guarantee affordable: one
   # standby can go away with no effect at all.
   instances: 3
+  # Required: a drain of a node holding two instances would leave no synchronous standby.
+  affinity:
+    enablePodAntiAffinity: true
+    podAntiAffinityType: required
+  # Switchover keeps writes flowing while the primary updates; the default restarts it in place.
+  primaryUpdateMethod: switchover
   storage:
     # Block storage (Ceph RBD, pool rbd.kube) — proper for a database (block I/O,
     # reattachable volumes) rather than the shared CephFS.

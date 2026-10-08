@@ -1,0 +1,30 @@
+---
+# kube-cluster/flux-system/generators.yaml for this cluster: the same prefixes, groups and
+# k0sUpgrade under kube-test-cluster/. Comments on the settings are there.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: generators
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  maxHistory: 3
+  install:
+    disableWait: true
+  upgrade:
+    disableWait: true
+    chartNameChangeStrategy: InPlaceUpdate
+  chartRef:
+    kind: ExternalArtifact
+    name: generators
+    namespace: flux-system
+  values:
+    groups:
+      - { base: kube-test-cluster/apps, prefix: app }
+      - { base: kube-test-cluster/infra, prefix: infra }
+      - { base: kube-test-cluster/rbac, prefix: rbac }
+    generate:
+      pruneDisabled: []
+    k0sUpgrade:
+      k0sctlPath: kube-test-cluster/k0sctl.yaml
+      path: kube-test-cluster/k0s-upgrade

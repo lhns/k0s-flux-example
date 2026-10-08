@@ -11,3 +11,13 @@ resources:
 - grafana-config-secret.yaml
 - db-role-secret.yaml
 - database.yaml
+configMapGenerator:
+# Dashboards provisioned from git (ADR 0053). Comments here are shipped config.
+- name: grafana-dashboard-provider
+  namespace: grafana
+  files:
+  - dashboard-provider.yaml
+- name: grafana-dashboards
+  namespace: grafana
+  files:
+  - dashboards/github-runners.json

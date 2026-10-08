@@ -1,0 +1,9 @@
+# Applied by the k0s-upgrade Kustomization from the whole repo (templates/k0s-upgrade.yaml), so
+# ../../shared resolves without a bases annotation.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../shared/k0s-upgrade
+images:
+  - name: alpine/k8s
+    newTag: 1.37.1

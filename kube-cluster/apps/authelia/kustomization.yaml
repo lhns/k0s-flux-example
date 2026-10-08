@@ -29,3 +29,4 @@ configMapGenerator:
   files:
   - start-valkey.sh
   - start-sentinel.sh
+  - prestop-valkey.sh

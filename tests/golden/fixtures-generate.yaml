@@ -1,4 +1,36 @@
 ---
+apiVersion: notification.toolkit.fluxcd.io/v1beta3
+kind: Alert
+metadata:
+  name: flux-errors
+  namespace: flux-system
+spec:
+  providerRef:
+    name: matrix
+  eventSeverity: error
+  eventMetadata:
+    cluster: fixture
+  exclusionList:
+    - 'failed to call webhook: Post "[^"]*": EOF\b'
+  eventSources:
+  - { kind: Kustomization, name: "*", namespace: flux-system }
+  - { kind: HelmRelease, name: "*", namespace: flux-system }
+  - { kind: GitRepository, name: "*", namespace: flux-system }
+  - { kind: OCIRepository, name: "*", namespace: flux-system }
+  - { kind: HelmRepository, name: "*", namespace: flux-system }
+  - { kind: ArtifactGenerator, name: "*", namespace: flux-system }
+  - { kind: ExternalArtifact, name: "*", namespace: flux-system }
+  - { kind: Kustomization, name: "*", namespace: gen-app-annotated }
+  - { kind: Kustomization, name: "*", namespace: gen-app-based }
+  - { kind: Kustomization, name: "*", namespace: gen-app-controlled }
+  - { kind: Kustomization, name: "*", namespace: gen-app-dependent }
+  - { kind: Kustomization, name: "*", namespace: gen-app-exported }
+  - { kind: Kustomization, name: "*", namespace: gen-app-external }
+  - { kind: Kustomization, name: "*", namespace: gen-app-namespaced }
+  - { kind: Kustomization, name: "*", namespace: gen-app-plain }
+  - { kind: Kustomization, name: "*", namespace: gen-app-suspended }
+  - { kind: Kustomization, name: "*", namespace: gen-app-with-secrets }
+---
 apiVersion: source.extensions.fluxcd.io/v1beta1
 kind: ArtifactGenerator
 metadata:
@@ -25,6 +57,37 @@ spec:
       copy:
         - from: "@repo/tests/fixtures/apps/annotated"
           to: "@artifact/tests/fixtures/apps/"
+---
+apiVersion: source.extensions.fluxcd.io/v1beta1
+kind: ArtifactGenerator
+metadata:
+  name: gen-app-based
+  namespace: flux-system
+spec:
+  sources:
+    - alias: repo
+      kind: GitRepository
+      name: flux-system
+      namespace: flux-system
+  artifacts:
+    - name: gen-app-based
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/Chart.yaml"
+          to: "@artifact/generators/"
+        - from: "@repo/templates"
+          to: "@artifact/generators/"
+        - from: "@repo/tests/fixtures/apps/based/kustomization.yaml"
+          to: "@artifact/generators/tests/fixtures/apps/based/"
+    - name: app-based
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/tests/fixtures/apps/based"
+          to: "@artifact/tests/fixtures/apps/"
+        - from: "@repo/shared/infra/example"
+          to: "@artifact/shared/infra/"
+        - from: "@repo/shared/components/example"
+          to: "@artifact/shared/components/"
 ---
 apiVersion: source.extensions.fluxcd.io/v1beta1
 kind: ArtifactGenerator
@@ -343,6 +406,28 @@ spec:
   chartRef:
     kind: ExternalArtifact
     name: gen-app-annotated
+    namespace: flux-system
+  values:
+    groups:
+      - base: tests/fixtures/apps
+        prefix: app
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: gen-app-based
+  namespace: flux-system
+spec:
+  interval: 30m
+  maxHistory: 3
+  install:
+    disableWait: true
+  upgrade:
+    disableWait: true
+    chartNameChangeStrategy: InPlaceUpdate
+  chartRef:
+    kind: ExternalArtifact
+    name: gen-app-based
     namespace: flux-system
   values:
     groups:

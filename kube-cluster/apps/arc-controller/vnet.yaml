@@ -1,0 +1,29 @@
+# Scrape targets for the otel `cluster` collector; arc-system must also be in
+# infra/opentelemetry-monitoring/release.yaml `namespaces.names`.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetworkBinding
+metadata:
+  name: arc-controller-scrape-ingress
+  namespace: arc-system
+spec:
+  virtualNetworkRef:
+    name: otel-scrape
+    namespace: opentelemetry
+  direction: ingress
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: gha-rs-controller
+---
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetworkBinding
+metadata:
+  name: arc-listeners-scrape-ingress
+  namespace: arc-system
+spec:
+  virtualNetworkRef:
+    name: otel-scrape
+    namespace: opentelemetry
+  direction: ingress
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: runner-scale-set-listener

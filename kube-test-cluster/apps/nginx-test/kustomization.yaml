@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    flux-component-generator/dependsOn: infra-traefik-config,infra-local-storage
+resources:
+- resources.yaml
+# The substitution canary, as in kube-cluster/apps/nginx-test: probe.conf holds
+# ${NGINX_TEST_VALUE}, and the generator patches this ConfigMap into a Secret.
+configMapGenerator:
+- name: nginx-test-probe
+  namespace: nginx-test
+  files:
+  - probe=probe/probe.conf
+  options:
+    disableNameSuffixHash: true
+    annotations:
+      flux-component-generator/as-secret: "true"

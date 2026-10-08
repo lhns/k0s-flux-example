@@ -1,0 +1,57 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: gha-runner-scale-set-controller
+  namespace: arc-system
+spec:
+  interval: 1h0m0s
+  url: oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller
+  ref:
+    # Must match the gha-runner-scale-set chart in apps/github-runner; renovate.json groups them.
+    tag: "0.15.0"
+---
+# The CRDs are in the chart's crds/, upgraded by the generator's default crdPolicy.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: arc-controller
+  namespace: arc-system
+spec:
+  interval: 10m0s
+  chartRef:
+    kind: OCIRepository
+    name: gha-runner-scale-set-controller
+  values:
+    # The scale sets name this ServiceAccount in controllerServiceAccount.
+    fullnameOverride: arc-controller
+    flags:
+      logLevel: info
+      # Namespaced RBAC in github-runner instead of a ClusterRole over every namespace's pods
+      # and secrets. A scale set in another namespace needs a second controller.
+      watchSingleNamespace: github-runner
+    # Controller :8080 and each listener's :8080, scraped by the otel `cluster` collector;
+    # vnet.yaml admits it. Listener annotations: scale sets' listenerTemplate.
+    metrics:
+      controllerManagerAddr: ":8080"
+      listenerAddr: ":8080"
+      listenerEndpoint: /metrics
+    podAnnotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "8080"
+      prometheus.io/path: /metrics
+    podSecurityContext:
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities:
+        drop: [ALL]
+    resources:
+      requests:
+        cpu: 25m
+        memory: 64Mi
+      limits:
+        memory: 256Mi

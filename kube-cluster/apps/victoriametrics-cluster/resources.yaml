@@ -40,6 +40,33 @@ spec:
     requests:
       storage: 1Gi
 ---
+# Stale copy of data/small; never mount it on a vmstorage again: README.md,
+# "Stale copies of data/small".
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vmstorage-hot
+  namespace: victoriametrics-cluster
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: cephfs
+  resources:
+    requests:
+      storage: 32Gi
+---
+# data/small on RBD: README.md, "Hot/cold storage".
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vmstorage-hot-rbd
+  namespace: victoriametrics-cluster
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 32Gi
+---
 # ===========================================================================
 # vmstorage — the stateful cluster store. RPC on :8400 (vminsert) / :8401
 # (vmselect), http/metrics on :8482. root-owned data on CephFS -> run as root,
@@ -122,10 +149,19 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /storage
+            # small/<month>/parts.json also lists the big parts, and vmstorage DELETES every
+            # big part it does not list: never start it with a stale, empty or foreign small/.
+            # subPath: ext4's lost+found at the volume root would be read as a partition.
+            - name: hot
+              mountPath: /storage/data/small
+              subPath: small
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: vmstorage-data
+        - name: hot
+          persistentVolumeClaim:
+            claimName: vmstorage-hot-rbd
 ---
 apiVersion: v1
 kind: Service
@@ -152,7 +188,10 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: vminsert
@@ -221,7 +260,10 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: vmselect
@@ -294,7 +336,10 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: victoriametrics-cluster-exporter
@@ -320,7 +365,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: otelcol
-          image: otel/opentelemetry-collector-contrib:0.161.0
+          image: otel/opentelemetry-collector-contrib:0.162.0
           resources:
             requests:
               memory: 256Mi

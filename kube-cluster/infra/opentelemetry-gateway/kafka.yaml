@@ -53,6 +53,15 @@ spec:
         kraftMetadata: shared
   template:
     pod:
+      # Required: a PDB cannot stop a drain evicting two co-located brokers.
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  strimzi.io/cluster: otel
+                  strimzi.io/name: otel-kafka
       metadata:
         labels:
           # Brokers accept clients on :9092 and talk to each other (:9091 replication,

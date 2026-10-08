@@ -83,6 +83,9 @@ absence explicitly.
   error, and you find out from `connection refused` at runtime.
 - **Rotating the S3 credentials needs a manual roll.** Reloader cannot restart a
   `StrimziPodSet`; annotate the pods with `strimzi.io/manual-rolling-update`.
+- **Brokers have required pod anti-affinity on the hostname** (`kafka.yaml`): a PDB cannot stop a
+  drain evicting two co-located brokers. A fourth node is not needed, but fewer than three leaves a
+  broker Pending.
 - **Changing the `Kafka` CR rolls all three brokers sequentially.** RF=2 means a partition
   keeps a leader throughout, so producers never block.
 

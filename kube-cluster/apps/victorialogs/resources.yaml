@@ -72,7 +72,7 @@ spec:
         runAsGroup: 0
       containers:
         - name: victorialogs
-          image: victoriametrics/victoria-logs:v1.52.0
+          image: victoriametrics/victoria-logs:v1.53.0
           # Memory only, per apps/webtop/README.md -- a CPU limit would throttle, not protect.
           resources:
             requests:
@@ -117,7 +117,7 @@ spec:
 # ===========================================================================
 # OTel collector — reads OTLP logs from the in-cluster Kafka (otlp_logs topic) and
 # writes them into VictoriaLogs. Stateless; config from a ConfigMap. Single
-# Kafka consumer (group victorialogs-exporter) -> replicas 1, Recreate.
+# Kafka consumer (group victorialogs-exporter) -> replicas 1.
 # ===========================================================================
 apiVersion: apps/v1
 kind: Deployment
@@ -127,7 +127,10 @@ metadata:
 spec:
   replicas: 1 # live (Swarm VL stack stopped; data + Kafka group freed)
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: victorialogs-exporter
@@ -150,7 +153,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: otelcol
-          image: otel/opentelemetry-collector-contrib:0.161.0
+          image: otel/opentelemetry-collector-contrib:0.162.0
           resources:
             requests:
               memory: 128Mi

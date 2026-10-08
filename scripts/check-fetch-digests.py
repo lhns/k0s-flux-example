@@ -22,7 +22,10 @@ import urllib.request
 
 import yaml
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import clusters
+
+ROOT = clusters.ROOT
 CACHE = ROOT / ".cache" / "fetch-digests"
 KINDS = ("ImageComposition", "ImageBuild")
 SHELL_PAIR = re.compile(r"^[ \t]*url=(\S+)[ \t]*\r?\n[ \t]*digest=(sha256:[0-9a-f]{64})[ \t]*$", re.M)
@@ -132,7 +135,7 @@ def main():
     fix = "--fix" in sys.argv[1:]
     cached = set(CACHE.read_text().split("\n")) if CACHE.exists() else set()
     problems, ok, checked = [], [], 0
-    for path in sorted((ROOT / "kube-cluster").rglob("*.yaml")):
+    for path in sorted(p for tree in clusters.clusters() + ["shared"] for p in (ROOT / tree).rglob("*.yaml")):
         found = collect(path.read_text(encoding="utf-8"))
         if not found:
             continue

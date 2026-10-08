@@ -285,7 +285,10 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: synapse-redis
@@ -463,7 +466,10 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: livekit-redis
@@ -536,7 +542,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: livekit-sip
-          image: livekit/sip:v1.17.0
+          image: livekit/sip:v1.18.0
           env:
             # No SIP_CONFIG_FILE: the image's ENTRYPOINT is
             # ["livekit-sip", "--config=/sip/config.yaml"], and the flag always wins, so
@@ -605,7 +611,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: livekit
-          image: livekit/livekit-server:v1.13.7
+          image: livekit/livekit-server:v1.13.9
           # livekit-sip coordinates with the server through a shared Redis. The flag
           # overrides redis.address in livekit.yaml -- updateFromCLI runs after the config
           # file is parsed -- so the SOPS-encrypted config is never decrypted to add it.
@@ -1576,7 +1582,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: baibot
-          image: ghcr.io/etkecc/baibot:v1.27.1
+          image: ghcr.io/etkecc/baibot:v1.28.0
           env:
             - name: TZ
               value: Europe/Berlin

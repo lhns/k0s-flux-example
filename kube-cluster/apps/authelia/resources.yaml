@@ -25,6 +25,10 @@ spec:
       app.kubernetes.io/name: authelia
   template:
     metadata:
+      annotations:
+        # Startup checks are fatal and run before kube-router has programmed a new pod; hold the
+        # start until every node has (normally 1-4 s), at most this long, then start anyway.
+        kube-vnet/network-max-wait: "60s"
       labels:
         app.kubernetes.io/name: authelia
         app.kubernetes.io/instance: authelia

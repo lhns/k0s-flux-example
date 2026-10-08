@@ -1,0 +1,157 @@
+# ===========================================================================
+# ARC runner scale sets (apps/arc-controller): one fresh pod per job, deleted after it. A
+# workflow selects one with `runs-on: <runnerScaleSetName>`; see the README.
+#
+# The pods inherit this namespace's github-runner-egress (DNS and the public internet). Like
+# the runners in resources.yaml they run as root, unprivileged, with no ServiceAccount token.
+# Only k0s-flux has Docker, from the remote-docker-ci workspace through ephemeral clients.
+# ===========================================================================
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: gha-runner-scale-set
+  namespace: github-runner
+spec:
+  interval: 1h0m0s
+  url: oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set
+  ref:
+    # Must match apps/arc-controller.
+    tag: "0.15.0"
+---
+# The image's sudoers covers only the `sudo` group, so root's `sudo` (lint.yml, setup-php) is
+# refused. A non-root runner cannot use sudo at all under allowPrivilegeEscalation: false.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: arc-runner-sudoers
+  namespace: github-runner
+data:
+  sudoers: |
+    root ALL=(ALL:ALL) NOPASSWD:ALL
+    %sudo ALL=(ALL:ALL) NOPASSWD:ALL
+    Defaults env_keep += "DEBIAN_FRONTEND"
+---
+# example/k0s-flux Lint and Renovate; Renovate needs Docker. Every pod starts a remote-docker client in its runner
+# container (artifacts/arc-runner-k0s-flux.yaml); the account is ephemeral, so all pods share one
+# key and each still gets its own session.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: arc-k0s-flux
+  namespace: github-runner
+spec:
+  interval: 10m0s
+  chartRef:
+    kind: OCIRepository
+    name: gha-runner-scale-set
+  values:
+    runnerScaleSetName: k0s-flux
+    githubConfigUrl: https://github.com/example/k0s-flux
+    githubConfigSecret: arc-k0s-flux
+    minRunners: 1
+    maxRunners: 4
+    controllerServiceAccount:
+      namespace: arc-system
+      name: arc-controller
+    listenerTemplate:
+      metadata:
+        annotations:
+          prometheus.io/scrape: "true"
+          prometheus.io/port: "8080"
+          prometheus.io/path: /metrics
+      spec:
+        containers:
+          - name: listener
+            securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop: [ALL]
+              seccompProfile:
+                type: RuntimeDefault
+            resources:
+              requests:
+                cpu: 10m
+                memory: 32Mi
+              limits:
+                memory: 128Mi
+    template:
+      metadata:
+        labels:
+          app.kubernetes.io/name: arc-k0s-flux
+          app.kubernetes.io/instance: github-runner
+          # Reaches the workspace's :2280 in the remote-docker-ci namespace.
+          kube-vnet/net.remote-docker-ci.remote-docker-ci: egress
+      spec:
+        serviceAccountName: github-runner
+        automountServiceAccountToken: false
+        enableServiceLinks: false
+        topologySpreadConstraints:
+          - maxSkew: 1
+            topologyKey: kubernetes.io/hostname
+            whenUnsatisfiable: ScheduleAnyway
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: arc-k0s-flux
+        containers:
+          - name: runner
+            image: ${ARC_RUNNER_K0S_FLUX_REF}
+            command: [/usr/local/bin/with-remote-docker, /home/runner/run.sh]
+            securityContext:
+              runAsUser: 0
+              runAsGroup: 0
+              allowPrivilegeEscalation: false
+              seccompProfile:
+                type: RuntimeDefault
+            env:
+              - name: RUNNER_ALLOW_RUNASROOT
+                value: "1"
+              - name: TZ
+                value: Europe/Berlin
+              # ws:// not wss://: the agent serves plain ws (ADR 0034) and this stays in the
+              # cluster. The port is in the URL.
+              - name: REMOTE_DOCKER_HOST
+                value: ws://remote-docker-ci.remote-docker-ci.svc.cluster.local:2280
+              - name: REMOTE_DOCKER_USER
+                value: k0s-flux
+              # Never let the session exit: its exit removes the endpoint socket.
+              - name: REMOTE_DOCKER_DAEMON_IDLE
+                value: "-1s"
+              - name: REMOTE_DOCKER_STATE_DIR
+                value: /run/rd/state
+              - name: REMOTE_DOCKER_ENDPOINT
+                value: /run/rd/state/docker.sock
+              - name: DOCKER_HOST
+                value: unix:///run/rd/state/docker.sock
+            resources:
+              requests:
+                cpu: 500m
+                memory: 1Gi
+              limits:
+                memory: 4Gi
+            volumeMounts:
+              - name: sudoers
+                mountPath: /etc/sudoers
+                subPath: sudoers
+                readOnly: true
+              - name: rd
+                mountPath: /run/rd
+              - name: key
+                mountPath: /secrets
+                readOnly: true
+        volumes:
+          - name: sudoers
+            configMap:
+              name: arc-runner-sudoers
+              defaultMode: 0440
+          # State dir and endpoint socket; the session is rebuilt with every pod.
+          - name: rd
+            emptyDir:
+              sizeLimit: 1Gi
+          # One key for every pod (the account is ephemeral); the wrapper installs it 0600.
+          - name: key
+            secret:
+              secretName: github-runner-k0s-flux-ssh
+              items:
+                - key: id_ed25519-0
+                  path: id_ed25519
+              defaultMode: 0440
