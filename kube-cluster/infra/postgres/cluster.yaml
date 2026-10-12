@@ -46,8 +46,8 @@ spec:
     # the rollback took device_inbox rows with it -- the table holding Megolm session
     # keys -- so messages the senders were told had been delivered could not be decrypted.
     #
-    # Sequences going backwards is NOT the documented post-crash skip (that moves them
-    # forward). It requires losing committed transactions.
+    # Sequences below a client's recorded position also follow primary moves without any
+    # lost commit (WAL log-ahead on standbys); apps/matrix guards against it, see its README.
     #
     # number: 1, not 2 -- both give RPO=0, but 2 blocks writes whenever any single
     # standby is away, which a rolling update makes routine. method: any, so either

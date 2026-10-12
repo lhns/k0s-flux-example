@@ -82,3 +82,33 @@ spec:
       middlewares:
         - name: forgejo-kube-redirect
   tls: {}
+---
+# git.example.com, and retired Gitea's hosts: every path goes to the same path here. Owner/repo names match,
+# so web links and git-over-HTTPS clone URLs keep working.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: gitea-redirect
+  namespace: forgejo
+spec:
+  redirectRegex:
+    regex: '^https://(git|gitea|gitea\.kube)\.example\.com/(.*)'
+    replacement: "https://forgejo.example.com/${2}"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: gitea-redirect
+  namespace: forgejo
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`git.example.com`) || Host(`gitea.example.com`) || Host(`gitea.kube.example.com`)
+      services:
+        - name: forgejo
+          port: 3000
+      middlewares:
+        - name: gitea-redirect
+  tls: {}

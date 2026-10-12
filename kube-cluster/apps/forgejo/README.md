@@ -153,70 +153,51 @@ warranted to preserve data that does not exist. **Mirrors must be re-pointed at 
 upstreams, not at Gitea**, or Forgejo would mirror a mirror and the chain breaks the moment Gitea
 is retired.
 
-### Status: 151 of 175 across; the 24 private mirrors still need a credential, so Gitea stays
+### Status: all 175 across and current with Gitea as of 2026-10-10; Gitea still stays
 
 `~/gitea2forgejo/` on the jumphost holds the whole thing — `classify.sh`, `migrate.sh`, `plan.tsv`
-(175 rows, one per repo, pre-reviewed), `dead.list`, `state/` (per-repo `done` / `failed`), and both
+(175 rows, one per repo, pre-reviewed), `dead.list`, `state/` (per-repo `done` / `failed`), and the
 API tokens at mode 600. It is idempotent and resumable: `./migrate.sh dead|real|mirror` retries only
 what has not landed. **Gitea is never written to**, so it remains a complete rollback.
-
-Completed 2026-08-11:
 
 | class | result |
 | --- | --- |
 | dead (upstream gone, Gitea is the only copy) | **5 / 5** |
 | real (ordinary repositories) | **14 / 14** |
-| mirrors | **132 / 156** |
-| **total in Forgejo** | **175 repos** — matching Gitea's 175 — 151 populated, 10.0 GB |
+| mirrors | **156 / 156** |
+| **total in Forgejo** | **175 repos**, all populated — matching Gitea's 175; none created since |
 
-**Every mirror that landed has completed a first successful sync (132/132).** That was the one
-silent failure mode worth checking: a mirror created with a *revoked* embedded token looks
-identical in the UI to a working one and only ever reveals itself by never updating. None are in
-that state, so the reused per-repo tokens are all still valid.
-
-### The 24 that failed, and what they need
-
-One bounded cause, not transient. Gitea has **190 on-disk repos but only 149 carry an inline
-credential** in `.git/config`; the other 41 have none, and the *private* ones among those cannot be
-cloned anonymously. All 24 fail identically:
-
-```
-Authentication failed: Clone: exit status 128
-fatal: could not read Username for 'https://github.com': terminal prompts disabled
-```
-
-```
-DaftTech.croom  DaftTech.hhg-ganztag  DaftTech.iostra  DaftTech.stackstore
-DaftTech.webpage-2016  DockBits  ESP8266-Projects  FL-Studio-Projects  FreeAuth
-Industria  LabyrinthDigger  PipeLayer  PocketContraption  ProcessMonitor
-PushyEditor  Ratty  RechnungsManagement  Th3Falc0n.daftPAInventory
-Th3Falc0n.Down  Th3Falc0n.mesg-client  Th3Falc0n.mesg-it  Th3Falc0n.pegasus
-Th3Falc0n.Universe  WebDMX
-```
-
-They exist in Forgejo as **empty shells**, which is not damage: `migrate.sh` deletes an empty repo
-before retrying it, precisely so a failed attempt cannot masquerade as a completed one. A re-run
-after supplying a credential therefore starts clean.
-
-Two ways to finish them:
-
-1. **One GitHub PAT with `repo` scope**, used as a fallback in `credential_for()` when no embedded
-   credential exists, then `./migrate.sh mirror`. They stay real mirrors of their upstreams.
-2. **Clone them from Gitea** (as the `dead` class does). Content is preserved, but they stop
-   mirroring upstream and become static copies — which matters when Gitea is retired.
+- **Mirrors without an inline credential** (24 private ones) use `.ghcreds/fallback` (mode 600):
+  one of the two PATs embedded in the other mirrors' Gitea configs, both of which read all 24.
+  They are real pull mirrors of their upstreams; refs matched upstream after the first sync.
+- **Gitea kept receiving pushes after the cut.** The real repos were compared ref by ref on
+  2026-10-10 and the missing refs fast-forwarded into Forgejo from Gitea (`bctrl`, `crdt-acl`,
+  `fin-al`, `mc-dependency-provider`, `raptorpath`). No repo had diverged; all 19 real/dead repos
+  are now ref-identical. Re-run that comparison before retiring Gitea — until pushes go to Forgejo,
+  it drifts again.
+- The releases API lists none for the real/dead repos on either side (the 13 counted are
+  presumably tag-only rows); their tags match.
+- `migrate.sh` no longer puts secrets on argv: the auth header and request body reach `curl` as
+  600-mode files. Tokens are read from the files if not in the environment.
 
 ### Also outstanding
 
-- **Rotate the Forgejo admin token** (`write:repository`, `write:user`). `migrate.sh` passes it on
-  `curl`'s **argv**, so it is readable in `ps` by any user on the jumphost — the script kept it out
-  of its own log but never out of the process table, and a fragment leaked into an assistant
-  transcript on 2026-08-11. Patch the script to pass the header via `curl --config <file>` or stdin
-  before running it again.
-- The **push** mirror on `lhns/mc-dependency-provider` → GitHub (8 h), which `POST /repos/migrate`
-  does not carry and needs a separate `POST /repos/{owner}/{repo}/push_mirrors` now that the repo
-  exists.
-- Once the above land: stop Gitea's own mirrors, or retire Gitea. While both run, both pull from
-  the same upstreams — harmless, but pointless.
+- **Rotate the Forgejo admin token** (`write:repository`, `write:user`) — owner's call. The argv
+  leak that motivated it is patched (above); a fragment leaked into an assistant transcript on
+  2026-08-11.
+- **No push mirror for `lhns/mc-dependency-provider`**: not wanted. Gitea's still exists and fails
+  (its PAT lacks `workflow` scope); it goes with Gitea.
+- **Mirror syncs blocked by stale `.lock` files.** Forgejo's repos carry ~300 `*.lock` files
+  (`HEAD.lock`, ref locks, commit-graph locks), left when git was killed mid-sync — including by the
+  mirror timeout (`[git.timeout] MIRROR`, default 300 s; `eden` logs `context deadline exceeded`).
+  Nine mirrors are behind upstream because of ref locks: `bcachefs-tools`, `cats`, `ceph`,
+  `dolphin`, `eden`, `fs2`, `fs2-compress`, `grafana-ruler-proxy`, `zfs`. Most others log an error
+  every cycle on a commit-graph or `HEAD` lock while their heads match upstream. `[git.timeout] MIRROR` is now 900 s; the stale locks still need
+  removing once, with no sync running.
+- **`mirror_updated` is not evidence of a working mirror** — it advances on failed syncs too
+  (all 156 looked fresh while the above failed). Compare `git ls-remote --heads` against upstream.
+- Gitea is retired (`replicas: 0`, component suspended); `gitea.example.com`,
+  `gitea.kube.example.com` and `git.example.com` redirect here (`routing.yaml`). Push to Forgejo.
 
 ### Four things learned the hard way, worth not rediscovering
 

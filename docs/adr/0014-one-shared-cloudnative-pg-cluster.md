@@ -1,7 +1,7 @@
 # 0014 — One shared CloudNativePG cluster, on RBD, with synchronous replication
 
 - Status: Accepted
-- Date: 2026-07-08, amended 2026-07-09, 2026-07-10, 2026-08-21 and 2026-10-08
+- Date: 2026-07-08, amended 2026-07-09, 2026-07-10, 2026-08-21, 2026-10-08 and 2026-10-09
 - Current answer: Postgres-backed apps use one shared CloudNativePG `Cluster` in
   `infra/postgres`, each with its own role and database declared from the app's directory. Three
   instances on `ceph-rbd`, synchronous replication with `dataDurability: required`, a pgbouncer
@@ -61,6 +61,10 @@ custom resources.
 - Draining the primary's node needs two eviction attempts; that is the PDB and the switchover
   working ([docs/operations.md](../operations.md#node-maintenance-reboot-shutdown)).
 - Copying rows with explicit ids without `setval` desynchronises sequences (AGENTS.md).
+- Primary moves can leave a sequence behind its client's recorded position even with zero data
+  loss (Postgres logs sequences ahead on standbys). Apps that record positions guard against it
+  themselves: Synapse's init guard moves sequences forward only
+  ([README](../../kube-cluster/apps/matrix/README.md#stream-sequences)) (2026-10-09).
 
 ## References
 

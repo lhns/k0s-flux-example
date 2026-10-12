@@ -531,10 +531,19 @@ function matrix_outbound_route(request_exten, conference, caller)
 	if not conference:match("^[%w%-_+]+$") then
 		return nil, nil, nil, 1, "missing or unusable conference header"
 	end
+	-- The room's line is the one in "sip-<line>-+<digits>"; a line name may contain "-", so
+	-- the greedy capture runs to the last "-+". Emergency numbers keep their pinned
+	-- registration whatever the room's line. A line that is not configured refuses, like an
+	-- unknown label; no line at all (a legacy conference) routes the bare number.
+	local dest, room_line = num, conference:match("^sip%-(.+)%-%+[0-9]+$")
+	if room_line then
+		local r = routing_match(sip_routing, num, caller)
+		if not (r and r.emergency) then dest = num .. "@" .. room_line end
+	end
 	-- The same resolver the XMPP path uses, so the two cannot drift on which trunk a
 	-- number takes. The caller is the Matrix user the bridge names on the INVITE; without
 	-- one, a rule narrowed by from_glob cannot match and the next rule decides.
-	local _, label, peer, _, _, kind, line = resolve_destination(num, caller)
+	local _, label, peer, _, _, kind, line = resolve_destination(dest, caller)
 	if not peer or peer == "" then
 		return nil, nil, nil, 34, "no peer for " .. num .. ": " .. refusal_reason(kind, line, label)
 	end
@@ -592,29 +601,81 @@ function inbound_stages(tbl, line, extension)
 	if type(l) == "table" and type(l.inbound_route) == "table" and #l.inbound_route > 0 then
 		return l.inbound_route, false
 	end
-	-- No localpart: matrix: targets are advisory everywhere, since the bridge rings a portal
-	-- room and routes on the conference name alone.
+	-- No localpart, so the bare "matrix:" target: the bridge rings its default recipient.
 	return { { ring = { "xmpp:" .. tostring(extension or ""), "matrix:" }, timeout = 300 } }, true
 end
 
--- One stage as a Dial() string, plus whether it includes the Matrix leg. Every matrix: target
--- collapses to at most ONE leg: they all name the same conference, so a second is the same
--- room rung twice. Without a conference it contributes none -- the bridge would decline it.
+local function hex_encode(s)
+	return (s:gsub(".", function(c) return string.format("%02x", c:byte()) end))
+end
+
+-- nil unless s is whole bytes of hex.
+local function hex_decode(s)
+	if s == "" or #s % 2 ~= 0 or s:find("%X") then return nil end
+	return (s:gsub("%x%x", function(h) return string.char(tonumber(h, 16)) end))
+end
+
+-- The extension of the Local leg that carries no recipient: the bridge's default one. Not
+-- hex ("u"), so no MXID can encode to it.
+local default_leg = "default"
+
+-- A literal "matrix:@user:server" ring target as the lowercase MXID, as matrix_caller_uri
+-- spells it. Anything else (bare "matrix:", a pattern) is nil.
+local function matrix_target_mxid(addr)
+	local mxid = tostring(addr or ""):match("^matrix:(.+)$")
+	if not mxid or mxid:find("*", 1, true) then return nil end
+	local uri = matrix_caller_uri(mxid)
+	return uri and uri:sub(#"matrix:" + 1)
+end
+
+-- The distinct Matrix recipients of a stage, in ring order: a lowercase MXID each, and false
+-- once for a bare "matrix:" (the bridge's default recipient).
+local function stage_matrix_recipients(stage)
+	local out, seen = {}, {}
+	if type(stage) ~= "table" or type(stage.ring) ~= "table" then return out end
+	for _, addr in ipairs(stage.ring) do
+		addr = tostring(addr or "")
+		local who
+		if addr == "matrix:" then who = false else who = matrix_target_mxid(addr) end
+		if who ~= nil and not seen[tostring(who)] then
+			seen[tostring(who)] = true
+			out[#out + 1] = who
+		end
+	end
+	return out
+end
+
+-- One stage as a Dial() string, plus whether it includes a Matrix leg. Each distinct
+-- matrix:@user:server target is its own Local leg, so that person gets the call in their own
+-- bridge room; a bare "matrix:" is one leg with no recipient. Without a conference they
+-- contribute none -- the bridge would decline them.
+--
+-- A Local leg and not PJSIP/ directly: the recipient header can only be added to the
+-- outbound channel by a pre-dial handler, which Dial() runs for the leg it creates, so the
+-- Dial() that creates the PJSIP channel has to be the one inside matrix-leg.
 function inbound_legs(stage, from, conf, caller)
 	if type(stage) ~= "table" or type(stage.ring) ~= "table" then return nil, false end
-	local legs, wants_matrix = {}, false
+	local legs, with_matrix = {}, false
+	local matrix_done = {}
 	for _, addr in ipairs(stage.ring) do
 		addr = tostring(addr or "")
 		local jid = addr:match("^xmpp:(.+)$")
 		if jid then
 			legs[#legs + 1] = "Motif/jingle-endpoint/" .. make_jid(jid, from)
-		elseif addr:match("^matrix:") then
-			wants_matrix = true
+		elseif conf ~= nil and caller ~= nil and addr:match("^matrix:") then
+			local ext
+			if addr == "matrix:" then
+				ext = default_leg
+			else
+				local mxid = matrix_target_mxid(addr)
+				ext = mxid and hex_encode(mxid)
+			end
+			if ext and not matrix_done[ext] then
+				matrix_done[ext] = true
+				legs[#legs + 1] = "Local/" .. ext .. "@matrix-leg/n"
+				with_matrix = true
+			end
 		end
-	end
-	local with_matrix = wants_matrix and conf ~= nil and caller ~= nil
-	if with_matrix then
-		legs[#legs + 1] = "PJSIP/" .. caller .. "@" .. bridge_peer
 	end
 	if #legs == 0 then return nil, false end
 	return table.concat(legs, "&"), with_matrix
@@ -690,6 +751,27 @@ function sms_bridge_message(from_uri, digits, reg)
 		"sip:" .. from_uri
 end
 
+-- Who a line's inbound message goes to on the bridge: the people its call plan rings, as
+-- lowercase MXIDs, so a text lands in the room the call does. A bare "matrix:" or a plan with
+-- no Matrix target is the bridge's default recipient, which is `false`.
+function sms_matrix_recipients(tbl, line)
+	local out, seen, default = {}, {}, false
+	local l = routing_line(tbl, line)
+	for _, stage in ipairs(type(l) == "table" and type(l.inbound_route) == "table"
+			and l.inbound_route or {}) do
+		for _, who in ipairs(stage_matrix_recipients(stage)) do
+			if who == false then
+				default = true
+			elseif not seen[who] then
+				seen[who] = true
+				out[#out + 1] = who
+			end
+		end
+	end
+	if default or #out == 0 then out[#out + 1] = false end
+	return out
+end
+
 -- True when a MESSAGE is the bridge asking us to send an SMS, rather than the carrier
 -- delivering one. BOTH tests are required: on the From alone a carrier-injected
 -- "From: sip:matrixbridge@..." would be an outbound-SMS primitive on our trunk, billed to
@@ -716,8 +798,29 @@ function sms_outbound_route(to_uri, caller)
 	return peer, num
 end
 
--- Deliver an inbound message to XMPP and, when the sender normalised, to Matrix. Shared by
--- messages-in and public so the two cannot name the same human differently.
+-- Who an inbound message goes to on XMPP: the distinct xmpp: ring targets of the line's call
+-- plan, the same people a call rings, so none for a line that rings nobody on XMPP. A line
+-- with no plan keeps the dialled contact, as inbound_stages does for calls.
+function sms_xmpp_targets(tbl, line, extension)
+	local stages, default_plan = inbound_stages(tbl, line, extension)
+	if default_plan then return { tostring(extension or "") } end
+	local out, seen = {}, {}
+	for _, stage in ipairs(stages) do
+		for _, addr in ipairs(type(stage) == "table" and type(stage.ring) == "table"
+				and stage.ring or {}) do
+			local jid = tostring(addr or ""):match("^xmpp:(.+)$")
+			if jid and not seen[jid:lower()] then
+				seen[jid:lower()] = true
+				out[#out + 1] = jid
+			end
+		end
+	end
+	return out
+end
+
+-- Deliver an inbound message to the line's XMPP and Matrix recipients, when the sender
+-- normalised for Matrix. Shared by messages-in and public so the two cannot name the same
+-- human differently.
 --
 -- XMPP goes FIRST on purpose: the bridge's handler can block for 32s, and a hung bridge
 -- must not delay the phone. MESSAGE_SEND_STATUS is ONE channel variable overwritten by
@@ -725,14 +828,28 @@ end
 -- app.hangup() unwinds through a Lua error and nothing after it would run.
 local function sms_deliver_inbound(extension, from_header)
 	local from_uri, digits, line, reg, how = sms_inbound_from(from_header, extension)
-	app.MessageSend("xmpp:" .. make_jid(extension, "<sip:" .. from_uri .. ">"), "xmpp:asterisk")
-	local xmpp_status = tostring(channel.MESSAGE_SEND_STATUS:get() or "")
-	local bridge_status = "skipped"
+	local xmpp_statuses = {}
+	for _, jid in ipairs(sms_xmpp_targets(sip_routing, line, extension)) do
+		app.MessageSend("xmpp:" .. make_jid(jid, "<sip:" .. from_uri .. ">"), "xmpp:asterisk")
+		xmpp_statuses[#xmpp_statuses + 1] = jid .. "="
+			.. tostring(channel.MESSAGE_SEND_STATUS:get() or "")
+	end
+	local xmpp_status = #xmpp_statuses > 0 and table.concat(xmpp_statuses, ",") or "none"
+	local bridge_statuses = {}
 	local to, from = sms_bridge_message(from_uri, digits, reg)
 	if to then
-		app.MessageSend(to, from)
-		bridge_status = tostring(channel.MESSAGE_SEND_STATUS:get() or "")
+		-- One MESSAGE per recipient, each naming its own: the bridge reads the header to pick
+		-- that person's login and room. MESSAGE_DATA persists across sends, so it is set on
+		-- every one; for the default recipient it is emptied, which removes it.
+		for _, who in ipairs(sms_matrix_recipients(sip_routing, line)) do
+			channel.MESSAGE_DATA("X-Matrix-Recipient"):set(who or "")
+			app.MessageSend(to, from)
+			bridge_statuses[#bridge_statuses + 1] = (who or "default") .. "="
+				.. tostring(channel.MESSAGE_SEND_STATUS:get() or "")
+		end
 	end
+	local bridge_status = #bridge_statuses > 0 and table.concat(bridge_statuses, ",")
+		or "skipped"
 	-- Asterisk answers 202 before any of this runs and the bridge answers 200 for a message
 	-- it drops, so these lines are the entire record that a message existed. Do not trim.
 	app.log("NOTICE", "sms inbound from=[" .. tostring(from_uri) .. "] exten=["
@@ -777,6 +894,35 @@ end
 local function inbound_from_header()
 	return "<sip:" .. tostring(channel.CALLERID("num"):get() or "")
 		.. "@" .. tostring(channel.CHANNEL("endpoint"):get() or "") .. ">"
+end
+
+-- Is this channel name the Local leg of matrix-leg? "Local/<ext>@matrix-leg-<id>;<1|2>".
+function is_matrix_leg(name)
+	return tostring(name or ""):match("^Local/[^@]+@matrix%-leg%-") ~= nil
+end
+
+-- The body of matrix-leg, on the Local channel's far half. Hangs up on a bad extension:
+-- the stage then loses this one leg and rings the rest.
+function matrix_leg(context, extension)
+	local who = nil
+	if extension ~= default_leg then
+		who = hex_decode(extension)
+		who = who and matrix_target_mxid("matrix:" .. who)
+		if not who then
+			app.log("NOTICE", "matrix-leg: bad recipient extension [" .. tostring(extension) .. "]")
+			app.hangup()
+			return
+		end
+	end
+	local caller = channel.MATRIX_CALLER_PENDING:get()
+	if not caller or caller == "" then
+		app.log("NOTICE", "matrix-leg: no caller to dial the bridge with")
+		app.hangup()
+		return
+	end
+	-- Inherited by the PJSIP channel, where add-leg-headers reads it.
+	channel["__MATRIX_RECIPIENT"]:set(who or "")
+	app.dial("PJSIP/" .. caller .. "@" .. bridge_peer, "", "b(add-leg-headers^s^1)")
 end
 
 extensions = {
@@ -850,15 +996,14 @@ extensions = {
 					local legs, with_matrix = inbound_legs(stage, from, conf, caller)
 					if legs then
 						if with_matrix then
-							-- Read back by add-conference-header off this channel. Set per
-							-- stage, as SIPAddHeader was: hoisted above the loop it is lost
-							-- from stage 2 on.
-							channel.MATRIX_CONF_PENDING:set(conf)
+							-- Read by matrix-leg and add-leg-headers. "__" makes it inherited
+							-- by the Local leg and the PJSIP channel it dials. Set per stage:
+							-- hoisted above the loop it is lost from stage 2 on.
+							channel["__MATRIX_CONF_PENDING"]:set(conf)
+							channel["__MATRIX_CALLER_PENDING"]:set(caller)
 						end
 						app.dial(legs, stage.timeout or 30,
-							with_matrix
-								and "rU(matrix-answered)b(add-conference-header^s^1)"
-								or "r")
+							with_matrix and "rU(matrix-answered)" or "r")
 
 						if with_matrix and channel.MATRIX_ANSWERED:get() == "1" then
 							-- A channel inside ConfBridge() cannot also Dial(), so the order is
@@ -886,7 +1031,10 @@ extensions = {
 	-- GOSUB_RESULT=CONTINUE hangs that leg up and lets the CALLER continue at the next
 	-- priority instead of being bridged to it. The bridge's leg is a control leg with no
 	-- media, so without this an answered Matrix call is a silent dead end. Dial() has
-	-- already hung the XMPP legs up with ANSWERED_ELSEWHERE by the time this runs.
+	-- already hung the other legs up with ANSWERED_ELSEWHERE by the time this runs.
+	--
+	-- The answered leg is the Local channel of matrix-leg, whose name is the only thing that
+	-- tells it from an XMPP leg.
 	--
 	-- The whole body is inside pcall deliberately. This gosub also runs when the XMPP leg
 	-- answers, and app_dial hangs the answered leg UP if the gosub fails -- so a Lua error
@@ -895,7 +1043,7 @@ extensions = {
 	["matrix-answered"] = {
 		["s"] = function(context, extension)
 			pcall(function()
-				if channel.CHANNEL("endpoint"):get() ~= bridge_peer then return end
+				if not is_matrix_leg(channel.CHANNEL("name"):get()) then return end
 				-- On the caller's channel, not this leg's: this leg is about to be hung up.
 				channel.MASTER_CHANNEL("MATRIX_ANSWERED"):set("1")
 				channel.GOSUB_RESULT:set("CONTINUE")
@@ -903,20 +1051,33 @@ extensions = {
 		end;
 	};
 
-	-- Runs on each OUTBOUND leg before it is dialled. PJSIP_HEADER(add) writes the callee
-	-- channel only from a pre-dial handler; called in the normal flow it writes the
-	-- CALLER's channel and the bridge never sees X-Conference.
+	-- One Matrix recipient's leg: the extension is the hex of the MXID (it cannot hold "@"
+	-- or ":"), or "default" for the bridge's default recipient. Dials the bridge exactly as
+	-- the single leg used to, with the recipient riding a pre-dial header.
+	["matrix-leg"] = {
+		["_[0-9a-f]."] = matrix_leg;
+		["default"] = matrix_leg;
+		["h"] = matrix_ignore;
+		["i"] = matrix_ignore;
+		["t"] = matrix_ignore;
+	};
+
+	-- Runs on the PJSIP channel matrix-leg dials, before it is dialled. PJSIP_HEADER(add)
+	-- writes the callee channel only from a pre-dial handler; called in the normal flow it
+	-- writes the CALLER's channel and the bridge never sees the headers.
 	--
-	-- Inside pcall for the same reason as matrix-answered: an error here would drop the
-	-- whole inbound call. The endpoint guard keeps it off the Motif legs, which are not
-	-- PJSIP channels.
-	["add-conference-header"] = {
+	-- Inside pcall for the same reason as matrix-answered: an error here would drop the leg.
+	["add-leg-headers"] = {
 		["s"] = function(context, extension)
 			pcall(function()
 				if channel.CHANNEL("endpoint"):get() ~= bridge_peer then return end
-				local conf = channel.MASTER_CHANNEL("MATRIX_CONF_PENDING"):get()
+				local conf = channel.MATRIX_CONF_PENDING:get()
 				if conf and conf ~= "" then
 					channel.PJSIP_HEADER("add", "X-Conference"):set(conf)
+				end
+				local who = channel.MATRIX_RECIPIENT:get()
+				if who and who ~= "" then
+					channel.PJSIP_HEADER("add", "X-Matrix-Recipient"):set(who)
 				end
 			end)
 		end;

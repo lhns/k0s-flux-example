@@ -216,6 +216,14 @@
             "type": "string",
             "pattern": "^[a-z0-9-]+$"
           },
+          "members": {
+            "description": "Matrix users who get this line's space and dial room in the bridge (the bridge's network.line_members), whether or not they are rung. Literal addresses only, each also permitted by `callers`. The dialplan ignores this field.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^matrix:@[^:@*]+:[^:@*]+$"
+            }
+          },
           "inbound_route": {
             "description": "The line's call plan: ring stages tried in order until one answers. A 'record' stage must be last and, with no voicemail in the image, ends the call. Ring time is the SUM of the stages -- Asterisk times a whole Dial, never one target.",
             "type": "array",

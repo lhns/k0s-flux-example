@@ -293,11 +293,17 @@ spec:
         - name: vmselect
           image: victoriametrics/vmselect:v1.153.0-cluster
           args:
-            - -storageNode=vmstorage:8401
+            # Both tiers; wherever both hold a range the long-term samples are a subset (README).
+            - -storageNode=vmstorage:8401,vmstorage-longterm:8401
             - -search.cacheTimestampOffset=120m
             - -replicationFactor=1
             # Query-time half of vmstorage's flag; the two must match.
             - -dedup.minScrapeInterval=1ms
+            # Long-term samples are 1m apart; avoids gaps on ranges only that tier holds.
+            - -search.minStalenessInterval=2m
+            # Both stores keep indexdb and old parts on HDD; a cold range can need more than the
+            # 30s default, and a query fails as a whole when one node exceeds it.
+            - -search.maxQueryDuration=1m
           ports:
             - {name: http, containerPort: 8481}
           readinessProbe:

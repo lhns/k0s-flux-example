@@ -31,6 +31,8 @@ network:
         # Who placed the call, for the dialplan to apply its own policy to. It is a claim,
         # trusted only as far as this peer is; extensions.lua builds the scheme itself.
         caller_header: X-Matrix-Caller
+        # Which Matrix user a leg or text is for; extensions.lua sets it per recipient.
+        recipient_header: X-Matrix-Recipient
         # Static endpoint, per the bridge README's SIP server contract. Its AOR
         # contact is our Service, so there is nothing to register.
         register:
@@ -106,28 +108,8 @@ bridge:
             relayed: nothing
             shared_no_users: nothing
             shared_has_users: nothing
-    # There is one SIP endpoint and no per-user account, so every Matrix user
-    # reaches it through the single `sip` login. Without relay the bridge starts,
-    # logs a warning and silently drops everyone else's messages.
     relay:
-        enabled: true
-        admin_only: true
-        prefer_default: true
-        allow_bridge: true
-        default_relays: [sip]
-        user_distinguishers: ["\U0001F7E6", "\U0001F7E3", "\U0001F7E9", "\u2B55\uFE0F", "\U0001F536", "\u2B1B\uFE0F", "\U0001F535", "\U0001F7E2"]
-        # Blank on purpose: the far end is SMS, and a "<name>: " prefix on every
-        # message wastes a length-limited segment.
-        message_formats:
-            m.text: "{{ .Message }}"
-            m.notice: "{{ .Message }}"
-            m.emote: "{{ .Message }}"
-            m.file: "{{ .Message }}"
-            m.image: "{{ .Message }}"
-            m.audio: "{{ .Message }}"
-            m.video: "{{ .Message }}"
-            m.location: "{{ .Message }}"
-        displayname_format: "{{ .DisambiguatedName }}"
+        enabled: false
     portal_create_filter:
         mode: deny
         list: []

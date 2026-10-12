@@ -101,12 +101,13 @@ spec:
             initialDelaySeconds: 15
             periodSeconds: 10
             failureThreshold: 90 # a seeded store opens slowly off the HDD tier
-          # Same series count and ingest rate as vmstorage, near-zero query load.
+          # Same as vmstorage: same series count, and once in vmselect it answers every query too.
+          # Its caches decide how fast old ranges come back off HDD.
           resources:
             requests:
-              memory: 3Gi
-            limits:
               memory: 8Gi
+            limits:
+              memory: 16Gi
           volumeMounts:
             - name: cold
               mountPath: /storage

@@ -8,11 +8,15 @@ template that drops or mangles an entry is caught as well as a bad table.
 suite from drifting from the chart.
 """
 import argparse
+import contextlib
+import io
 import pathlib
 import re
 import subprocess
 import sys
 import tempfile
+
+import yaml
 
 APP = pathlib.Path(__file__).resolve().parent.parent
 CHART = APP / "routing"
@@ -792,6 +796,11 @@ def check(registrations, lines, outbound, rows, pjsip_conf):
                 if not RING_ADDRESS.match(addr):
                     fail("line %r stage %d: ring address %r is neither xmpp: nor matrix:"
                          % (name, j + 1, addr))
+            # One leg per person: the same MXID twice rings them twice. The dialplan
+            # lowercases, so compare that way.
+            if has_duplicate_mxid(s.get("ring", [])):
+                fail("line %r stage %d: a duplicate matrix: target in one ring stage"
+                     % (name, j + 1))
         if not any("ring" in s for s in stages):
             fail("line %r has no ring stage" % name)
 
@@ -862,6 +871,95 @@ def reject(values, what, expect):
     if expect not in err:
         fail("helm rejected %s but not on %r, so the schema may not be the thing that "
              "rejected it:\n%s" % (what, expect, err.strip()))
+
+
+def glob_permits(glob, addr):
+    """routing_glob_match in extensions.lua, which is what `callers` is checked with."""
+    glob, addr = glob.lower(), addr.lower()
+    if glob == "*":
+        return True
+    if glob == "xmpp:*":
+        return addr.startswith("xmpp:")
+    if glob == "matrix:*":
+        return addr.startswith("matrix:")
+    m = re.match(r"^xmpp:\*@(.+)$", glob)
+    if m:
+        n = re.match(r"^xmpp:[^@]+@(.+)$", addr)
+        return bool(n) and n.group(1) == m.group(1)
+    m = re.match(r"^matrix:@\*:(.+)$", glob)
+    if m:
+        n = re.match(r"^matrix:@[^:]+:(.+)$", addr)
+        return bool(n) and n.group(1) == m.group(1)
+    return glob == addr
+
+
+MEMBER = re.compile(r"^matrix:@[^:@*]+:[^:@*]+$")
+
+
+def has_duplicate_mxid(ring):
+    mxids = [a.lower() for a in ring if MEMBER.match(a)]
+    return len(mxids) != len(set(mxids))
+
+
+def derive_line_members(lines, registrations=None):
+    """network.line_members for apps/matrix, from the routing table's `lines`: per line the
+    union of its literal matrix: ring targets and its `members`. Bare `matrix:` rings the
+    bridge's default recipient and names nobody. A line with no one is omitted, and so is
+    one whose primary registration is disabled."""
+    out = {}
+    for name, line in lines.items():
+        if (registrations or {}).get(line.get("primary"), {}).get("disabled"):
+            continue
+        found = set()
+        seen = set()
+        for m in line.get("members") or []:
+            if not MEMBER.match(m):
+                fail("line %r: member %r is not a literal matrix:@localpart:server" % (name, m))
+            if m.lower() in seen:
+                fail("line %r: member %r is listed twice" % (name, m))
+            seen.add(m.lower())
+            if not any(glob_permits(g, m) for g in line.get("callers") or []):
+                fail("line %r: member %r is not permitted by the line's callers; the bridge "
+                     "would give them a dial room they cannot dial from" % (name, m))
+            found.add(m)
+        for stage in line.get("inbound_route") or []:
+            found.update(a for a in stage.get("ring") or [] if MEMBER.match(a))
+        if found:
+            out[name] = sorted(a[len("matrix:"):] for a in found)
+    return out
+
+
+def check_line_members(rendered):
+    """The chart's sip-line-members ConfigMap against derive_line_members, which also holds
+    `members` to `callers`; then the derivation's own rejections."""
+    values = yaml.safe_load((CHART / "values.yaml").read_text(encoding="utf-8"))
+    expected = {"network": {"line_members": derive_line_members(values["lines"],
+                                                                values["registrations"])}}
+    got = yaml.safe_load(extract_block(rendered, "line-members.yaml"))
+    if got != expected:
+        fail("sip-line-members renders %r, but the routing table derives %r" % (got, expected))
+
+    # The derivation's own rejections, on synthetic lines.
+    base = {"callers": ["matrix:@*:a.de"], "inbound_route": [{"ring": ["matrix:"]}]}
+    for what, bad in (
+            ("a member callers does not permit", {"members": ["matrix:@x:b.de"]}),
+            ("a duplicate member", {"members": ["matrix:@x:a.de", "matrix:@X:a.de"]}),
+            ("a pattern member", {"members": ["matrix:@*:a.de"]})):
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                derive_line_members({"l": {**base, **bad}})
+        except SystemExit:
+            continue
+        fail("derive_line_members accepted " + what)
+    if not has_duplicate_mxid(["matrix:@x:a.de", "matrix:@X:a.de"])             or has_duplicate_mxid(["matrix:@x:a.de", "matrix:@y:a.de", "matrix:"]):
+        fail("has_duplicate_mxid does not tell a repeated MXID from distinct ones")
+    ring = ["matrix:@x:a.de", "matrix:", "xmpp:y@z"]
+    got = derive_line_members({"l": {**base, "members": ["matrix:@x:a.de"],
+                                     "inbound_route": [{"ring": ring}]}})
+    off = derive_line_members({"l": {**base, "primary": "p", "members": ["matrix:@x:a.de"]}},
+                              {"p": {"disabled": True}})
+    if got != {"l": ["@x:a.de"]} or derive_line_members({"l": base}) != {} or off != {}:
+        fail("derive_line_members returned %r" % (got,))
 
 
 def check_schema_is_enforced():
@@ -974,6 +1072,7 @@ def main():
     check_in_cluster(pjsip_objects(pjsip_conf))
     check_asterisk_image()
     check_schema_is_enforced()
+    check_line_members(out)
     disabled = check_reenable(registrations, out, args.write_lua_enabled)
     if args.write_lua:
         with open(args.write_lua, "w", encoding="utf-8", newline="\n") as fh:

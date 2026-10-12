@@ -98,19 +98,12 @@ Each step is its own change; stop after any of them.
    time, ~1 CPU, ~40k rows/s against ~17k rows/s live, so 10 days take about a week to catch up.
    Lag: `kafka-consumer-groups.sh --describe --group victoriametrics-cluster-exporter-longterm`
    on `otel-kafka-0`; the exporter's `otelcol_kafka_receiver_offset_lag` has no group label.
-5. **Add the node to vmselect** in [`resources.yaml`](resources.yaml), **only once the replay
-   has caught up and the final dedup is finished**:
-   ```
-   - -storageNode=vmstorage:8401,vmstorage-longterm:8401
-   - -replicationFactor=1                # unchanged
-   - -dedup.minScrapeInterval=1ms        # unchanged
-   - -search.minStalenessInterval=2m     # new
-   ```
-   A down vmstorage-longterm makes queries partial (`isPartial: true`); a slow one fails them.
-   The per-node search timeout is the whole query's `-search.maxQueryDuration` (30s), so the
-   query errors before a partial result is returned. During the replay, with its indexdb cold
-   on HDD, vmstorage-longterm missed that for ~30% of queries. First check that `vmselect-lt`
-   (below) answers recent and old ranges well under 30s.
+5. **Done: vmselect queries both stores** ([`resources.yaml`](resources.yaml),
+   `-storageNode=vmstorage:8401,vmstorage-longterm:8401`, `-search.minStalenessInterval=2m`).
+   vmselect waits for the slower store, and a slow one fails the query: the per-node search
+   timeout is the whole query's `-search.maxQueryDuration` (30s). A down vmstorage-longterm makes
+   queries partial (`isPartial: true`). Both stores have the same disk layout, so the long-term
+   one is as fast once its caches are warm; after a restart, old ranges are slow until then.
 6. **After at least one month and repeated verification, lower `vmstorage`'s `-retentionPeriod`**
    (e.g. `90d`). Irreversible: vmstorage drops the older partitions.
 

@@ -1,5 +1,9 @@
 # gitea
 
+**Retired.** Repositories live in [`../forgejo`](../forgejo/README.md), which redirects
+`gitea.example.com` there. The Deployment is at `replicas: 0` and the component suspended; the
+database and volumes are kept as the rollback until deliberately deleted.
+
 [Gitea](https://about.gitea.com) — git forge at `gitea.example.com` (traefik ingress, wildcard TLS),
 migrated from Docker Swarm. Image `gitea/gitea`.
 

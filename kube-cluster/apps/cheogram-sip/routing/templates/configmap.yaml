@@ -105,3 +105,34 @@ metadata:
 data:
   pjsip.conf: |
     {{- include "cheogram-sip-routing.pjsip" . | nindent 4 }}
+---
+{{- /* The bridge's network.line_members: per line, the literal matrix: ring targets plus
+`members`. tests/check-routing.py recomputes it from the values and compares. A line whose
+primary registration is disabled is off, so it gets nobody. */}}
+{{- $lm := dict }}
+{{- range $name, $l := .Values.lines }}
+  {{- if not (index $.Values.registrations $l.primary).disabled }}
+    {{- $set := list }}
+    {{- range $s := $l.inbound_route }}
+      {{- range $a := $s.ring }}
+        {{- if regexMatch "^matrix:@[^:@*]+:[^:@*]+$" $a }}{{ $set = append $set (trimPrefix "matrix:" $a) }}{{ end }}
+      {{- end }}
+    {{- end }}
+    {{- range $m := $l.members }}{{ $set = append $set (trimPrefix "matrix:" $m) }}{{ end }}
+    {{- if $set }}{{ $_ := set $lm $name ($set | uniq | sortAlpha) }}{{ end }}
+  {{- end }}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  # Read, optionally, by the matrix-sip-bridge pod in apps/matrix.
+  name: sip-line-members
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    reflector.v1.k8s.emberstack.com/reflection-allowed: "true"
+    reflector.v1.k8s.emberstack.com/reflection-allowed-namespaces: matrix
+    reflector.v1.k8s.emberstack.com/reflection-auto-enabled: "true"
+    reflector.v1.k8s.emberstack.com/reflection-auto-namespaces: matrix
+data:
+  line-members.yaml: |
+    {{- toYaml (dict "network" (dict "line_members" $lm)) | nindent 4 }}

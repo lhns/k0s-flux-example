@@ -1,5 +1,8 @@
 # gitea-runner
 
+**Retired** with [`../gitea`](../gitea/README.md): `replicas: 0` and the component suspended.
+Forgejo has its own runner, [`../forgejo-runner`](../forgejo-runner/README.md).
+
 Gitea Actions runner — [`act_runner`](https://gitea.com/gitea/act_runner) plus its own Docker
 daemon, migrated from Docker Swarm. Serves `gitea.example.com` (see [`../gitea`](../gitea/README.md)).
 

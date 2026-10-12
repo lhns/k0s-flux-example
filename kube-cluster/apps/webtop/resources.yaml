@@ -64,7 +64,7 @@ spec:
           # Selkies since the June 2025 rebase (no longer KasmVNC-based): pixelflux for
           # pixels, pcmflux for audio, Xwayland for legacy X11 apps.
           # `PIXELFLUX_WAYLAND=false` forces the old X11 path if ever needed.
-          image: lscr.io/linuxserver/webtop:ubuntu-kde@sha256:22a6eb6e798abbbac3faed236dfb140b1451051b59fc58fd21eea097d1497ab9
+          image: lscr.io/linuxserver/webtop:ubuntu-kde@sha256:ae4419f39bc0b84da2129100df2ee75cb8e2974e0372cfb6b122fdb8d22a0602
           env:
             - name: PUID
               value: "1000"

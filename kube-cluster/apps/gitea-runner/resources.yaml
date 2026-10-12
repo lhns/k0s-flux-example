@@ -37,7 +37,8 @@ spec:
   # behind as permanently-offline entries. This is the honest analogue of Swarm's
   # {{.Task.Slot}}.
   serviceName: gitea-runner
-  replicas: 1
+  # Retired with Gitea; see README.
+  replicas: 0
   selector:
     matchLabels:
       app.kubernetes.io/name: gitea-runner
@@ -86,7 +87,7 @@ spec:
           # `docker:28-dind`; 29.x is current. Docker 29 changed firewall
           # handling, so the post-deploy check verifies the listener binding and
           # that overlay2 (not vfs) was selected — see README.
-          image: docker:29.8.2-dind
+          image: docker:29.9.0-dind
           securityContext:
             # The one privileged container in the cluster outside kube-system and
             # the CSI plugins. dockerd needs it to manage cgroups, netfilter and

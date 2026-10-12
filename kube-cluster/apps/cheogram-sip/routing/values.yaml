@@ -82,7 +82,7 @@ lines:
     callers: ['xmpp:*@xmpp.example.com', 'matrix:@*:example.com']
     primary: pstn-02012345678
     inbound_route:
-      - ring: ["xmpp:admin@xmpp.example.com", "matrix:@admin:example.com"]
+      - ring: ["matrix:@user:example.com"]
         timeout: 45
       - record: true
 
@@ -92,6 +92,7 @@ lines:
     inbound_route:
       - ring: ["xmpp:admin@xmpp.example.com", "matrix:@admin:example.com"]
         timeout: 45
+      - record: true
 
   eventpbx:
     callers: ['xmpp:*@xmpp.example.com', 'matrix:@*:example.com']

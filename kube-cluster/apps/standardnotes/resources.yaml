@@ -359,7 +359,7 @@ spec:
         # The image is digest-pinned so the sed targets can't silently drift on a
         # :latest rebuild — and the grep guards fail the pod if a target is missing.
         - name: patch-firstparty-allowlist
-          image: standardnotes/web:latest@sha256:3c3b90b540e32545ea0ec2cddd935b56093627891f0ebcedaa06cf8474dd6046
+          image: standardnotes/web:latest@sha256:de6f06a417f85bc30d6720a082d4342ebaf637567947b9bb7b50dc06956e2c9f
           command:
             - sh
             - -c
@@ -375,7 +375,7 @@ spec:
             - {name: html, mountPath: /work}
       containers:
         - name: web
-          image: standardnotes/web:latest@sha256:3c3b90b540e32545ea0ec2cddd935b56093627891f0ebcedaa06cf8474dd6046
+          image: standardnotes/web:latest@sha256:de6f06a417f85bc30d6720a082d4342ebaf637567947b9bb7b50dc06956e2c9f
           ports:
             - {name: http, containerPort: 80}
           readinessProbe:

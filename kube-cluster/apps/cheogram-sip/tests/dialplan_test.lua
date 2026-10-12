@@ -443,6 +443,34 @@ sip_routing = nil
 route("no routing table", "+4915112345678", "sip-4915112345678", nil, nil, nil, 34)
 sip_routing = routing
 
+-- The room's line (the middle of "sip-<line>-+<digits>") picks the trunk, not the number.
+route("office room uses the office line", "+4915176995276", "sip-office-+4915176995276",
+	"pstn-02012345671", "+4915176995276", "sip-office-+4915176995276", nil)
+route("home room uses the home line", "+4915176995276", "sip-home-+4915176995276",
+	"pstn-02012345678", "+4915176995276", "sip-home-+4915176995276", nil)
+-- Emergency keeps its pinned registration, whatever the room's line.
+route("emergency from an office room", "112", "sip-office-+4915176995276",
+	"pstn-02012345678", "112", "sip-office-+4915176995276", nil)
+-- No line (a legacy conference) is routed by the number, as before.
+route("legacy conference is routed by number", "+4915176995276", "sip-4915176995276",
+	"pstn-02012345678", "+4915176995276", "sip-4915176995276", nil)
+-- A line that is not configured fails closed, like an unknown label.
+route("unknown room line is refused", "+4915176995276", "sip-nope-+4915176995276",
+	nil, nil, nil, 34)
+-- eventpbx is disabled in the live table: refused, not rerouted to another trunk.
+route("room on a disabled line", "+4915176995276", "sip-eventpbx-+4915176995276",
+	ev("eventpbx-5552"), ev("+4915176995276"), ev("sip-eventpbx-+4915176995276"), ev(nil, 34))
+-- The line's callers gate applies, not just the number's rule.
+local gate_tbl = {registrations = routing.registrations, outbound = routing.outbound,
+	lines = {home = routing.lines.home,
+		office = {primary = routing.lines.office.primary, callers = {"xmpp:*@xmpp.example.com"}}}}
+sip_routing = gate_tbl
+route("room line not permitting the caller", "+4915176995276", "sip-office-+4915176995276",
+	nil, nil, nil, 34)
+route("emergency ignores the room line's callers", "112", "sip-office-+4915176995276",
+	"pstn-02012345678", "112", "sip-office-+4915176995276", nil)
+sip_routing = routing
+
 -- Originate's statuses, mapped to the causes the stack turns into SIP responses.
 check("cause BUSY", matrix_outbound_cause("BUSY"), 17)
 check("cause CONGESTION", matrix_outbound_cause("CONGESTION"), 34)
@@ -667,14 +695,26 @@ local function legs(name, stage, want_legs, want_matrix)
 end
 
 local xmpp_leg = "Motif/jingle-endpoint/" .. make_jid("admin@xmpp.example.com", plan_from)
-local matrix_leg = "PJSIP/" .. plan_caller .. "@matrixbridge"
+-- Each person is a Local leg named by the hex of their lowercase MXID.
+local function hex(s) return (s:gsub(".", function(c) return string.format("%02x", c:byte()) end)) end
+local function person_leg(mxid) return "Local/" .. hex(mxid) .. "@matrix-leg/n" end
+local matrix_leg = person_leg("@admin:example.com")
+check("hex of an mxid", hex("@a:b"), "40613a62")
 
 legs("xmpp only", {ring = {"xmpp:admin@xmpp.example.com"}}, xmpp_leg, false)
 legs("xmpp and matrix ring together", {ring = {"xmpp:admin@xmpp.example.com", "matrix:@admin:example.com"}},
 	xmpp_leg .. "&" .. matrix_leg, true)
--- Every matrix: entry names the same conference, so a second leg is one room rung twice.
-legs("several matrix targets collapse to one leg",
-	{ring = {"matrix:@admin:example.com", "matrix:@other:example.com"}}, matrix_leg, true)
+-- Each person gets their own leg, so the call lands in their own bridge room.
+legs("several matrix targets are several legs",
+	{ring = {"matrix:@admin:example.com", "matrix:@other:example.com"}},
+	matrix_leg .. "&" .. person_leg("@other:example.com"), true)
+legs("the same person twice is one leg, case-insensitively",
+	{ring = {"matrix:@admin:example.com", "matrix:@LHNS:example.com"}}, matrix_leg, true)
+-- A bare matrix: is the bridge's default recipient: a leg with no MXID in it.
+legs("a bare matrix: is one default leg", {ring = {"matrix:"}}, "Local/default@matrix-leg/n", true)
+legs("a bare matrix: and a person are two legs", {ring = {"matrix:", "matrix:@admin:example.com"}},
+	"Local/default@matrix-leg/n&" .. matrix_leg, true)
+legs("a matrix pattern is no leg", {ring = {"matrix:@*:example.com"}}, nil, false)
 legs("two xmpp targets are two legs", {ring = {"xmpp:a@example.net", "xmpp:b@example.net"}},
 	"Motif/jingle-endpoint/" .. make_jid("a@example.net", plan_from) .. "&"
 	.. "Motif/jingle-endpoint/" .. make_jid("b@example.net", plan_from), false)
@@ -692,6 +732,182 @@ check("no conference means no matrix leg", no_conf, xmpp_leg)
 -- NOTICEs on this nil.
 check("a matrix-only stage without a conference rings nobody",
 	(inbound_legs({ring = {"matrix:@admin:example.com"}}, plan_from, nil, nil)), nil)
+
+-- A fake pbx_lua: variables by name, and a record of what was dialled and sent.
+local vars, dialled_calls, sent, hung_up = {}, {}, {}, 0
+local function chan_var(name)
+	return {
+		get = function() return vars[name] end,
+		set = function(_, v) vars[name] = v end,
+	}
+end
+channel = setmetatable({}, {__index = function(_, k)
+	-- "__NAME" is the inheritable spelling of the same variable.
+	local name = k:gsub("^__", "")
+	return setmetatable(chan_var(name), {__call = function(_, first, ...)
+		-- Function-style variables: CHANNEL(name), PJSIP_HEADER(add, X-Foo), MESSAGE_DATA(X-Foo).
+		local sub = {...}
+		return chan_var(name .. "(" .. tostring(first) .. (sub[1] and "," .. sub[1] or "") .. ")")
+	end})
+end})
+app = {
+	log = function() end,
+	dial = function(dest, timeout, opts) dialled_calls[#dialled_calls + 1] = {dest, timeout, opts} end,
+	MessageSend = function(to, from)
+		local who = vars["MESSAGE_DATA(X-Matrix-Recipient)"]
+		-- Emptying a message variable removes it.
+		sent[#sent + 1] = {to = to, from = from, who = who ~= "" and who or nil}
+	end,
+	hangup = function() hung_up = hung_up + 1 end,
+}
+-- The handlers wrap their bodies in pcall so an error cannot drop a call, which would also
+-- hide a bug from these tests; report what it swallows.
+local real_pcall = pcall
+pcall = function(f, ...)
+	local ok, err = real_pcall(f, ...)
+	if not ok then
+		failures = failures + 1
+		print("FAIL swallowed error: " .. tostring(err))
+	end
+	return ok, err
+end
+local function reset_pbx() vars, dialled_calls, sent, hung_up = {}, {}, {}, 0 end
+
+-- matrix-leg: decode the hex, hand the recipient to the pre-dial handler, dial the bridge.
+reset_pbx()
+vars.MATRIX_CALLER_PENDING = plan_caller
+extensions["matrix-leg"]["_[0-9a-f]."]("matrix-leg", hex("@user:example.com"))
+check("matrix-leg dials the bridge", dialled_calls[1] and dialled_calls[1][1],
+	"PJSIP/" .. plan_caller .. "@matrixbridge")
+check("matrix-leg uses a pre-dial handler", dialled_calls[1] and dialled_calls[1][3],
+	"b(add-leg-headers^s^1)")
+check("matrix-leg names the recipient", vars.MATRIX_RECIPIENT, "@user:example.com")
+
+reset_pbx()
+vars.MATRIX_CALLER_PENDING = plan_caller
+extensions["matrix-leg"]["default"]("matrix-leg", "default")
+check("the default leg dials the bridge too", dialled_calls[1] and dialled_calls[1][1],
+	"PJSIP/" .. plan_caller .. "@matrixbridge")
+check("the default leg names no recipient", vars.MATRIX_RECIPIENT, "")
+
+reset_pbx()
+vars.MATRIX_CALLER_PENDING = plan_caller
+extensions["matrix-leg"]["_[0-9a-f]."]("matrix-leg", "zz")
+check("a bad extension dials nothing", #dialled_calls, 0)
+check("and hangs up", hung_up, 1)
+
+-- add-leg-headers runs on the PJSIP channel.
+local function with_headers(endpoint, conf, who)
+	reset_pbx()
+	vars["CHANNEL(endpoint)"] = endpoint
+	vars.MATRIX_CONF_PENDING = conf
+	vars.MATRIX_RECIPIENT = who
+	extensions["add-leg-headers"]["s"]("add-leg-headers", "s")
+	return vars["PJSIP_HEADER(add,X-Conference)"], vars["PJSIP_HEADER(add,X-Matrix-Recipient)"]
+end
+local c1, r1 = with_headers("matrixbridge", plan_conf, "@user:example.com")
+check("the conference header is set", c1, plan_conf)
+check("the recipient header is set", r1, "@user:example.com")
+local c2, r2 = with_headers("matrixbridge", plan_conf, "")
+check("the default leg still has the conference", c2, plan_conf)
+check("and no recipient header", r2, nil)
+local c3, r3 = with_headers("other", plan_conf, "@user:example.com")
+check("no headers on a channel that is not the bridge", (c3 or "") .. (r3 or ""), "")
+
+-- matrix-answered recognises the answering Local leg by name, and nothing else.
+local function answered(name)
+	reset_pbx()
+	vars["CHANNEL(name)"] = name
+	extensions["matrix-answered"]["s"]("matrix-answered", "s")
+	return vars["MASTER_CHANNEL(MATRIX_ANSWERED)"], vars.GOSUB_RESULT
+end
+local a1, g1 = answered("Local/" .. hex("@user:example.com") .. "@matrix-leg-00000012;1")
+check("a matrix-leg answer marks the call", a1, "1")
+check("and ends that leg", g1, "CONTINUE")
+local a2 = answered("Local/default@matrix-leg-00000013;1")
+check("so does the default leg", a2, "1")
+local a3, g3 = answered("Motif/jingle-endpoint-00000014")
+check("an xmpp answer is left alone", a3, nil)
+check("and keeps its bridge to the caller", g3, nil)
+check("another Local context is not a matrix leg", (answered("Local/x@other-00000015;1")), nil)
+
+-- SMS: one MESSAGE per person the line rings, each naming them; xmpp as before.
+local function recipients(line) return sms_matrix_recipients(routing, line) end
+local function names(list)
+	local out = {}
+	for i, w in ipairs(list) do out[i] = w or "default" end
+	return table.concat(out, ",")
+end
+check("home texts only the person its plan rings", names(recipients("home")), "@user:example.com")
+check("office texts its owner", names(recipients("office")), "@admin:example.com")
+check("a plan with literal targets lists each once, in order", names(sms_matrix_recipients(
+	{lines = {l = {inbound_route = {{ring = {"matrix:@b:x.de", "xmpp:a@b"}},
+		{ring = {"matrix:@a:x.de", "matrix:@B:x.de"}}}}}}, "l")), "@b:x.de,@a:x.de")
+check("a bare matrix: is the default recipient", names(sms_matrix_recipients(
+	{lines = {l = {inbound_route = {{ring = {"matrix:@a:x.de", "matrix:"}}}}}}, "l")),
+	"@a:x.de,default")
+check("a plan with no Matrix target still reaches the bridge's default",
+	names(sms_matrix_recipients({lines = {l = {inbound_route = {{ring = {"xmpp:a@b"}}}}}}, "l")),
+	"default")
+check("an unknown line reaches the default", names(recipients("nosuchline")), "default")
+
+-- End to end through the delivery path.
+local function deliver_on(tbl, line_name)
+	local saved = sip_routing
+	sip_routing = tbl
+	reset_pbx()
+	local reg
+	for _, r in pairs(routing.registrations) do
+		if r.line == line_name and not r.disabled then reg = reg or r end
+	end
+	local out = {xmpp = {}, bridge = {}}
+	if reg then
+		vars["CHANNEL(endpoint)"] = reg.peer
+		vars["MESSAGE(from)"] = "<sip:+4915112345678@sip.example.net>"
+		extensions["messages-in"]["_."]("messages-in", reg.contact_user)
+		for _, m in ipairs(sent) do
+			if m.to:find("^xmpp:") then
+				out.xmpp[#out.xmpp + 1] = m.to
+			elseif m.to:find("^pjsip:matrixbridge/") then
+				out.bridge[#out.bridge + 1] = m.who or "default"
+			end
+		end
+	end
+	sip_routing = saved
+	return reg ~= nil, out
+end
+local function line_with(name, stages)
+	return {registrations = routing.registrations, outbound = routing.outbound,
+		lines = {[name] = {primary = routing.lines[name].primary,
+			callers = routing.lines[name].callers, inbound_route = stages}}}
+end
+
+local ok_home, two = deliver_on(
+	line_with("home", {{ring = {"matrix:@a:example.com", "matrix:@b:example.com"}}}), "home")
+check("home registration found", ok_home, true)
+check("one bridge MESSAGE per recipient, each naming them", table.concat(two.bridge, ","),
+	"@a:example.com,@b:example.com")
+check("no xmpp target in the plan means no xmpp send", #two.xmpp, 0)
+
+-- MESSAGE_DATA persists across sends: the default send must not carry the previous header.
+local _, mixed = deliver_on(line_with("home", {{ring = {"matrix:@a:example.com", "matrix:"}}}), "home")
+check("a literal and the default recipient", table.concat(mixed.bridge, ","), "@a:example.com,default")
+
+-- The LIVE table: texts follow the call plan.
+local _, live_home = deliver_on(routing, "home")
+check("home texts no xmpp", #live_home.xmpp, 0)
+check("home texts only user", table.concat(live_home.bridge, ","), "@user:example.com")
+local _, live_office = deliver_on(routing, "office")
+check("office texts one xmpp target", #live_office.xmpp, 1)
+check("and it is lhns", live_office.xmpp[1] ~= nil and live_office.xmpp[1]:find("lhns", 1, true) ~= nil, true)
+check("office texts lhns on matrix", table.concat(live_office.bridge, ","), "@admin:example.com")
+
+-- xmpp targets: distinct, and the dialled contact for a line with no plan.
+check("xmpp targets are distinct", table.concat(sms_xmpp_targets(
+	{lines = {l = {inbound_route = {{ring = {"xmpp:a@b.de", "xmpp:A@b.de", "matrix:@x:y.de"}},
+		{ring = {"xmpp:c@b.de"}}}}}}, "l", "dialled@x"), ","), "a@b.de,c@b.de")
+check("no plan keeps the dialled contact", table.concat(
+	sms_xmpp_targets(routing, "nosuchline", "dialled@x"), ","), "dialled@x")
 
 -- The stages themselves, from the LIVE rendered table.
 local home_stages = inbound_stages(routing, "home", "admin@xmpp.example.com")

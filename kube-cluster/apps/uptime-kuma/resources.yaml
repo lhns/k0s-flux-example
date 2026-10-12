@@ -52,7 +52,7 @@ spec:
         # v2's schema upgrade is one-way: a rollback to v1 needs the DB restored
         # from backup, not just the tag reverted.
         - name: uptime-kuma
-          image: louislam/uptime-kuma:2.5.5
+          image: louislam/uptime-kuma:2.5.6
           env:
             - name: TZ
               value: Europe/Berlin

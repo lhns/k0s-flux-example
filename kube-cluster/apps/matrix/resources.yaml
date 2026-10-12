@@ -139,6 +139,27 @@ spec:
       securityContext:
         runAsUser: 991
         runAsGroup: 991
+      initContainers:
+        # Writes sequences, safe only because the Deployment is Recreate (no Synapse running).
+        # See README, "Stream sequences".
+        - name: sequence-guard
+          image: postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+          command: ["sh", "/guard/guard.sh"]
+          env:
+            - name: PGHOST
+              value: postgres-rw.postgres.svc.cluster.local
+            - name: PGDATABASE
+              value: synapse
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef: {name: matrix-db, key: username}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef: {name: matrix-db, key: password}
+          volumeMounts:
+            - name: sequence-guard
+              mountPath: /guard
+              readOnly: true
       containers:
         - name: synapse
           image: matrixdotorg/synapse:v1.162.0
@@ -229,6 +250,9 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: synapse-data
+        - name: sequence-guard
+          configMap:
+            name: synapse-sequence-guard
         - name: db-override
           secret:
             secretName: synapse-db-override
@@ -414,7 +438,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: lk-jwt
-          image: ghcr.io/element-hq/lk-jwt-service:0.7.0
+          image: ghcr.io/element-hq/lk-jwt-service:0.8.0
           env:
             - name: LIVEKIT_URL
               value: https://matrix-rtc.example.com/livekit/sfu
@@ -1434,18 +1458,39 @@ spec:
         kube-vnet/net.cheogram-sip.asterisk-sip: egress
     spec:
       enableServiceLinks: false
+      initContainers:
+        # Deep-merges the routing table's line_members (apps/cheogram-sip) into the base
+        # config. The mount is optional, so a missing ConfigMap leaves the base unchanged.
+        - name: merge-line-members
+          image: mikefarah/yq:4.54.1@sha256:4b3d9475d65571d28cbb19544d3820ec2945e4c8b2f18279394282b8dc3a592e
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              if [ -s /line-members/line-members.yaml ]; then
+                yq eval-all 'select(fileIndex == 0) * select(fileIndex == 1)' \
+                  /config/config.yaml /line-members/line-members.yaml > /merged/config.yaml
+              else
+                cp /config/config.yaml /merged/config.yaml
+              fi
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 128Mi}
+          volumeMounts:
+            - {name: config, mountPath: /config, readOnly: true}
+            - {name: line-members, mountPath: /line-members, readOnly: true}
+            - {name: merged, mountPath: /merged}
       containers:
         - name: matrix-sip-bridge
-          # A release publishes :<version> too, but pin the sha: :0.1 would move
-          # under us on the next patch release.
-          image: ghcr.io/lhns/matrix-sip-bridge:sha-19938f4
+          image: ghcr.io/lhns/matrix-sip-bridge:0.2.3@sha256:b5272224de750290f7d7a5bc231397d27373f5012d71ee9a85c9efd774469591
           # mxmain takes a config FILE. There are no SIP_BRIDGE_* environment
           # variables: mautrix reads env only when env_config_prefix is set, and
           # then under __-separated paths, which this config deliberately leaves off.
           #
           # -n is not optional with a Secret mount: without it the config upgrader
           # tries to write the migrated file back and dies on a read-only volume.
-          args: ["-c", "/config/config.yaml", "-n"]
+          args: ["-c", "/merged/config.yaml", "-n"]
           ports:
             - name: appservice
               containerPort: 29337
@@ -1471,11 +1516,18 @@ spec:
             - name: TZ
               value: Europe/Berlin
           volumeMounts:
-            - {name: config, mountPath: /config, readOnly: true}
+            - {name: merged, mountPath: /merged, readOnly: true}
       volumes:
         - name: config
           secret:
             secretName: matrix-sip-bridge
+        # Reflected from apps/cheogram-sip. Optional: that component is not a dependency.
+        - name: line-members
+          configMap:
+            name: sip-line-members
+            optional: true
+        - name: merged
+          emptyDir: {}
 ---
 # Load-bearing name, same rule as the other bridges: registrations/sip.yaml says
 # `url: http://matrix-sip-bridge:29337`, and that is what Synapse dials. It is also

@@ -38,6 +38,11 @@ configMapGenerator:
   namespace: matrix
   files:
   - config.json=synapse-admin-config.json
+# Pre-start check that no stream sequence is behind stream_positions; see README.
+- name: synapse-sequence-guard
+  namespace: matrix
+  files:
+  - guard.sh=synapse-sequence-guard.sh
 # A third --config-path for synapse, adding only TURN/VoIP (apps/coturn). Not a
 # Secret: the shared secret itself is read from a mounted file via
 # turn_shared_secret_path, so this stays plaintext and reviewable.

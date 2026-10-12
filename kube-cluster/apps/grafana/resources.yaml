@@ -51,6 +51,9 @@ spec:
         - name: grafana
           image: ghcr.io/lhns/grafana-babel:13.2.2
           env:
+            # Data source queries; must not undercut vmselect's -search.maxQueryDuration (1m).
+            - name: GF_DATAPROXY_TIMEOUT
+              value: "65"
             - name: GF_SERVER_ROOT_URL
               value: https://grafana.example.com
             - name: GF_AUTH_TOKEN_ROTATION_INTERVAL_MINUTES

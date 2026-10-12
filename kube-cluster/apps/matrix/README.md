@@ -648,8 +648,7 @@ table.
 
 ### Shape
 
-- **Image**: pinned to a `sha-<commit>` tag, which is what CI publishes for every push to `main`.
-  There is no `v0.1.0` tag and `:0.1.0` does not resolve.
+- **Image**: pinned to `<version>@sha256:<digest>`.
 - **Database**: `sip-bridge`, owned by the shared `matrix` role, so no extra `DatabaseRole`.
 - **Config**: a FILE, not env. `mxmain` reads environment variables only when
   `env_config_prefix` is set, under `__`-separated paths, and a variable that matches the prefix
@@ -660,10 +659,12 @@ table.
   room carrying an `m.room.encryption` event while the bridge publishes plain audio into LiveKit,
   so an encrypted portal gives a call that connects, looks healthy on every server-side check and
   is silent. `encryption.allow/default/require` are all explicitly `false`.
-- **Relay mode is mandatory.** There is one SIP endpoint and no per-user account, so every Matrix
-  user reaches it through the single `sip` login. Without `bridge.relay.enabled` plus
-  `default_relays: [sip]` the bridge starts, logs a warning and silently drops everyone else's
-  messages.
+- **One login per Matrix user**, created on the first call or text whose `X-Matrix-Recipient`
+  names them, if `bridge.permissions` gives them `user`. A request without the header goes to the
+  default recipient (@admin:example.com). Relay mode is off. See the bridge's ADR-0016.
+- **`network.line_members`** is not in `sip-bridge-config.yaml`: an initContainer merges it in from
+  the reflected `sip-line-members` ConfigMap, which the cheogram-sip routing chart derives from its
+  routing table. The mount is optional; without it the base config runs unchanged.
 - **Appservice**: `registrations/sip.yaml`, `url: http://matrix-sip-bridge:29337`. The Service
   name and that port are load-bearing together, and the Service name is also the peer's `host=`
   on the Asterisk side.
@@ -692,6 +693,37 @@ The cluster was initdb'd `C`/`C`, which is Synapse's collation requirement, so a
 inherits it. Apps connect to `postgres-rw.postgres.svc.cluster.local:5432` — **not** the pooler
 (Synapse needs LISTEN/NOTIFY + advisory locks). Password in `db-role-secret.yaml` (SOPS, reflected
 into `matrix`).
+
+### Stream sequences
+
+Postgres logs a sequence to WAL 32 values ahead, so a standby's `last_value` can exceed what the
+primary handed out. After CNPG primary moves, a sequence can sit below `stream_positions` and
+Synapse refuses to start with `Postgres sequence '<seq>' is inconsistent with associated stream
+position` ([element-hq/synapse#20305](https://github.com/element-hq/synapse/issues/20305)). No
+Postgres or CNPG setting avoids it (the log-ahead is fixed and sequence `CACHE` does not help), so
+the guard stays until upstream fixes it.
+
+**Guard.** The `sequence-guard` initContainer of the Synapse Deployment
+(`synapse-sequence-guard.sh`) compares each stream sequence of Synapse's `id_generators` with
+`max(stream_positions.stream_id)` of its stream and `setval`s it forward when behind, logging
+`WARN sequence-guard: <seq> <old> -> <new>`. It only moves forward. `events_backfill_stream_seq`
+is excluded (stored negative). Update the pair list when a Synapse upgrade adds a stream.
+`GUARD_DRY_RUN=1` reports without writing.
+
+**Manual fix** (guard missing or failing), with Synapse scaled to 0, in `psql` on the CNPG primary,
+database `synapse`:
+
+```sql
+-- the sequence named in the error, and its stream (see the script's pair list)
+SELECT last_value FROM pushers_sequence;
+SELECT max(stream_id) FROM stream_positions WHERE stream_name = 'pushers';
+SELECT setval('pushers_sequence', <the larger number>);
+```
+
+**Rules.** Never `setval` backwards, never `DELETE FROM stream_positions` (Synapse's own error
+suggests it), never copy rows with explicit ids without a `setval` after. A reused stream id makes
+clients skip to-device messages, which loses room keys for good; gaps from moving forward are
+harmless.
 
 ## Verify
 

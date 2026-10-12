@@ -304,6 +304,15 @@ spec:
             # configure nothing at all.
             - name: FORGEJO__git_0X2E_timeout__MIGRATE
               value: "3600"
+            # Default 300 s; a killed mirror sync leaves git lock files that block every later one.
+            - name: FORGEJO__git_0X2E_timeout__MIRROR
+              value: "900"
+            # git rejects history with a malformed author email (`Name < <a@b>`) on clone; old public
+            # repos carry such commits, and Forgejo already relaxes the other legacy fsck checks.
+            - name: FORGEJO__git_0X2E_config__fetch_0X2E_fsck_0X2E_badEmail
+              value: ignore
+            - name: FORGEJO__git_0X2E_config__receive_0X2E_fsck_0X2E_badEmail
+              value: ignore
 
             # Logs to stdout rather than onto the near-full CephFS.
             - name: FORGEJO__log__MODE

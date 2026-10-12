@@ -7,6 +7,8 @@ metadata:
     # public URL and owns nothing else. Read by the root generator; inert to
     # kustomize.
     flux-component-generator/dependsOn: infra-ceph-csi-rbd
+    # Retired; see README.
+    flux-component-generator/suspend: "true"
 resources:
 - resources.yaml
 - secret.yaml

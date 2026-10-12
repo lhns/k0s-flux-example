@@ -75,11 +75,9 @@ metadata:
   annotations:
     reloader.stakater.com/auto: "true"
 spec:
-  # Was 0 while the database was restored — Gitea runs an xorm schema sync on
-  # first boot and would have created an empty schema that collided with the
-  # dump (outline/nextcloud precedent). The restore has landed (112 tables, 175
-  # repositories, login_source present), so it serves now.
-  replicas: 1
+  # Retired: everything lives in apps/forgejo, which also redirects gitea.example.com. The
+  # database and volumes stay as the rollback; see apps/forgejo/README.md.
+  replicas: 0
   strategy:
     type: Recreate
   selector:

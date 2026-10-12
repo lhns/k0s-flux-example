@@ -328,12 +328,19 @@ pattern as `^(...)$` exactly once, so `11[02]` cannot also match `0112345`.
 A **line** is an identity namespace, and it is what the number in front of the separator
 belongs to. Three DIDs share one host, so the host cannot say which of them rang; the line
 can. A caller is rendered `<line>-<digits>` to Matrix (portal `office-4915112345678`,
-conference `sip-office-4915112345678`) and `+4915112345678#office` to XMPP — and that XMPP
+conference `sip-office-+4915112345678`) and `+4915112345678#office` to XMPP — and that XMPP
 form is also how a client dials back, so the two stay symmetric.
 
 Membership is `registrations.<k>.line` and nothing else; a line has no member list that could
 fall out of step. `primary` says only which member the line *presents* outbound — Ofcom's
 Presentation Number, as against the Network Number the carrier transmits regardless.
+
+`lines.<name>.members` (optional, literal `matrix:@user:server` only, each permitted by
+`callers`) names Matrix users who should have the line's space and dial room in the bridge
+without being rung; Asterisk ignores it. The chart derives the bridge's `line_members` — every
+literal `matrix:` ring target plus `members`, per line, none for a line whose primary is
+disabled — into the ConfigMap `sip-line-members`, which Reflector copies into `matrix`; the
+bridge pod merges it into its config at start. `tests/check-routing.py` recomputes it.
 
 There is **no default line**: every line prefixes, so `#<host>` is not a line name and fails
 closed.
@@ -369,9 +376,10 @@ Partly live, and the limit:
 - **`from_glob`** narrows a rule to certain callers, which is how a per-person default line is
   expressed; one rule uses it. It falls through: a caller it excludes is not refused, the next
   rule decides. Permission is the line's `callers`.
-- **The Matrix outbound path ignores the line in the conference name** and routes by
-  `to_pattern` like every other path. The bridge cannot produce a line-prefixed conference for
-  a call a Matrix user starts, so honouring one would only work for call-backs.
+- **Matrix outbound uses the room's line**, taken from the conference name, so the call goes out
+  on that line's primary registration and is gated by its `callers`; `to_pattern` is not
+  consulted. Emergency numbers are excepted and keep their pinned registration. A conference
+  without a line routes by `to_pattern`; a line that is not configured is refused.
 
 ## Caller ID is normalised to E.164
 
@@ -552,12 +560,22 @@ recorded refusal that `Dial()` reads as an answer and cancels every other leg wi
 voicemail answers before a human does, nothing caps concurrent trunk channels or the 50-port
 RTP pool, and a number that forwards back to a DID loops with nothing to bound it.
 
-A stage that rings both transports is XMPP and Matrix as legs of one `Dial()`, with
-`SIPAddHeader(X-Conference: sip-<line>-<caller in E.164 without the plus>)` in front of it. That
-header is the only thing the bridge routes on: the portal room and the ghost are named from it and
-from nothing else, and an INVITE naming a conference it does not recognise is declined, so a
-mismatch with `calls.conference_prefix` fails closed and silently. A caller on a line the dialplan
-could not attribute gets no header and no Matrix leg.
+A stage's Matrix targets are **one leg each**: every distinct literal `matrix:@user:server` becomes
+`Local/<hex of the lowercase MXID>@matrix-leg/n`, so each person gets the call in their own bridge
+room (hex, because an extension cannot hold `@` or `:`). A bare `matrix:` is one leg,
+`Local/default@matrix-leg/n`, with no recipient: the bridge's default one. The `matrix-leg` context
+decodes the extension and dials `PJSIP/<caller>@matrixbridge` with a `b()` pre-dial gosub,
+`add-leg-headers`, which adds `X-Conference: sip-<line>-+<caller in E.164>` and
+`X-Matrix-Recipient: <mxid>` to that channel. A pre-dial handler is the only place `PJSIP_HEADER(add)`
+writes the outbound channel, which is why the PJSIP channel is dialled from inside the Local leg
+rather than directly. The conference name, the caller and the recipient reach it as inherited
+(`__`) channel variables. `check-routing.py` rejects the same MXID twice in one stage.
+
+The conference header is what the bridge routes on: the portal room and the ghost are named from it,
+and an INVITE naming a conference it does not recognise is declined, so a mismatch with
+`calls.conference_prefix` fails closed and silently. The recipient header picks that person's own
+login and room, and the bridge shows "Answered by <name>" in the others' rooms when one leg wins.
+A caller on a line the dialplan could not attribute gets no Matrix leg.
 
 Three Asterisk constraints shape the rest, all of them verified rather than assumed:
 
@@ -571,8 +589,9 @@ Three Asterisk constraints shape the rest, all of them verified rather than assu
   without it the caller is bridged to silence. CONTINUE hangs that leg up and drops the caller
   through to `ConfBridge()` at the next priority.
 
-The `matrix-answered` gosub runs on whichever leg answered, XMPP included, and **app_dial hangs
-the answered leg up if the gosub fails** — so its body is wrapped in `pcall`. A Lua error there
+The `matrix-answered` gosub runs on whichever leg answered, XMPP included, and recognises a Matrix
+one by its channel name, `Local/…@matrix-leg-…`. **app_dial hangs the answered leg up if the gosub
+fails** — so its body is wrapped in `pcall`. A Lua error there
 would otherwise drop ordinary calls to the household number.
 
 The two user profiles this uses are in `confbridge.conf`: livekit-sip is the marked user, the
@@ -598,7 +617,8 @@ signal there is for a second of earlier audio. A failure hangs the leg up with a
 turns into a response: a destination that is not a number or a bad conference header 404, no trunk
 503, busy 486, no answer 480. The bridge fails the call on all of them alike.
 
-Trunk selection is `resolve_destination`, shared with the XMPP path so the two cannot drift. Caller
+Trunk selection is `resolve_destination`, shared with the XMPP path so the two cannot drift; the
+room's line from the conference name is passed to it as a label (emergency numbers excepted). Caller
 ID is not the dialplan's: every endpoint pins `from_user`, so the call presents that endpoint's own number
 whatever `CALLERID` says. Which of our numbers a caller presents is selected by picking the peer,
 which is the line's primary registration's — so a `from_glob` rule is what makes it per-person,
@@ -613,12 +633,16 @@ is the bridge peer **and** the extension is a bare number. Both conditions are r
 our trunk, billed to us. The trunk's own messages fail both: their `From` is a subscriber number
 and their extension is the DID's own contact.
 
-Inbound goes to XMPP **and** Matrix, mirroring how an inbound call rings both, and the order is
-load-bearing. XMPP is sent first because the bridge's handler can block for 32s and a hung bridge
+Inbound goes to the people the line's call plan rings, on both transports: one XMPP message per
+distinct `xmpp:` ring target (none when the plan has none) and one bridge message per Matrix
+recipient. A line with no call plan keeps the dialled contact on XMPP. The order is load-bearing. XMPP is sent first because the bridge's handler can block for 32s and a hung bridge
 must not delay the phone; `MESSAGE_SEND_STATUS` is one channel variable overwritten by each send,
 so it is captured between them.
 
-The bridge leg is sent only for a sender that normalises to `+E.164` — the same gate the call path
+The bridge leg is one MESSAGE per Matrix recipient of the line — the literal `matrix:` targets
+of its `inbound_route`, the same people a call rings — each with `X-Matrix-Recipient` set through
+`MESSAGE_DATA`, so the text lands in that person's room. A line with a bare `matrix:` or no Matrix
+target sends one with no header (the bridge's default recipient). The bridge leg is sent only for a sender that normalises to `+E.164` — the same gate the call path
 uses for the conference name, and both derive it from `matrix_conference_name`, which is what keeps
 an SMS and a call from one number in **one** portal room. The sender's host is rewritten to the
 line exactly as on the call path, so the JID resource is `+49…#home` rather than the carrier's SBC

@@ -22,19 +22,18 @@ flowchart TD
     kz_fs["kustomization.yaml<br/>gotk-components · gotk-sync ·<br/>generators-artifact · generators"]
   end
 
-  subgraph root["Root generator"]
+  subgraph rootgen["Root generator"]
     ag_gen["ArtifactGenerator <b>generators</b><br/>source: GitRepository flux-system"]
     ea_gen["ExternalArtifact <b>generators</b>, revision = content hash<br/>Chart.yaml, templates/,<br/>**/kustomization.yaml, reserved dirs"]
     hr_gen["HelmRelease <b>generators</b><br/>values: groups, generate"]
     tpl_gen["templates/generate.yaml<br/>for every &lt;base&gt;/*/kustomization.yaml"]
+  end
 
-    subgraph opt_k0s["optional: values.k0sUpgrade"]
-      k0sctl["kube-cluster/k0sctl.yaml<br/>spec.k0s.version"]
-      ks_k0s["Flux Kustomization <b>k0s-upgrade</b><br/>path ./kube-cluster/k0s-upgrade · force<br/>postBuild.substitute: K0S_VERSION, K0S_VERSION_SANITIZED"]
-      job["Job <b>k0s-upgrade-&lt;version&gt;</b><br/>namespace k0s-upgrade<br/>a bump is a new Job; Flux prunes the old"]
-      plan["Plan <b>autopilot</b><br/>autopilot.k0sproject.io/v1beta2<br/>k0supdate: controllers, workers"]
-      k0sctl -->|".Files.Get"| ks_k0s --> job -->|"recreates it if the version moved"| plan
-    end
+  subgraph opt_k0s["optional: values.k0sUpgrade"]
+    k0sctl["kube-cluster/k0sctl.yaml<br/>spec.k0s.version"]
+    ks_k0s["Flux Kustomization <b>k0s-upgrade</b><br/>path ./kube-cluster/k0s-upgrade · force<br/>postBuild.substitute: K0S_VERSION, K0S_VERSION_SANITIZED"]
+    job["Job <b>k0s-upgrade-&lt;version&gt;</b><br/>namespace k0s-upgrade<br/>a bump is a new Job; Flux prunes the old"]
+    plan["Plan <b>autopilot</b><br/>autopilot.k0sproject.io/v1beta2<br/>k0supdate: controllers, workers"]
   end
 
   nodes["the cluster's nodes<br/>k0s updated by Autopilot"]
@@ -58,7 +57,6 @@ flowchart TD
       subgraph opt_sec["optional: substitution-secrets/"]
         ks_sec["Flux Kustomization <b>app-example-app-substitution-secrets</b><br/>path ./…/substitution-secrets · SOPS"]
         sec["SOPS Secrets<br/>substitution values"]
-        ks_sec --> sec
       end
 
       ks_c["Flux Kustomization <b>app-example-app</b><br/>path ./kube-cluster/apps/example-app<br/>patches · postBuild.substituteFrom · SOPS"]
@@ -73,33 +71,30 @@ flowchart TD
 
   other["other components' Kustomizations<br/>e.g. infra-example-operator"]
 
-  ks_c -->|"kustomize build"| kz_c -->|"patches → envsubst → apply"| out
-  other ==>|"dependsOn: annotation"| ks_c
-  ag_gen --> ea_gen -.->|"chartRef"| hr_gen --> tpl_gen
+  repo --> gr_fs --> ks_fs --> kz_fs
   rcv -.->|"push webhook: reconcile now"| gr_fs
-  ag_c --> ea_c
-  ks_ns ==> ks_art
+  kz_fs --> ag_gen
+  kz_fs --> hr_gen
+  ag_gen --> ea_gen -.->|"chartRef"| hr_gen --> tpl_gen
+  hr_gen -.->|"templates/k0s-upgrade.yaml"| ks_k0s
+  k0sctl -->|".Files.Get"| ks_k0s --> job -->|"recreates it if the version moved"| plan
   plan -->|"Autopilot rolls the update"| nodes
   tpl_gen --> ag_c
-  hr_gen -.->|"templates/k0s-upgrade.yaml"| ks_k0s
-  tpl_k -.->|"if substitution-secrets/"| ks_sec
-  repo --> gr_fs --> ks_fs --> kz_fs
-  cm_ref ==>|"dependsOn …-artifacts<br/>substituteFrom: image ref"| ks_c
   tpl_gen --> hr_c
-  ks_ns ==>|"dependsOn …-namespaces"| ks_c
-  kz_fs --> ag_gen
-  sec ==>|"dependsOn …-substitution-secrets<br/>substituteFrom: Secrets"| ks_c
-  hr_c --> tpl_k
-  tpl_k --> ks_c
-  gr_fs -.->|"source"| ag_c
-  gr_fs -.-> ag_gen
-  ea_c -.->|"chartRef"| hr_c
-  ks_ns --> ns
+  ag_c --> ea_c -.->|"chartRef"| hr_c
+  hr_c --> tpl_k --> ks_c
   tpl_k -.->|"if namespaces/"| ks_ns
-  ks_art --> art -->|"oci-composer builds and pushes"| cm_ref
   tpl_k -.->|"if artifacts/"| ks_art
-  kz_fs --> hr_gen
-  ea_c -.->|"sourceRef, siblings likewise"| ks_c
+  tpl_k -.->|"if substitution-secrets/"| ks_sec
+  ks_ns --> ns
+  ks_ns ==>|"dependsOn …-namespaces"| ks_art
+  ks_art --> art -->|"oci-composer builds and pushes"| cm_ref
+  ks_sec --> sec
+  ks_ns ==>|"dependsOn …-namespaces"| ks_c
+  cm_ref ==>|"dependsOn …-artifacts<br/>substituteFrom: image ref"| ks_c
+  sec ==>|"dependsOn …-substitution-secrets<br/>substituteFrom: Secrets"| ks_c
+  other ==>|"dependsOn: annotation"| ks_c
+  ks_c -->|"kustomize build"| kz_c -->|"patches → envsubst → apply"| out
 
   classDef source fill:#dbeafe,stroke:#1d4ed8,color:#0b1b3f
   classDef kustomization fill:#dcfce7,stroke:#15803d,color:#052e16
@@ -225,10 +220,10 @@ synthesizes one.
   Kustomization, the component waits for it, and each one becomes a
   `postBuild.substituteFrom` entry, so the component's config can stay plaintext with
   `${VAR}` placeholders.
-- **`artifacts/`** holds the component's `ImageComposition` and `ImageBuild` objects. Each one
-  exports its digest-pinned ref into a ConfigMap in that same namespace, which the component
+- **`artifacts/`** holds the component's `ImageComposition` and `ImageBuild` objects. They go
+  in the component's namespace, declared in `namespaces/`. Each one exports its digest-pinned
+  ref (`push.writeRefTo`) into a ConfigMap in the control namespace, which the component
   substitutes as `${VAR}`.
-  They go in the component's namespace, declared in `namespaces/`.
   See [`infra/oci-composer`](kube-cluster/infra/oci-composer/README.md).
 
 ### Substitution caveats

@@ -1077,7 +1077,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "sum(gha_controller_failed_ephemeral_runners)",
+          "expr": "sum(gha_controller_failed_ephemeral_runners) or vector(0)",
           "legendFormat": "failed ephemeral runners",
           "refId": "B"
         },

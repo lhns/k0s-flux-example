@@ -7,8 +7,9 @@ metadata:
     # generator; inert to kustomize. No `namespace:` transformer here —
     # database.yaml and db-role-secret.yaml live in the postgres ns.
     flux-component-generator/dependsOn: infra-postgres,infra-reflector,infra-ceph-csi-cephfs,infra-traefik
+    # Retired; see README.
+    flux-component-generator/suspend: "true"
 resources:
 - resources.yaml
-- routing.yaml
 - database.yaml
 - db-role-secret.yaml

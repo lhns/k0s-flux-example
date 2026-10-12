@@ -20,7 +20,7 @@ spec:
       chart: ceph-csi-cephfs
       # Moves with the image below: Renovate reads both from its tags.
       # renovate: datasource=docker depName=ghcr.io/lhns/ceph-csi-x86-64-v2
-      version: "3.18.0"
+      version: "3.18.1"
       interval: 1h0m0s
       sourceRef:
         kind: HelmRepository
@@ -38,7 +38,7 @@ spec:
         # Also the provisioner's image. x86-64-v2 build of upstream: see README.md.
         image:
           repository: ghcr.io/lhns/ceph-csi-x86-64-v2
-          tag: v3.18.0@sha256:96dae99b2ed1d1d8f4a6f7d0ed0ff5a651878ce1b1f07a5d5bdb823c2d5e016e
+          tag: v3.18.1@sha256:d706364a170eeea45d574f52d32fd4aa85cf225d77c318cf222b07166b5804f4
       httpMetrics:
         containerPort: 8090
         service:
