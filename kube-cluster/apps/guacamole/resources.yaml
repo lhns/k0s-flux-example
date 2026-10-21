@@ -30,10 +30,16 @@ spec:
             - name: guacd
               containerPort: 4822
           readinessProbe:
+            timeoutSeconds: 5
             tcpSocket:
               port: guacd
             initialDelaySeconds: 5
             periodSeconds: 10
+          resources:
+            requests:
+              memory: 64Mi
+            limits:
+              memory: 768Mi
 ---
 apiVersion: v1
 kind: Service
@@ -135,10 +141,10 @@ spec:
             # address -- five failed logins lock out everyone.
             #
             # Both hops must be listed or Tomcat stops walking at the first it does not know:
-            # 172.18.0.0/16 (traefik pods) and 10.20.2.31/.32/.33 (the swarm edge traefik).
+            # 172.18.0.0/16 (traefik pods) and 10.20.176.125/.185/.190 (the swarm edge traefik).
             #
-            # THREE /32s, not 10.20.2.0/24 and not Tomcat's 10/8 default: LAN clients arrive from
-            # 10.20.2.0/24 themselves, so anything broader treats a real client as a proxy and
+            # THREE /32s, not 10.20.176.0/24 and not Tomcat's 10/8 default: LAN clients arrive from
+            # 10.20.176.0/24 themselves, so anything broader treats a real client as a proxy and
             # falls back to the traefik pod -- the exact bug this fixes.
             - name: REMOTE_IP_VALVE_ENABLED
               value: "true"
@@ -148,6 +154,7 @@ spec:
             - name: http
               containerPort: 8080
           readinessProbe:
+            timeoutSeconds: 5
             httpGet:
               path: /guacamole/
               port: http
@@ -178,6 +185,11 @@ spec:
             periodSeconds: 60
             timeoutSeconds: 15
             failureThreshold: 3
+          resources:
+            requests:
+              memory: 768Mi
+            limits:
+              memory: 2Gi
 ---
 apiVersion: v1
 kind: Service

@@ -22,6 +22,11 @@ generator input.
 - suspend      "true" suspends the component's Kustomization only; its gen- HelmRelease stays
                live, since it is what delivers and lifts the suspend. See AGENTS.md.
 
+Reserved subdirectories exist only for apply ordering: what must be applied before the
+component (namespaces/, then substitution-secrets/ and artifacts/). Anything else, such as a
+component's Grafana Operator objects (grafana.yaml, dashboards/), belongs to the component's own
+kustomization.yaml. Do not add a reserved one without that reason.
+
 substitution-secrets/ subdirectory, for injecting secret values into plaintext config
 - Creating the directory is the entire opt-in. It gets its own Kustomization, the
   component gets a dependsOn on it, and the substituteFrom entries are derived from the
@@ -255,6 +260,11 @@ spec:
     - apiVersion: postgresql.cnpg.io/v1
       kind: Cluster
       current: has(status.readyInstances) && status.readyInstances == spec.instances && has(status.currentPrimary) && status.currentPrimary == status.targetPrimary
+    {{- /* No `failed`: the operator's first reconcile fails until the pod serves, and it
+          removes GrafanaReady on failure. Ready then means Grafana is usable. */}}
+    - apiVersion: grafana.integreatly.org/v1beta1
+      kind: Grafana
+      current: has(status.conditions) && status.conditions.exists(c, c.type == 'GrafanaReady' && c.status == 'True' && c.observedGeneration == metadata.generation)
   commonMetadata:
     labels:
       app.kubernetes.io/instance: {{ $instance | quote }}

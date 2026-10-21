@@ -67,7 +67,7 @@ image bump** (see below); Docker 29 changed firewall handling.
 **`GITEA_INSTANCE_URL` is the public hostname, resolved locally.** It has to be public because it
 propagates into every job as the clone URL and `GITHUB_SERVER_URL`; an in-cluster Service name
 would produce URLs that only resolve inside the pod network. A `hostAliases` entry maps
-`gitea.example.com` → `10.20.2.15` (Traefik's VIP) so the traffic never leaves the cluster, and TLS
+`gitea.example.com` → `10.20.176.210` (Traefik's VIP) so the traffic never leaves the cluster, and TLS
 still validates against the `*.example.com` wildcard. It also lets the runner register *before* public
 DNS is moved. Note that containers started by dind do **not** inherit `hostAliases`.
 
@@ -108,8 +108,8 @@ What is actually done here, in descending order of value:
    | DNS | resolves |
    | `https://gitea.example.com/api/v1/version` | the deployed tag |
    | `docker pull alpine:3.22` | succeeds |
-   | Ceph mon `10.20.2.101:6789` | blocked |
-   | API server `10.20.2.50:6443` | blocked |
+   | Ceph mon `10.20.176.250:6789` | blocked |
+   | API server `10.20.176.193:6443` | blocked |
    | the gitea pod IP `:3000` | blocked |
 
    A workflow that legitimately needs something on the LAN will fail here. Widen the rule

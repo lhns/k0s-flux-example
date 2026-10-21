@@ -3,7 +3,7 @@
 The home-automation hub, at `homeassistant.example.com`.
 
 It is **additive**: node-red keeps running untouched, including its Google Home local
-fulfillment on `10.20.2.16` and the `app.example.com` dashboards. Whether HA eventually
+fulfillment on `10.20.176.90` and the `app.example.com` dashboards. Whether HA eventually
 subsumes any of that is a separate decision.
 
 ## Shape
@@ -14,7 +14,7 @@ subsumes any of that is a separate decision.
   the single writer, *not* the access mode: two instances writing `.storage` corrupts it.
 - **Database** — the recorder writes to the shared CNPG cluster
   (`postgres-rw.postgres:5432/homeassistant`), not the default SQLite file. Keeps a
-  constant write stream off Ceph RBD and puts history in the existing Postgres backups,
+  constant write stream off the `/config` volume and puts history in the existing Postgres backups,
   leaving `/config` holding only `.storage`, `custom_components/` and blueprints.
 - **Auth** — HA's own login, **no Authelia forwardAuth**, plus SSO through the `auth_oidc`
   custom component against Authelia's OIDC provider (client `homeassistant`,
@@ -23,7 +23,8 @@ subsumes any of that is a separate decision.
   LDAP user, added **through the UI**: Home Assistant removed broker settings from YAML,
   so this one cannot be declared in git. Zigbee devices arrive via zigbee2mqtt discovery.
 - **kube-vnet** — `net.traefik.traefik: ingress`, `net.mosquitto.mosquitto: egress`,
-  `net.postgres.postgres: egress`, `net.matter-server.matter-server: egress`. The macvlan
+  `net.postgres.postgres: egress`, `net.matter-server.matter-server: egress`,
+  `net.otbr.otbr: egress`. The macvlan
   interface (`net1`) is invisible to kube-vnet — see *Discovery* below.
 - **Config** — split. `packages.yaml` in git becomes a hashed ConfigMap mounted at
   `/config/packages/gitops.yaml`; everything else in `/config` is writable and HA-owned.
@@ -63,8 +64,8 @@ path; a broken component upgrade must not lock you out.
    `.storage`, not YAML — Home Assistant no longer accepts broker settings in
    `configuration.yaml`, so it cannot be declared in git.
 
-Everything else — `configuration.yaml`, `secrets.yaml`, the packages include, and the
-`auth_oidc` install — is seeded automatically by the initContainer, idempotently.
+Everything else — `configuration.yaml`, `secrets.yaml`, the packages include, and HACS
+(`auth_oidc` is then installed through it) — is seeded automatically by the initContainer, idempotently.
 
 ## Operational notes
 
@@ -78,9 +79,7 @@ Everything else — `configuration.yaml`, `secrets.yaml`, the packages include, 
   ```
   authelia crypto hash generate pbkdf2 --variant sha512 --random --random.length 72 --random.charset rfc3986
   ```
-- **Upgrading `auth_oidc`**: bump the tag in `resources.yaml` *and* delete
-  `/config/custom_components/auth_oidc` in the volume — the initContainer skips the
-  install when the directory already exists.
+- **Upgrading `auth_oidc`**: from the HACS UI; it lives in the volume, not in git.
 - **`!env_var` does not exist in Home Assistant.** It was removed from the YAML loader;
   only `!secret` works, which is why the initContainer renders `secrets.yaml`.
 - **A `400: Bad Request` at login** almost always means `http.trusted_proxies` no longer
@@ -89,10 +88,10 @@ Everything else — `configuration.yaml`, `secrets.yaml`, the packages include, 
 
 ## Discovery, and why the LAN interface carries only that
 
-Home Assistant has a **second interface, `net1` on `10.20.3.9`** (macvlan via `infra/multus`),
+Home Assistant has a **second interface, `net1` on `10.20.37.236`** (macvlan via `infra/multus`),
 so mDNS and SSDP multicast reach it and Chromecast/Hue/Sonos discovery works.
 
-It used to have a MetalLB VIP, `10.20.2.7`. That was **deleted**, not kept alongside: a VIP is
+It used to have a MetalLB VIP, `10.20.176.128`. That was **deleted**, not kept alongside: a VIP is
 unicast and NAT'd, so it could never carry discovery, and everything else it served — the UI,
 the API, the companion app, webhooks — is served by Traefik over TLS at
 `homeassistant.example.com`. It was a plain-HTTP LAN address with no remaining purpose.
@@ -123,7 +122,7 @@ wrong interface and discovery will simply appear not to work.
 - A macvlan pod cannot reach its own node's IP.
 - If you enable the **HomeKit bridge** later it binds all interfaces, including `net1` — which
   is what it needs, but it is exposure nothing currently constrains — see TODO.md.
-- `10.20.3.9` must stay outside the DHCP pool.
+- `10.20.37.236` must stay outside the DHCP pool.
 
 ## Matter and Thread
 
@@ -133,13 +132,13 @@ Both are working. The pieces, since they are easy to conflate:
   its own macvlan address, reached here at
   `ws://matter-server.matter-server.svc.cluster.local:5580`.
 - **OTBR** (`apps/otbr`) — the Thread *border router*, an IPv6 router between the 802.15.4
-  mesh and the LAN. Deployed **in-cluster** on macvlan `10.20.3.7`, driving the SLZB-MR5U's
+  mesh and the LAN. Deployed **in-cluster** on macvlan `10.20.37.150`, driving the SLZB-MR5U's
   Thread SoC in RCP mode over serial-over-IP. Add it in HA by URL
   (`http://otbr.otbr.svc.cluster.local:8081`); mDNS auto-discovery of border routers will not
   find it, because that discovery happens over IPv6 link-local multicast which `net1` receives
   but HA only scans on its selected adapter.
 
-  It previously ran **on the SLZB itself** at `http://10.20.1.50:8080`. That mode is gone while
+  It previously ran **on the SLZB itself** at `http://10.20.62.170:8080`. That mode is gone while
   the radio is an RCP — one Thread radio means the two are mutually exclusive. Note the port
   differs (`:8081`, not `:8080`), and that switching the radio's mode takes the on-device REST
   API away with it, so **export the dataset before flipping back**.

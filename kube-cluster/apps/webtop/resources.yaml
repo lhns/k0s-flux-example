@@ -64,7 +64,7 @@ spec:
           # Selkies since the June 2025 rebase (no longer KasmVNC-based): pixelflux for
           # pixels, pcmflux for audio, Xwayland for legacy X11 apps.
           # `PIXELFLUX_WAYLAND=false` forces the old X11 path if ever needed.
-          image: lscr.io/linuxserver/webtop:ubuntu-kde@sha256:ae4419f39bc0b84da2129100df2ee75cb8e2974e0372cfb6b122fdb8d22a0602
+          image: lscr.io/linuxserver/webtop:ubuntu-kde@sha256:7a859491e0d06e05025558d78f5bd212ccd329e4db0ca7a39a24d80ae25c1a48
           env:
             - name: PUID
               value: "1000"
@@ -84,19 +84,18 @@ spec:
             - name: http
               containerPort: 3000
           readinessProbe:
+            timeoutSeconds: 5
             httpGet:
               path: /
               port: http
-            # A full desktop is slow to come up: compositor, session, then XFCE.
+            # A full desktop is slow to come up: compositor, session, then KDE.
             initialDelaySeconds: 30
             periodSeconds: 10
             failureThreshold: 18
           resources:
-            # Container resources are rare in this repo, deliberately. A desktop is
-            # the exception: a browser will grow until something stops it, and this
-            # pod should not be what evicts its neighbours. Memory only — no CPU
-            # limit, because throttling an interactive desktop is worse than the
-            # bursty CPU it costs while encoding.
+            # A browser grows until something stops it; the memory limit keeps this pod from
+            # evicting its neighbours. No CPU limit: throttling an interactive desktop is worse
+            # than the bursty CPU it costs while encoding.
             requests:
               memory: 1Gi
             limits:

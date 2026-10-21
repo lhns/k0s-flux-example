@@ -4,7 +4,7 @@
 - Date: 2026-08-17, amended 2026-09-26
 - Current answer: the HDD `appdata` CephFS filesystem is served by its own CSI driver,
   `cephfs-appdata.csi.ceph.com`, a separate ceph-csi release, so a hang on it cannot take down
-  volumes of the SSD `fastappdata` filesystem. Isolation between storage is by driver name; pools
+  volumes of the SSD `fastdata` filesystem. Isolation between storage is by driver name; pools
   and filesystems alone isolate nothing. ceph-csi's slow-gRPC self-kill is disabled on the node
   plugins and the RBD provisioner.
 

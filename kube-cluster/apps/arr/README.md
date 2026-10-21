@@ -14,8 +14,8 @@ scheduled into `arr` is routed, with no per-pod opt-in to omit.
 Same reason there are no `setGateway: "false"` labels — nothing in this namespace is
 exempt. `apps/matrix` is the precedent for a multi-workload directory.
 
-The `Namespace` object is **not** here; `infra/pod-gateway` owns it. Its `namespace.yaml`
-explains why.
+The `Namespace` is in `namespaces/namespace.yaml`: routed namespaces own themselves
+(`infra/pod-gateway/README.md`).
 
 ## The Swarm stack is stopped
 
@@ -35,7 +35,7 @@ untouched by the move, which is the whole point of a shared-path cutover.
 | `arr-config` | appdata | `/docker/arr` |
 | `arr-media` | archive | `/media` |
 | `arr-incomplete` | appdata | `/eph/docker/arr` |
-| `arr-fast` | fastappdata | `/docker/arr` |
+| `arr-fast` | fastdata | `/docker/arr` |
 
 One PV per filesystem root, `subPath` per workload. `/media/downloads` is reached by
 subPath rather than its own PV so completed downloads and the library stay on one
@@ -58,22 +58,18 @@ these were symlinks created by `${DATA_PATH}/<app>/init`. Recreated here from th
 in git. **If they are missing, every root folder breaks on cutover** — this is the most
 likely way this migration fails quietly.
 
-lidarr has none: its config uses `/media/...` paths directly.
+lidarr's set (`link-paths/lidarr`) links `/music`, `/videos`, `/import` and `/downloads`.
 
-## lidarr is the plugins build, and the only one
+## lidarr is the hotio plugins build
 
-Swarm ran two: a `lidarr` service on `hotio/lidarr:pr-plugins` whose database is 401 KB
-and last written **Dec 2024**, and a commented-out `lidarr2` on `blampe/lidarr` whose
-`hearring-aid` database is **42 MB from Nov 2025**. The running one was an empty shell.
-
-So `lidarr` here is the plugins build against `hearring-aid/data`. Dropped: the hotio
-service, its `run`/`init`/`services` overrides, and the `RandomNinjaAtk/arr-scripts`
-fetch — which downloaded and executed code from GitHub on every start, against this
-repo's "never fetch files at pod start" rule. `${DATA_PATH}/lidarr` stays on disk, unused.
+`lidarr` runs `hotio/lidarr:pr-plugins` on Postgres `lidarr-main`; its `${DATA_PATH}/lidarr`
+SQLite file is unused. The `blampe/lidarr` (`hearring-aid`) tree is abandoned and not deployed.
+The `RandomNinjaAtk/arr-scripts` fetch is dropped: it downloaded and executed code from GitHub on
+every start, against this repo's "never fetch files at pod start" rule.
 
 ## Carried over, and the coupling it creates
 
-sonarr, radarr and prowlarr mount their Swarm `run` file over the image's s6 service
+sonarr, radarr, prowlarr and lidarr mount their Swarm `run` file over the image's s6 service
 definition. The only difference from stock is `-exitimmediately`. This is **coupled to
 the image tag's s6 layout** — if a Renovate bump moves `svc-<app>`, startup breaks and
 the fix is to delete that volumeMount.
@@ -91,11 +87,9 @@ connectable.
 
 ## Databases
 
-The *arr apps and seerr shared a Postgres container on Swarm
-(`/mnt/fastappdata/docker/arr/db`, published on `:5438`). That does not move — they go
-to the CNPG cluster via `Database`/`DatabaseRole` in the `postgres` namespace. Not done
-yet: dump each database out of the Swarm Postgres, restore into CNPG, then rewrite each
-app's `config.xml`. Verify row counts per table, not just that the restore exited 0.
+sonarr, radarr, prowlarr, lidarr and autopulse use the CNPG cluster via `Database`/`DatabaseRole` in the
+`postgres` namespace (`database.yaml`), with `retain` on both: never drop them, they hold the
+libraries.
 
 ## Verifying after cutover
 
@@ -110,3 +104,39 @@ kubectl -n arr exec deploy/sonarr -- ls -l /series /movies /downloads
 # fail-closed: kill gluetun in pod-gateway, these must lose the internet
 # rather than falling back to eth0
 ```
+
+## Sonarr queue tool
+
+`tools/sonarr-queue.py` (stdlib Python, not deployed) triages the "needs user interaction"
+queue (`importBlocked`/`importPending`). The unit is the download, not the queue row: a season
+pack has one row per episode.
+
+```sh
+T=kube-cluster/apps/arr/tools/sonarr-queue.py
+python3 $T list                       # one row per download, with reasons
+python3 $T report                     # by problem category and series; --json
+python3 $T approve --auto-language    # dry run: clean files with a wanted language
+python3 $T approve <id>... --yes      # ids: queue id, downloadId or 6+ char prefix
+python3 $T approve <id> --episodes S17E47 --yes   # override Sonarr's mapping of one file
+python3 $T approve <id> --map 'S2 - 13=S02E13' --map ...   # per file, in a pack
+python3 $T deny <id>... --blocklist --yes
+python3 $T refresh <id> --yes --wait     # RefreshSeries for that download's series
+```
+
+- **Key stays in the pod.** The default transport pipes a generated `sh` program into
+  `kubectl exec -i deploy/sonarr -- sh -s`; it reads `ApiKey` from `/config/config.xml` and
+  gives it to curl on stdin (the image has no python). One exec per batch of requests. Via a
+  jumphost: `--kubectl 'ssh HOST kubectl'` or `SONARR_QUEUE_KUBECTL`.
+  `--url`/`--config-xml` is the in-process alternative where python and the file are available.
+- **Read-only by default.** `approve` and `deny` are dry runs until `--yes`. Samples are never
+  imported; a file with a rejection is imported only when its download is approved by id.
+  Manual mappings refuse episodes that already have a file unless `--allow-overwrite`.
+  `--auto-language` takes only rejection-free files with a language from `--want-languages`
+  (default `German,English`, owner policy), skips whole downloads whose file-to-episode mapping
+  is inconsistent or whose release names another year than the series (`Show.2025.S02E03`
+  matched to `Show (2005)` is usually a different show), and lists episodes claimed by two
+  downloads as conflicts instead of picking.
+- **`deny` never touches the download client unless asked.** Sonarr's API defaults
+  `removeFromClient` to true; the tool always sends it, `false` unless `--remove-from-client`.
+  With `--blocklist` Sonarr searches for a replacement unless `--skip-redownload` is given.
+- Tests: `bash scripts/run-tests.sh` (synthetic fixtures, no cluster).

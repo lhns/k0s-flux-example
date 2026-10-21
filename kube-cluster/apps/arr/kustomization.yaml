@@ -2,7 +2,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 metadata:
   annotations:
-    # infra-pod-gateway owns the namespace and must have the webhook up before
+    # infra-pod-gateway must have the webhook up before
     # any pod here is created -- a missing webhook does not block pod creation,
     # it silently fails to mutate, and the pod comes up with internet access.
     flux-component-generator/dependsOn: infra-ceph-csi-cephfs,infra-kube-vnet,infra-pod-gateway,infra-reflector

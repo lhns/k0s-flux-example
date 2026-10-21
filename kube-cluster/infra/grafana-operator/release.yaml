@@ -1,0 +1,51 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: grafana-operator
+  namespace: grafana-operator
+spec:
+  interval: 1h0m0s
+  url: oci://ghcr.io/grafana/helm-charts/grafana-operator
+  ref:
+    # Bump to roll a new version; the chart's CRDs upgrade with it.
+    tag: "5.25.0"
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: grafana-operator
+  namespace: grafana-operator
+spec:
+  interval: 10m0s
+  chartRef:
+    kind: OCIRepository
+    name: grafana-operator
+  values:
+    # apps/grafana/grafana.yaml ([auth.jwt] expect_claims) trusts exactly ServiceAccount
+    # `grafana-operator:grafana-operator` and the token audience `kubeAuth.audience`
+    # (chart default `operator.grafana.com`; keep it).
+    fullnameOverride: grafana-operator
+
+    # Roles only, in `grafana` and its own namespace; the default is a ClusterRole with
+    # cluster-wide Secret CRUD. The chart renders none (rbac.create: false): its Role in `grafana`
+    # would make the operator wait for that namespace, and so for infra-postgres. See rbac.yaml.
+    namespaceScope: true
+    watchNamespaces: grafana
+    rbac:
+      create: false
+
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        memory: 256Mi
+
+    podLabels:
+      kube-vnet/net.grafana-api: egress
+      kube-vnet/net.opentelemetry.otel-scrape: ingress
+    podAnnotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "9090"
+      prometheus.io/path: /metrics

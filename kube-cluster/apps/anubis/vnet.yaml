@@ -1,0 +1,10 @@
+---
+# Same-namespace ingress is denied by default: valkey carries `net.valkey: ingress`, the anubis
+# pods `net.valkey: egress`.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: valkey
+  namespace: anubis
+spec:
+  description: "anubis -> valkey (:6379), intra-namespace."

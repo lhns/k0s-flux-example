@@ -1,7 +1,7 @@
 ---
-# Raw-TCP exposure of lldap :3890 on traefik's `ldap` entrypoint (10.20.2.15:3890),
+# Raw-TCP exposure of lldap :3890 on traefik's `ldap` entrypoint (10.20.176.210:3890),
 # HostSNI(`*`) plain-TCP passthrough. Lets EXTERNAL clients (e.g. Swarm services still
-# on 10.20.2.10) bind against the in-cluster directory. In-cluster apps use the ClusterIP
+# on 10.20.176.187) bind against the in-cluster directory. In-cluster apps use the ClusterIP
 # service via the lldap vnet instead.
 apiVersion: traefik.io/v1alpha1
 kind: IngressRouteTCP

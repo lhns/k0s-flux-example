@@ -79,7 +79,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: vmstorage
-          image: victoriametrics/vmstorage:v1.153.0-cluster
+          image: victoriametrics/vmstorage:v1.154.1-cluster
           args:
             - -retentionPeriod=5y
             # Downsampling: one sample per series per minute. May be raised later (old
@@ -95,6 +95,7 @@ spec:
             - {name: vmselect-rpc, containerPort: 8401}
             - {name: http, containerPort: 8482}
           readinessProbe:
+            timeoutSeconds: 5
             httpGet:
               path: /health
               port: http
@@ -175,7 +176,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: vminsert
-          image: victoriametrics/vminsert:v1.153.0-cluster
+          image: victoriametrics/vminsert:v1.154.1-cluster
           args:
             - -storageNode=vmstorage-longterm:8400
             # Must match vminsert, or the two tiers store different series.
@@ -185,6 +186,7 @@ spec:
           ports:
             - {name: http, containerPort: 8480}
           readinessProbe:
+            timeoutSeconds: 5
             httpGet:
               path: /health
               port: http

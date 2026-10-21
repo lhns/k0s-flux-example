@@ -1,0 +1,64 @@
+# Raises every 1s probe timeout to 5s on Pod CREATE, for charts and manifests that leave it unset.
+# Defaulting runs before mutating admission, so an unset timeoutSeconds already reads 1 here: an
+# explicit 1 is raised too, any other value (2 and up) is kept. Only Pods are touched, so GitOps
+# objects never drift. Fail-open: a CEL error admits the Pod unchanged.
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingAdmissionPolicy
+metadata:
+  name: probe-timeout-default
+spec:
+  failurePolicy: Ignore
+  reinvocationPolicy: Never
+  matchConstraints:
+    resourceRules:
+    - apiGroups: [""]
+      apiVersions: ["v1"]
+      operations: [CREATE]
+      resources: [pods]
+  matchConditions:
+  - name: has-1s-probe
+    expression: >-
+      (has(object.spec.containers) ? object.spec.containers : []).exists(c,
+        (has(c.readinessProbe) && c.readinessProbe.timeoutSeconds == 1) ||
+        (has(c.livenessProbe) && c.livenessProbe.timeoutSeconds == 1) ||
+        (has(c.startupProbe) && c.startupProbe.timeoutSeconds == 1)) ||
+      (has(object.spec.initContainers) ? object.spec.initContainers : []).exists(c,
+        (has(c.readinessProbe) && c.readinessProbe.timeoutSeconds == 1) ||
+        (has(c.livenessProbe) && c.livenessProbe.timeoutSeconds == 1) ||
+        (has(c.startupProbe) && c.startupProbe.timeoutSeconds == 1))
+  mutations:
+  # Server-side-apply merge: containers are keyed by name, so only the listed probe fields change.
+  - patchType: ApplyConfiguration
+    applyConfiguration:
+      expression: >-
+        Object{
+          spec: Object.spec{
+            containers: (has(object.spec.containers) ? object.spec.containers : []).map(c,
+              Object.spec.containers{
+                name: c.name,
+                ?readinessProbe: has(c.readinessProbe) && c.readinessProbe.timeoutSeconds == 1 ?
+                  optional.of(Object.spec.containers.readinessProbe{timeoutSeconds: 5}) : optional.none(),
+                ?livenessProbe: has(c.livenessProbe) && c.livenessProbe.timeoutSeconds == 1 ?
+                  optional.of(Object.spec.containers.livenessProbe{timeoutSeconds: 5}) : optional.none(),
+                ?startupProbe: has(c.startupProbe) && c.startupProbe.timeoutSeconds == 1 ?
+                  optional.of(Object.spec.containers.startupProbe{timeoutSeconds: 5}) : optional.none()
+              }),
+            ?initContainers: has(object.spec.initContainers) ? optional.of(object.spec.initContainers.map(c,
+              Object.spec.initContainers{
+                name: c.name,
+                ?readinessProbe: has(c.readinessProbe) && c.readinessProbe.timeoutSeconds == 1 ?
+                  optional.of(Object.spec.initContainers.readinessProbe{timeoutSeconds: 5}) : optional.none(),
+                ?livenessProbe: has(c.livenessProbe) && c.livenessProbe.timeoutSeconds == 1 ?
+                  optional.of(Object.spec.initContainers.livenessProbe{timeoutSeconds: 5}) : optional.none(),
+                ?startupProbe: has(c.startupProbe) && c.startupProbe.timeoutSeconds == 1 ?
+                  optional.of(Object.spec.initContainers.startupProbe{timeoutSeconds: 5}) : optional.none()
+              })) : optional.none()
+          }
+        }
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingAdmissionPolicyBinding
+metadata:
+  name: probe-timeout-default
+spec:
+  policyName: probe-timeout-default

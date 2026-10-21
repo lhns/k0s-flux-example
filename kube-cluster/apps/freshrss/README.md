@@ -83,7 +83,7 @@ were copied over via OPML); the two are independent.
 `Remote-User` header it sets. `http_auth_auto_register` defaults to **true**, so **any
 identity Authelia lets through is auto-created in FreshRSS on first visit** — no manual
 provisioning. Who gets through is controlled entirely by Authelia's `access_control`
-(currently `group:admin` or `group:freshrss`), which is the right place for it.
+(currently `group:admin` or `group:rss`), which is the right place for it.
 
 Admin rights come from **either** being the `default_user` **or** having `is_admin`
 (`app/Models/Auth.php`: `$default_user === $currentUser || $isAdmin`). That is why the
@@ -106,7 +106,7 @@ but **cannot log in while `auth_type` is `http_auth`** — there is no login for
 break-glass account: set `auth_type` back to `form` (below) to use it.
 
 ## One-time setup
-1. Point `freshrss.example.com` (+ `freshrss.kube.example.com`) DNS at the Traefik LB `10.20.2.15`.
+1. Point `freshrss.example.com` (+ `freshrss.kube.example.com`) DNS at the Traefik LB `10.20.176.210`.
 2. Visit `https://freshrss.example.com` — Authelia challenges, then FreshRSS auto-creates your
    account and logs you straight in.
 3. Promote that account to admin (see above).

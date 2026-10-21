@@ -17,7 +17,9 @@ CI holds no age private key, so this asserts only what is checkable from the cip
     matches no creation_rule) is caught
   * the age recipients are exactly the ones .sops.yaml prescribes -- a file encrypted to
     a key the cluster does not have
-  * the file still parses as YAML and every document is a Secret
+  * the file still parses as YAML and every document is a Secret -- or, where the path's rule
+    encrypts other keys than data/stringData (a Middleware carrying credentials), that rule's
+    keys are encrypted wherever they occur
 
 WHAT THIS CANNOT CATCH: a broken MAC. Deciding whether the MAC still validates means
 decrypting, which needs the age private key, which is deliberately not in CI. A file can
@@ -40,12 +42,13 @@ import clusters
 
 MARKER = "ENC[AES256_GCM"
 ENC_VALUE = re.compile(r"^ENC\[AES256_GCM,data:.*,type:\w+\]$")
+SECRET_REGEX = "^(data|stringData)$"
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 failures = []
 
 
 def creation_rules():
-    doc = yaml.safe_load((ROOT / ".sops.yaml").read_text(encoding="utf-8")) or {}
+    doc = clusters.load((ROOT / ".sops.yaml").read_text(encoding="utf-8")) or {}
     return doc.get("creation_rules") or []
 
 
@@ -88,7 +91,7 @@ for path in files:
     want_recipients = recipients(rule)
 
     try:
-        docs = list(yaml.safe_load_all(path.read_text(encoding="utf-8")))
+        docs = list(clusters.load_all(path.read_text(encoding="utf-8")))
     except yaml.YAMLError as e:
         failures.append(f"  {rel}: not parseable as YAML ({str(e).splitlines()[0]})")
         continue
@@ -98,7 +101,7 @@ for path in files:
     for i, doc in enumerate(d for d in docs if d is not None):
         where = f"  {rel}" + (f" (document {i + 1})" if len(docs) > 1 else "")
 
-        if not isinstance(doc, dict) or doc.get("kind") != "Secret":
+        if not isinstance(doc, dict) or (doc.get("kind") != "Secret" and want_regex == SECRET_REGEX):
             kind = doc.get("kind") if isinstance(doc, dict) else type(doc).__name__
             failures.append(f"{where}: kind is {kind!r}, not Secret")
             continue
@@ -128,6 +131,24 @@ for path in files:
 
         # A half-encrypted file: anything under data/stringData still readable.
         if key_re is None:
+            continue
+        if want_regex != SECRET_REGEX:
+            # Custom rule: the covered keys can sit at any depth.
+            def walk(node, path=""):
+                if isinstance(node, dict):
+                    for k, v in node.items():
+                        if path == "" and k == "sops":
+                            continue
+                        if key_re.search(str(k)):
+                            if not isinstance(v, str) or not ENC_VALUE.match(v):
+                                failures.append(f"{where}: {path}{k} is not encrypted -- the value "
+                                                f"is in the clear in the repo")
+                        else:
+                            walk(v, f"{path}{k}.")
+                elif isinstance(node, list):
+                    for v in node:
+                        walk(v, path)
+            walk(doc)
             continue
         for key, block in doc.items():
             if not key_re.search(key) or not isinstance(block, dict):

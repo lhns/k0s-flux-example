@@ -1,6 +1,6 @@
 # Vaultwarden's /data (attachments, sends, icon cache, config.json, and rsa_key —
 # the JWT signing key), copied once from the old Swarm volume
-# fastappdata:/docker/bitwarden (excluding its nested db/ Postgres dir). CephFS RWX so
+# fastdata:/docker/bitwarden (excluding its nested db/ Postgres dir). CephFS RWX so
 # the start-first rollout can briefly run old+new pods against the same data.
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -107,6 +107,7 @@ spec:
             - name: http
               containerPort: 80
           readinessProbe:
+            timeoutSeconds: 5
             httpGet:
               path: /alive
               port: http
@@ -116,6 +117,11 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+          resources:
+            requests:
+              memory: 192Mi
+            limits:
+              memory: 384Mi
       volumes:
         - name: data
           persistentVolumeClaim:

@@ -11,6 +11,22 @@ resources:
 - s3-secret.yaml
 - objectstore.yaml
 - cluster.yaml
+- monitoring-queries.yaml
 - pooler.yaml
 - scheduledbackup.yaml
 - vnet.yaml
+- grafana.yaml
+# Dashboard JSON: stable names with the operator's label (its informer only sees labelled
+# ConfigMaps, so a JSON change syncs at once instead of at the next resync), no substitution.
+configMapGenerator:
+- name: infra-postgres-dashboards
+  namespace: grafana
+  options:
+    disableNameSuffixHash: true
+    labels:
+      app.kubernetes.io/managed-by: grafana-operator
+    annotations:
+      kustomize.toolkit.fluxcd.io/substitute: disabled
+  files:
+  - dashboards/postgres.json
+  - dashboards/postgres-database.json

@@ -350,7 +350,7 @@ attribution("an unknown peer attributes nothing", "02012345678", "pbx.example.ne
 -- "+49...#office" -- which is also the form resolve_destination resolves above, and the two
 -- must stay symmetric or people get a contact they cannot call back.
 check("from uri carries the line",
-	call_from_uri("<sip:+4915112345678@10.20.2.3>", "sip.example.net", "office"),
+	call_from_uri("<sip:+4915112345678@10.20.176.78>", "sip.example.net", "office"),
 	"<sip:+4915112345678@office>")
 check("from uri as a JID localpart",
 	sip_uri_to_local("+4915112345678@office"), "+4915112345678#office")
@@ -358,11 +358,11 @@ check("and back", local_to_sip_uri("+4915112345678#office"), "+4915112345678@off
 -- No line: the trunk host. Degraded identity, but the call still connects and the label
 -- still dials back.
 check("from uri without a line falls back to the trunk",
-	call_from_uri("<sip:+4915112345678@10.20.2.3>", "sip.example.net", nil),
+	call_from_uri("<sip:+4915112345678@10.20.176.78>", "sip.example.net", nil),
 	"<sip:+4915112345678@sip.example.net>")
 check("from uri with neither is left alone",
-	call_from_uri("<sip:+4915112345678@10.20.2.3>", "pbx.example.net", nil),
-	"<sip:+4915112345678@10.20.2.3>")
+	call_from_uri("<sip:+4915112345678@10.20.176.78>", "pbx.example.net", nil),
+	"<sip:+4915112345678@10.20.176.78>")
 
 -- The Matrix key. "sip-" plus the portal ID, and the portal ID is "<line>-<digits>" so the
 -- same human on two lines is two portals -- one line's numbers are only meaningful there.
@@ -523,21 +523,21 @@ end
 -- REWRITTEN to the LINE -- keeping it would give one human "+49...#<sbc-ip>" for an SMS and
 -- "+49...#home" for a call. There is no contact to key on here, so the line is the host's
 -- default registration: SMS cannot tell two DIDs on one host apart at all.
-inbound("plain e164", "<sip:+4915112345678@10.20.2.3>",
+inbound("plain e164", "<sip:+4915112345678@10.20.176.78>",
 	"+4915112345678@home", "4915112345678")
 inbound("display name and params",
-	'"Someone" <sip:+4915112345678@10.20.2.3;user=phone>;tag=abc123',
+	'"Someone" <sip:+4915112345678@10.20.176.78;user=phone>;tag=abc123',
 	"+4915112345678@home", "4915112345678")
 -- No angle brackets, so the ";tag" belongs to the header and must still come off.
-inbound("no angle brackets", "sip:+4915112345678@10.20.2.3;tag=abc123",
+inbound("no angle brackets", "sip:+4915112345678@10.20.176.78;tag=abc123",
 	"+4915112345678@home", "4915112345678")
-inbound("uppercase scheme", "<SIP:+4915112345678@10.20.2.3>",
+inbound("uppercase scheme", "<SIP:+4915112345678@10.20.176.78>",
 	"+4915112345678@home", "4915112345678")
 -- 00 and national forms collapse to the same identity, which is the whole point: otherwise
 -- the portal key diverges from the call path's conference name.
-inbound("00 prefix", "<sip:004915112345678@10.20.2.3>",
+inbound("00 prefix", "<sip:004915112345678@10.20.176.78>",
 	"+4915112345678@home", "4915112345678")
-inbound("national 0 prefix", "<sip:015112345678@10.20.2.3>",
+inbound("national 0 prefix", "<sip:015112345678@10.20.176.78>",
 	"+4915112345678@home", "4915112345678")
 -- A host that is already one of ours names its own line, or the other trunk would be
 -- mislabelled as the household one.
@@ -545,8 +545,8 @@ inbound("known trunk names its line", "<sip:5551@voip.example.org>",
 	ev("5551@eventpbx", "5551@home"), nil)
 -- Neither of these normalises, so digits is nil and the bridge leg is skipped rather than
 -- keyed on something the bridge would decline.
-inbound("alphanumeric sender", "<sip:Telekom@10.20.2.3>", "Telekom@home", nil)
-inbound("short code", "<sip:22122@10.20.2.3>", "22122@home", nil)
+inbound("alphanumeric sender", "<sip:Telekom@10.20.176.78>", "Telekom@home", nil)
+inbound("short code", "<sip:22122@10.20.176.78>", "22122@home", nil)
 
 -- Nothing to attribute it to: the carrier's host is the only label left, and keeping it
 -- beats emitting "user@". SIP_HOST, not an outbound lookup -- this says where a message came
@@ -554,8 +554,8 @@ inbound("short code", "<sip:22122@10.20.2.3>", "22122@home", nil)
 -- no portal key either, so the bridge is left out rather than handed a keyless message.
 local saved_host = env.SIP_HOST
 env.SIP_HOST = nil
-inbound("nothing to attribute it to", "<sip:+4915112345678@10.20.2.3>",
-	"+4915112345678@10.20.2.3", nil)
+inbound("nothing to attribute it to", "<sip:+4915112345678@10.20.176.78>",
+	"+4915112345678@10.20.176.78", nil)
 env.SIP_HOST = saved_host
 
 -- THE invariant. A call and an SMS from the same number must produce the same key: the call
@@ -571,21 +571,21 @@ local function same_portal(name, header)
 	-- digits, because sms_bridge_message addresses the bridge by the registration's did.
 	check(name .. " portal", conf, digits and ("sip-" .. line .. "-+" .. digits))
 end
-same_portal("e164", "<sip:+4915112345678@10.20.2.3>")
-same_portal("00 prefix", "<sip:004915112345678@10.20.2.3>")
-same_portal("national 0 prefix", "<sip:015112345678@10.20.2.3>")
+same_portal("e164", "<sip:+4915112345678@10.20.176.78>")
+same_portal("00 prefix", "<sip:004915112345678@10.20.176.78>")
+same_portal("national 0 prefix", "<sip:015112345678@10.20.176.78>")
 same_portal("display name and params",
-	'"Someone" <sip:+4915112345678@10.20.2.3;user=phone>;tag=abc123')
+	'"Someone" <sip:+4915112345678@10.20.176.78;user=phone>;tag=abc123')
 -- Neither path may build a key for a sender that did not normalise.
-same_portal("alphanumeric sender", "<sip:Telekom@10.20.2.3>")
-same_portal("short code", "<sip:22122@10.20.2.3>")
+same_portal("alphanumeric sender", "<sip:Telekom@10.20.176.78>")
+same_portal("short code", "<sip:22122@10.20.176.78>")
 
 -- PER-DID SMS. The dialled contact is the same discriminator the call path uses, so an SMS
 -- to an office DID keys the office line instead of collapsing onto the host's entrypoint.
 -- Whether a carrier echoes our Contact on a MESSAGE is untested, so every case that does
 -- not match must still land exactly where it did before.
 local function sms_line(name, extension, want_uri, want_line, want_how)
-	local uri, _, line, _, how = sms_inbound_from("<sip:+4915112345678@10.20.2.3>", extension)
+	local uri, _, line, _, how = sms_inbound_from("<sip:+4915112345678@10.20.176.78>", extension)
 	check(name .. " uri", uri, want_uri)
 	check(name .. " line", line, want_line)
 	check(name .. " how", how, want_how)
@@ -606,7 +606,7 @@ sms_line("an empty contact falls back as before", "", "+4915112345678@home", "ho
 -- And a call and an SMS carrying the SAME dialled contact must name the same line, or one
 -- human is one portal room for a call and another for a text.
 local function sms_matches_call(name, extension)
-	local _, _, sms = sms_inbound_from("<sip:+4915112345678@10.20.2.3>", extension)
+	local _, _, sms = sms_inbound_from("<sip:+4915112345678@10.20.176.78>", extension)
 	check(name, sms, (inbound_line(routing, extension, env.SIP_HOST)))
 end
 sms_matches_call("office DID", "02012345671")
@@ -633,13 +633,13 @@ check("bridge skipped without digits", sms_bridge_message("Telekom@sip.example.n
 -- The dispatcher, all four combinations. Outbound needs BOTH the bridge as sender AND a
 -- numeric destination: on the From alone a carrier-injected "From: sip:matrixbridge@..."
 -- would be an outbound-SMS primitive on our trunk.
-check("dispatch bridge + number", sms_is_outbound("<sip:matrixbridge@10.20.2.3>", "+4915112345678"), true)
-check("dispatch bridge + jid", sms_is_outbound("<sip:matrixbridge@10.20.2.3>", "admin@xmpp.example.com"), false)
-check("dispatch carrier + number", sms_is_outbound("<sip:+4915112345678@10.20.2.3>", "+492012345678"), false)
-check("dispatch carrier + jid", sms_is_outbound("<sip:+4915112345678@10.20.2.3>", "admin@xmpp.example.com"), false)
+check("dispatch bridge + number", sms_is_outbound("<sip:matrixbridge@10.20.176.78>", "+4915112345678"), true)
+check("dispatch bridge + jid", sms_is_outbound("<sip:matrixbridge@10.20.176.78>", "admin@xmpp.example.com"), false)
+check("dispatch carrier + number", sms_is_outbound("<sip:+4915112345678@10.20.176.78>", "+492012345678"), false)
+check("dispatch carrier + jid", sms_is_outbound("<sip:+4915112345678@10.20.176.78>", "admin@xmpp.example.com"), false)
 -- The bridge sends no display name today; a From that grows one must still be recognised.
 check("dispatch bridge with display name",
-	sms_is_outbound('"bridge" <sip:matrixbridge@10.20.2.3>;tag=x', "+4915112345678"), true)
+	sms_is_outbound('"bridge" <sip:matrixbridge@10.20.176.78>;tag=x', "+4915112345678"), true)
 
 -- Outbound trunk selection, the same rules as the call path.
 local function sms_route(name, to_uri, want_peer, want_num)

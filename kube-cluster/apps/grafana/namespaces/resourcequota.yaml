@@ -1,0 +1,12 @@
+---
+# One Grafana pod at a time writes the DB and /var/lib/grafana, so the operator's replacement
+# pod waits until the old one is gone; a pod stuck Terminating on a lost node blocks it until
+# force-deleted. A helper pod (AGENTS.md volume moves) needs this raised in git: Flux reverts kubectl.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: grafana-single-pod
+  namespace: grafana
+spec:
+  hard:
+    pods: "1"

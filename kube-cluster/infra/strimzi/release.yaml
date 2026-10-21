@@ -11,8 +11,8 @@ spec:
     # Bump to roll a new operator. The chart version tracks the operator version,
     # and the operator's supported Kafka versions move with it — check the Strimzi
     # CHANGELOG before bumping, because dropping a Kafka minor is a breaking change
-    # for any Kafka CR pinned to it (1.1.0 supports only Kafka 4.3.0 / 4.2.1).
-    tag: "1.2.0"
+    # for any Kafka CR pinned to it.
+    tag: "1.3.0"
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease

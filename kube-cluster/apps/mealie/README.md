@@ -1,7 +1,7 @@
 # mealie
 
 Mealie (`ghcr.io/mealie-recipes/mealie`, recipe manager), migrated from Docker Swarm. Public at
-`mealie.kube.example.com` (auth via **OpenID SSO / Authelia**); the old `mealie.example.com` redirects here.
+`mealie.example.com` (auth via **OpenID SSO / Authelia**); `mealie.kube.example.com` redirects there.
 
 ## Shape
 - **Database**: a dedicated `mealie` role + database in the shared CNPG cluster (`infra/postgres`)
@@ -9,7 +9,7 @@ Mealie (`ghcr.io/mealie-recipes/mealie`, recipe manager), migrated from Docker S
   same-major `pg_dump`/restore (no schema rework). `database.yaml` = CRDs; `db-role-secret.yaml` =
   SOPS/Reflector password.
 - **Data**: `/app/data` (recipe images, backups, and the `.secret` JWT-signing key) lives on a
-  dedicated Ceph RBD volume (`mealie-data`, RWO), copied once from `fastappdata:/docker/mealie/data`.
+  dedicated CephFS volume (`mealie-data`, RWX), copied once from `fastdata:/docker/mealie/data`.
   Copying `.secret` keeps existing session tokens valid. Mealie runs as PUID/PGID 1000, so the copied
   data is owned 1000:1000.
 - **Config is env-only** — DB, options, and OIDC are `*` env vars. Secrets (`app-secret.yaml`, SOPS):
@@ -24,9 +24,8 @@ Mealie (`ghcr.io/mealie-recipes/mealie`, recipe manager), migrated from Docker S
 
 ## One-time migration
 1. Deploy with the Deployment at `replicas: 0` (db/role + secrets come up).
-2. **DB**: `pg_dump` the old Swarm Postgres (`10.20.2.10:5436`) into the CNPG `mealie` db (as the
+2. **DB**: `pg_dump` the old Swarm Postgres (`10.20.176.187:5436`) into the CNPG `mealie` db (as the
    `mealie` role). Same Mealie version both sides, so alembic is a no-op on start.
-3. **Data**: copy `fastappdata:/docker/mealie/data` into the `mealie-data` RBD PVC (chown 1000:1000).
+3. **Data**: copy `fastdata:/docker/mealie/data` into the `mealie-data` PVC (chown 1000:1000).
 4. Flip the Deployment to `replicas: 1`.
-5. On Authelia, point the `mealie` OIDC client's redirect_uri at the `mealie.kube.example.com` host and
-   ensure the `mealie` / `mealie_admin` groups are assigned.
+5. On Authelia, ensure the `mealie` / `mealie_admin` groups are assigned.

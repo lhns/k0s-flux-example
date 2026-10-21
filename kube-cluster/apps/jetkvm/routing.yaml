@@ -50,7 +50,7 @@ metadata:
     kustomize.toolkit.fluxcd.io/substitute: disabled
 spec:
   redirectRegex:
-    regex: "^https://jetkvm.kube.example.com/(.*)"
+    regex: "^https?://[^/]+/(.*)"
     replacement: "https://jetkvm.example.com/${1}"
     permanent: true
 ---
@@ -65,8 +65,8 @@ spec:
     - kind: Rule
       match: Host(`jetkvm.kube.example.com`)
       services:
-        - name: ui
-          port: 8080
+        - name: noop@internal
+          kind: TraefikService
       middlewares:
         - name: jetkvm-kube-redirect
   tls: {}

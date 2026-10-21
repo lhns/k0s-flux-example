@@ -9,7 +9,7 @@ metadata:
   namespace: code-scanner
 spec:
   redirectRegex:
-    regex: "^https://scanner.kube.example.com/(.*)"
+    regex: "^https?://[^/]+/(.*)"
     replacement: "https://scanner.example.com/${1}"
     permanent: true
 ---
@@ -24,8 +24,8 @@ spec:
     - kind: Rule
       match: Host(`scanner.kube.example.com`)
       services:
-        - name: code-scanner
-          port: 8080
+        - name: noop@internal
+          kind: TraefikService
       middlewares:
         - name: scanner-kube-redirect
   tls: {}

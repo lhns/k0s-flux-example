@@ -26,7 +26,7 @@ metadata:
   namespace: zigbee2mqtt
 spec:
   redirectRegex:
-    regex: "^https://zigbee2mqtt.kube.example.com/(.*)"
+    regex: "^https?://[^/]+/(.*)"
     replacement: "https://zigbee2mqtt.example.com/${1}"
     permanent: true
 ---
@@ -41,8 +41,8 @@ spec:
     - kind: Rule
       match: Host(`zigbee2mqtt.kube.example.com`)
       services:
-        - name: zigbee2mqtt
-          port: 8080
+        - name: noop@internal
+          kind: TraefikService
       middlewares:
         - name: zigbee2mqtt-kube-redirect
   tls: {}

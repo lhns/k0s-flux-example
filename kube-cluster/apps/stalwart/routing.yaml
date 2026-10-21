@@ -19,8 +19,8 @@ spec:
       priority: 100
       match: Host(`mail.example.com`) && Path(`/`)
       services:
-        - name: stalwart
-          port: 8080
+        - name: noop@internal
+          kind: TraefikService
       middlewares:
         - name: stalwart-root-redirect
   tls: {}
@@ -32,7 +32,7 @@ metadata:
   namespace: stalwart
 spec:
   redirectRegex:
-    regex: "^https://mail\\.lhns\\.de/?$"
+    regex: "^https?://[^/]+/.*"
     replacement: "https://webmail.example.com"
     permanent: false
 ---
@@ -55,8 +55,8 @@ spec:
       priority: 100
       match: Host(`webmail.example.com`) && PathPrefix(`/account`)
       services:
-        - name: bulwark
-          port: 3000
+        - name: noop@internal
+          kind: TraefikService
       middlewares:
         - name: bulwark-account-redirect
   tls: {}
@@ -68,6 +68,6 @@ metadata:
   namespace: stalwart
 spec:
   redirectRegex:
-    regex: "^https://webmail\\.lhns\\.de"
+    regex: "^https?://[^/]+"
     replacement: "https://mail.example.com"
     permanent: false

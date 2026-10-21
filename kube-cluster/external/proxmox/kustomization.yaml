@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Proxmox pushes its own metrics (README.md); this component holds only its Grafana objects.
+resources:
+- grafana.yaml
+# Dashboard JSON: stable names with the operator's label (its informer only sees labelled
+# ConfigMaps, so a JSON change syncs at once instead of at the next resync), no substitution.
+configMapGenerator:
+- name: ext-proxmox-dashboards
+  namespace: grafana
+  options:
+    disableNameSuffixHash: true
+    labels:
+      app.kubernetes.io/managed-by: grafana-operator
+    annotations:
+      kustomize.toolkit.fluxcd.io/substitute: disabled
+  files:
+  - dashboards/proxmox.json

@@ -3,14 +3,9 @@
 # topic means a partition keeps a leader through a rolling restart, so producers never
 # block — writes are the thing that must stay available here; reads can wait.
 #
-# The pool is named `kafka` because Strimzi builds pod and PVC names from it:
-# `<cluster>-<pool>-<ordinal>` gives otel-kafka-0, matching the otel-kafka-bootstrap and
-# otel-kafka-brokers Services. It was briefly `dual` (after the dual-role nodes), which
-# named an implementation detail nobody reading `otel-dual-0` benefits from and never said
-# Kafka at all.
-# NOTE: renaming this pool is NOT a rename — Strimzi derives PVC names from it, so a new
-# name means new empty volumes and a cluster rebuild. Doing it later means moving real data
-# with Cruise Control instead.
+# The pool name `kafka` gives pod names otel-kafka-N matching the otel-kafka-* Services.
+# Renaming it is not a rename: Strimzi derives PVC names from it, so a new name means
+# new empty volumes.
 apiVersion: kafka.strimzi.io/v1
 kind: KafkaNodePool
 metadata:
@@ -21,11 +16,8 @@ metadata:
 spec:
   replicas: 3
   roles: [controller, broker]
-  # KAFKA_HEAP_OPTS was -Xms128M with no -Xmx, so the JVM defaulted max heap to a quarter
-  # of the NODE's RAM. The three identical brokers had drifted to 9.5Gi / 4.2Gi / 1.6Gi,
-  # and the 9.5Gi one helped push kube-worker-03 into the memory pressure that stalled
-  # containerd on 2026-09-02. Kafka serves reads from the page cache, not the heap, so 2g
-  # is ample -- the rest of the limit below is deliberately left to the page cache.
+  # Heap pinned: an unset -Xmx sizes to a quarter of the node's RAM. Reads come from the
+  # page cache, so 2g is ample and the rest of the limit below is left to it.
   jvmOptions:
     -Xms: 2g
     -Xmx: 2g
@@ -107,17 +99,12 @@ metadata:
   namespace: opentelemetry-gateway
 spec:
   kafka:
-    # Strimzi 1.1.0 supports exactly [4.2.0, 4.2.1, 4.3.0] — 4.1.x (what Swarm runs)
-    # was dropped. Harmless here because this cluster starts empty. If the Aiven 1.1.1
-    # plugin (released before 4.2/4.3) trips with NoSuchMethodError/LinkageError, drop
-    # to 4.2.1 before changing anything else.
-    # The operator validates this and refuses to create ANY pod on a bad value, so a
-    # typo here surfaces as Kafka NotReady/UnsupportedKafkaVersionException, not a
-    # half-built cluster.
+    # The operator refuses to create ANY pod on a version it does not support
+    # (Kafka NotReady/UnsupportedKafkaVersionException), so a typo is not a half-built cluster.
     version: 4.3.0
     metadataVersion: 4.3-IV0
     listeners:
-      # Internal only. External senders reach the GATEWAY on 10.20.2.14; nothing
+      # Internal only. External senders reach the GATEWAY on 10.20.176.58; nothing
       # outside the cluster talks to Kafka, so there is no external listener and no
       # advertised-address juggling.
       - name: plain
@@ -163,7 +150,12 @@ spec:
           key.prefix: kube/
   entityOperator:
     # Reconciles the KafkaTopic CRs in topics.yaml.
-    topicOperator: {}
+    topicOperator:
+      resources:
+        requests:
+          memory: 768Mi
+        limits:
+          memory: 1536Mi
     # userOperator omitted: the internal listener has no TLS/SCRAM auth, so there are
     # no KafkaUsers to manage.
     template:

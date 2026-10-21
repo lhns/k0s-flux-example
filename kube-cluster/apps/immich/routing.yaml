@@ -25,7 +25,7 @@ metadata:
   namespace: immich
 spec:
   redirectRegex:
-    regex: "^https://immich.kube.example.com/(.*)"
+    regex: "^https?://[^/]+/(.*)"
     replacement: "https://immich.example.com/${1}"
     permanent: true
 ---
@@ -40,8 +40,8 @@ spec:
     - kind: Rule
       match: Host(`immich.kube.example.com`)
       services:
-        - name: immich
-          port: 2283
+        - name: noop@internal
+          kind: TraefikService
       middlewares:
         - name: immich-kube-redirect
   tls: {}

@@ -48,7 +48,12 @@ spec:
         # every image bump). The worker runs the same initContainer; whichever wins, the other
         # applies nothing.
         - name: migrate
-          image: ghcr.io/antonio-ivanovski/spliit-cloud-migrate:v2.6.2@sha256:9d7e11af394eb40a217032314e3a02d66c698c5fe2d3dd23c1dbfc68f79e3908
+          image: ghcr.io/antonio-ivanovski/spliit-cloud-migrate:v2.10.0@sha256:65baf2dfb16e33b43b963ba912e9d59c70dfbb58f21dc87a84cfea9d368b1d3e
+          resources:
+            requests:
+              memory: 192Mi
+            limits:
+              memory: 512Mi
           env:
             - name: SPLIIT_DB_PASSWORD
               valueFrom: {secretKeyRef: {name: spliit-db, key: password}}
@@ -56,7 +61,7 @@ spec:
               value: postgresql://spliit:$(SPLIIT_DB_PASSWORD)@postgres-rw.postgres.svc.cluster.local:5432/spliit?sslmode=disable
       containers:
         - name: api
-          image: ghcr.io/antonio-ivanovski/spliit-cloud-api:v2.6.2@sha256:3ed4c85f0af19af19a74dfab1a54240cdcdb6943f5188b039b1c8cf0f5d1c650
+          image: ghcr.io/antonio-ivanovski/spliit-cloud-api:v2.10.0@sha256:129a4de9f045dbf2ee2c6d08d282cd704c2597e45a6c2399889a5ef3e7c88369
           env:
             - {name: PORT, value: "3001"}
             - name: SPLIIT_DB_PASSWORD
@@ -81,7 +86,7 @@ spec:
             # already vetted, and the fork has no flag to trust OIDC while gating email.
             #
             # `open` on its own would also expose an email registration form to the internet, so
-            # the three email endpoints are refused at traefik instead — see the spliit-deny route
+            # the two email endpoints are refused at traefik instead — see the spliit-deny route
             # in routing.yaml. OIDC and anonymous sign-in are deliberately NOT refused there.
             - {name: SIGNUP_MODE, value: "open"}
             # Anonymous accounts: no email, no provider, a recovery link instead. Wanted, so
@@ -131,11 +136,13 @@ spec:
           ports:
             - {name: http, containerPort: 3001}
           readinessProbe:
+            timeoutSeconds: 5
             httpGet: {path: /health/readiness, port: http}
             initialDelaySeconds: 10
             periodSeconds: 10
             failureThreshold: 12
           livenessProbe:
+            timeoutSeconds: 5
             httpGet: {path: /health/liveness, port: http}
             initialDelaySeconds: 30
             periodSeconds: 20
@@ -185,7 +192,12 @@ spec:
       enableServiceLinks: false
       initContainers:
         - name: migrate
-          image: ghcr.io/antonio-ivanovski/spliit-cloud-migrate:v2.6.2@sha256:9d7e11af394eb40a217032314e3a02d66c698c5fe2d3dd23c1dbfc68f79e3908
+          image: ghcr.io/antonio-ivanovski/spliit-cloud-migrate:v2.10.0@sha256:65baf2dfb16e33b43b963ba912e9d59c70dfbb58f21dc87a84cfea9d368b1d3e
+          resources:
+            requests:
+              memory: 192Mi
+            limits:
+              memory: 512Mi
           env:
             - name: SPLIIT_DB_PASSWORD
               valueFrom: {secretKeyRef: {name: spliit-db, key: password}}
@@ -193,7 +205,7 @@ spec:
               value: postgresql://spliit:$(SPLIIT_DB_PASSWORD)@postgres-rw.postgres.svc.cluster.local:5432/spliit?sslmode=disable
       containers:
         - name: worker
-          image: ghcr.io/antonio-ivanovski/spliit-cloud-worker:v2.6.2@sha256:bf2358483310ce67260866b7d651e4362c12bf984c512e546820754d43339c0d
+          image: ghcr.io/antonio-ivanovski/spliit-cloud-worker:v2.10.0@sha256:c8a77fe05ee8eab849678b92bb3d0558264cff8bab2a86382b54f5e81f2fc19a
           env:
             - name: SPLIIT_DB_PASSWORD
               valueFrom: {secretKeyRef: {name: spliit-db, key: password}}
@@ -217,6 +229,7 @@ spec:
           ports:
             - {name: jobs-admin, containerPort: 3003}
           readinessProbe:
+            timeoutSeconds: 5
             httpGet: {path: /health/readiness, port: jobs-admin}
             initialDelaySeconds: 20
             periodSeconds: 10
@@ -255,10 +268,11 @@ spec:
       enableServiceLinks: false
       containers:
         - name: web
-          image: ghcr.io/antonio-ivanovski/spliit-cloud-web:v2.6.2@sha256:30faa5ba827383ebc0cf3c8b8ea96cd128460c616e620bcf7da84176918b5e26
+          image: ghcr.io/antonio-ivanovski/spliit-cloud-web:v2.10.0@sha256:52104473940943aa018d25825f7514b8a3972f652e32f902eaf38cb22524257a
           ports:
             - {name: http, containerPort: 80}
           readinessProbe:
+            timeoutSeconds: 5
             httpGet: {path: /health/liveness, port: http}
             initialDelaySeconds: 5
             periodSeconds: 10

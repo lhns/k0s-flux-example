@@ -27,7 +27,7 @@ spec:
         # reach the in-cluster mosquitto :1883 (the `mosquitto` vnet). No inbound, so
         # no ingress vnet.
         kube-vnet/net.mosquitto.mosquitto: egress
-        # OTLP to the in-cluster gateway. Was the Swarm collector at 10.20.2.10:4317,
+        # OTLP to the in-cluster gateway. Was the Swarm collector at 10.20.176.187:4317,
         # which was external egress and needed no label; a ClusterIP does.
         kube-vnet/net.opentelemetry-gateway.otel-gateway: egress
     spec:
@@ -41,9 +41,12 @@ spec:
             - name: OTEL_SERVICE_NAME
               value: mqtt-monitoring
             # The full monitoring config (HOCON) — holds the MQTT broker password, so
-            # it's a SOPS secret; the broker is repointed to the in-cluster mosquitto.
+            # it's an as-secret config; the broker is repointed to the in-cluster mosquitto.
             - name: CONFIG
               valueFrom:
                 secretKeyRef:
                   name: mqtt-monitoring-config
                   key: CONFIG
+          resources:
+            requests: {memory: 384Mi}
+            limits: {memory: 1Gi}

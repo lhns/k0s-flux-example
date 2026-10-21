@@ -1,0 +1,12 @@
+# Grafana's pod joins as ingress (`kube-vnet/net.grafana-operator.grafana-api: ingress`,
+# set in apps/grafana/grafana.yaml); the operator pod is the egress side.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: grafana-api
+  namespace: grafana-operator
+spec:
+  description: "grafana-operator -> grafana :3000"
+  allowedNamespaces:
+    names:
+      - grafana

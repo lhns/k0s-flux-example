@@ -1,23 +1,18 @@
 # otbr — OpenThread Border Router
 
 The Thread border router, in-cluster, replacing the **on-device OTBR in the SLZB-MR5U at
-`10.20.1.50`** that SMLIGHT themselves label beta. On the LAN at **10.20.3.7** via macvlan, next to
+`10.20.62.170`** that SMLIGHT themselves label beta. On the LAN at **10.20.37.150** via macvlan, next to
 [`../matter-server`](../matter-server/README.md) on `.8` and Home Assistant on `.9`.
 
 The two are separate jobs and stay separate pods: OTBR is an IPv6 *router* between the 802.15.4
 mesh and the LAN, matter-server speaks Matter over IP. Nothing about matter-server changes.
 
-## Do this first: check the SLZB's Thread firmware
+## Check the SLZB's Thread firmware first
 
-[openthread/openthread#12100](https://github.com/orgs/openthread/discussions/12100) describes an
-**SLZB-MR4u** — the MR5U's sibling — whose OTBR would not talk to the radio at all: `Error decoding
-hdlc frame: Parse`, `Wait for response timeout`, recovery loop, crash. It was fixed by a **SMLIGHT
-firmware update**, not by any OTBR change, and the decisive detail is that the same failures
-appeared over **direct serial** — so the transport was never the cause.
-
-The RCP firmware stays SMLIGHT's whichever border router runs. If the current trouble is that bug,
-this deployment fixes nothing. Check the Thread radio firmware in the SLZB UI, update it, re-test
-the on-device OTBR, and only then continue. It costs minutes and may end the exercise.
+Radio-link errors (`Error decoding hdlc frame: Parse`, `Wait for response timeout`) are an RCP
+firmware fault, not a border-router one
+([openthread/openthread#12100](https://github.com/orgs/openthread/discussions/12100)); no OTBR
+deployment fixes them. Update the radio firmware in the SLZB UI before suspecting this pod.
 
 ## One radio, so this is either/or
 
@@ -33,14 +28,10 @@ The **Active Operational Dataset** — network key, PAN ID, channel, network nam
 network. Carry it across and commissioned devices rejoin the same mesh; start fresh instead and
 every Thread device is orphaned and must be re-commissioned by hand.
 
-The obvious way to save it, `curl http://10.20.1.50:8080/node/dataset/active`, **only works while the
-SLZB is in on-device OTBR mode**. Switching the radio to RCP takes that REST API away with it, so
-the export has to happen first. It did not here — the mode was switched before the export.
-
-That turned out not to matter, because **Home Assistant caches datasets it has seen**, in
-`/config/.storage/thread.datasets`. One is stored, `source: otbr`, created 2026-07-31. So the
-network identity survived the mode switch by luck rather than design. Check that file before
-concluding a dataset is lost.
+Exporting it with `curl http://10.20.62.170:8080/node/dataset/active` **only works while the SLZB is
+in on-device OTBR mode**; switching the radio to RCP takes that REST API away. Home Assistant also
+caches datasets it has seen, in `/config/.storage/thread.datasets`; check it before concluding a
+dataset is lost.
 
 **This pod starts with no dataset**, so `/node/state` is `disabled` and `wpan0` stays DOWN until one
 is applied — that is correct behaviour for an unconfigured node, not a fault. Apply it from Home
@@ -57,7 +48,7 @@ pty, and `forkpty` is the hook for it: `otbr-agent` forks the named program with
 speaks HDLC over it.
 
 ```
-RADIO_URL=spinel+hdlc+forkpty:///opt/socat-bin/socat.sh?forkpty-arg=-&forkpty-arg=tcp:10.20.1.50:7638,nodelay
+RADIO_URL=spinel+hdlc+forkpty:///opt/socat-bin/socat.sh?forkpty-arg=-&forkpty-arg=tcp:10.20.62.170:7638,nodelay
 ```
 
 Home Assistant's own OTBR add-on bridges networked coordinators with socat the same way, so this is
@@ -96,10 +87,10 @@ has to be legible, and a bare digest bump is not.
 
 ## Shape
 
-- **macvlan on 10.20.3.7**, `master: ens18`, `mode: bridge`, static IPAM, **no gateway** (it would
+- **macvlan on 10.20.37.150**, `master: ens18`, `mode: bridge`, static IPAM, **no gateway** (it would
   install a default route via `net1` and hijack egress off `eth0`). A border router must be on the
-  LAN to send Router Advertisements; a ClusterIP cannot. `10.20.3.x` is the repo's macvlan range —
-  `10.20.2.7` is free and would work technically on this flat `/16`, but a macvlan pod inside the
+  LAN to send Router Advertisements; a ClusterIP cannot. `10.20.37.x` is the repo's macvlan range —
+  `10.20.176.128` is free and would work technically on this flat `/16`, but a macvlan pod inside the
   MetalLB range is invisible to MetalLB, which would hand the same address to a Service later.
 - **Sysctls come from the CNI `tuning` plugin**, not `securityContext.sysctls` and not the
   container. The container genuinely tries (`sudo sysctl --system`) and fails with "Read-only file
@@ -119,21 +110,17 @@ has to be legible, and a bare digest bump is not.
   most important env var here.
 - **REST API on `:8081`, bound explicitly.** Two easy mistakes, both avoided: the port is 8081 (the
   `8080` in upstream's `docker run` is the *host* side of a mapping to the **web UI** on port 80),
-  and it binds `127.0.0.1` by default — unreachable from outside the pod unless `REST_HOST` is set.
+  and it binds `127.0.0.1` by default. `REST_HOST` is the pod IP (downward API), so the API answers
+  on `eth0` only: it is unauthenticated and serves the Thread network key, and `0.0.0.0` would put it
+  on `net1`, where kube-vnet does not reach (ADR 0031).
 - **The web UI stays on loopback** (`HTTP_HOST=127.0.0.1`). It is an unauthenticated admin
   interface that can erase the dataset, and `net1` has no NetworkPolicy in front of it. Reach it
   with `kubectl -n otbr port-forward deploy/otbr 8080:80`.
 - **`NAT64=0`.** Not needed for Matter (the fabric is IPv6-only), and the entrypoint aborts the
   container outright if NAT64 fails to start. Flip to `1` if a Thread device ever needs IPv4.
-- **`cephfs` RWX at `/var/lib/thread`** for the dataset, matching matter-server. This was
-  `ceph-rbd` first, which was a mistake: the "embedded database file → block" rule is about
-  SQLite-style access (mmap, byte-range locks), and `otbr-agent` keeps a single flat key-value
-  file rewritten via tmp-file-plus-rename — 36K in practice. The decisive argument is backup
-  rather than semantics. Backrest mounts the whole `fastappdata` CephFS filesystem and the
-  `cephfs` StorageClass provisions subvolumes inside it, so dynamic cephfs volumes are at least
-  reachable; dynamic RBD volumes are block images in pool `rbd.kube` with no mount and no path,
-  so nothing can back them up. RBD put the one irreplaceable file here on the only storage in the
-  repo that could not be recovered. (Coverage still needs the Backrest plan — task #89.)
+- **`cephfs` RWX at `/var/lib/thread`** for the dataset, matching matter-server. `otbr-agent`
+  keeps a single flat key-value file rewritten via tmp-file-plus-rename, so it needs no block
+  volume (ADR 0007).
   `strategy: Recreate` does not follow from the volume any more, but is still required by the
   fixed macvlan address and the single radio.
 - **Digest-pinned image**: upstream publishes exactly one tag, `latest`, so a tag tracks nothing.
@@ -165,23 +152,16 @@ narrowed further.
    a global prefix on the LAN, which is the state right after the SLZB's OTBR is switched off. A
    global address should appear on `net1` once this border router is advertising its own prefix.
 4. `curl http://<clusterip>:8081/node/state` → `leader` or `router`, and
-   `/node/dataset/active` matches the TLV exported above.
+   `/node/dataset/active` matches the dataset in Home Assistant.
 5. **Confirm the dataset actually persists**: `kubectl -n otbr exec deploy/otbr -- ls /var/lib/thread`
    should show `0_<extaddr>.data`. `otbr-agent`'s `--data-path` is not set explicitly by the
    entrypoint, so this relies on its default landing in the mounted volume — check it rather than
-   assume it, since the failure mode is silent until a restart orphans every device. (Verified: the
-   file is written there, and survived the RBD→cephfs volume migration with the network identity
-   intact.)
+   assume it, since the failure mode is silent until a restart orphans every device.
 6. **From matter-server**, `/proc/net/ipv6_route` shows the mesh prefix via `net1`. That route is
    the entire point; its absence is the documented signature of a broken setup.
 7. In HA: remove the old border router, add `http://otbr.otbr.svc.cluster.local:8081`. Devices reachable without
    re-commissioning proves the dataset migration worked.
 8. Confirm zigbee2mqtt reconnected after the device reboot.
-
-## Rollback
-
-Flip the SLZB's Thread radio back to on-device OTBR and delete this directory. The dataset is
-unchanged, so devices rejoin.
 
 ## Risks
 

@@ -65,11 +65,12 @@ and (3), as Flux skips it.
 
 Key names are read straight from the SOPS files; only the values are encrypted.
 """
-import pathlib, re, subprocess, sys, yaml
+import os, pathlib, re, subprocess, sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import clusters
 
+os.chdir(clusters.ROOT)  # every path below is repo-relative
 ANNOTATION = "flux-component-generator/as-secret"
 DISABLED = "kustomize.toolkit.fluxcd.io/substitute"
 KINDS = ("ImageComposition", "ImageBuild")
@@ -102,7 +103,7 @@ def ref_export_namespaces(cluster):
     rel = pathlib.Path(cluster, "infra/oci-composer/release.yaml")
     if not rel.is_file():
         return set()
-    for doc in yaml.safe_load_all(rel.read_text(encoding="utf-8")):
+    for doc in clusters.load_all(rel.read_text(encoding="utf-8")):
         if doc and doc.get("kind") == "HelmRelease":
             return set((((doc["spec"].get("values") or {}).get("refExport") or {}).get("namespaces")) or [])
     return set()
@@ -116,7 +117,7 @@ def marked_generators(component: pathlib.Path):
     kust = component / "kustomization.yaml"
     if not kust.exists():
         return []
-    doc = yaml.safe_load(kust.read_text(encoding="utf-8")) or {}
+    doc = clusters.load(kust.read_text(encoding="utf-8")) or {}
     out = []
     for entry in doc.get("configMapGenerator") or []:
         options = entry.get("options") or {}
@@ -129,7 +130,7 @@ def declared_namespaces(component: pathlib.Path):
     """(6) The Namespaces this component's namespaces/ creates."""
     docs = []
     for f in sorted((component / "namespaces").glob("*.yaml")):
-        docs += [(f, d) for d in yaml.safe_load_all(f.read_text(encoding="utf-8")) if d]
+        docs += [(f, d) for d in clusters.load_all(f.read_text(encoding="utf-8")) if d]
     names = {d["metadata"]["name"] for _, d in docs if d.get("kind") == "Namespace"}
     for f, d in docs:
         if d.get("kind") != "Namespace" and (d.get("metadata") or {}).get("namespace") not in names:
@@ -142,7 +143,7 @@ def exported_keys(component: pathlib.Path, namespaces: set):
     target = kustomization_namespace(component)
     keys = set()
     for f in sorted((component / "artifacts").glob("*.yaml")):
-        for doc in yaml.safe_load_all(f.read_text(encoding="utf-8")):
+        for doc in clusters.load_all(f.read_text(encoding="utf-8")):
             if not doc:
                 continue
             ns = (doc.get("metadata") or {}).get("namespace")
@@ -177,15 +178,15 @@ def build_egress(component: pathlib.Path, built: str):
     """(8) Build Jobs in an egress-restricted namespace need their policy in namespaces/."""
     builds = set()
     for f in sorted((component / "artifacts").glob("*.yaml")):
-        for doc in yaml.safe_load_all(f.read_text(encoding="utf-8")):
+        for doc in clusters.load_all(f.read_text(encoding="utf-8")):
             ns = ((doc or {}).get("metadata") or {}).get("namespace")
             if (doc or {}).get("kind") == "ImageBuild" and ns != "oci-composer":
                 builds.add(ns)
     if not builds:
         return
     early = [d for f in sorted((component / "namespaces").glob("*.yaml"))
-             for d in yaml.safe_load_all(f.read_text(encoding="utf-8")) if d]
-    policies = [d for d in list(yaml.safe_load_all(built)) + early
+             for d in clusters.load_all(f.read_text(encoding="utf-8")) if d]
+    policies = [d for d in list(clusters.load_all(built)) + early
                 if d and d.get("kind") == "NetworkPolicy" and "Egress" in (d["spec"].get("policyTypes") or [])]
     for ns in sorted(builds):
         here = [p for p in policies if p["metadata"].get("namespace") == ns]
@@ -207,7 +208,7 @@ def substituted(built: str):
     """The build minus the documents Flux does not substitute."""
     out = []
     for raw in re.split(r'(?m)^---\s*$', built):
-        doc = yaml.safe_load(raw)
+        doc = clusters.load(raw)
         meta = (doc.get("metadata") or {}) if isinstance(doc, dict) else {}
         if "disabled" in ((meta.get("annotations") or {}).get(DISABLED),
                           (meta.get("labels") or {}).get(DISABLED)):
@@ -216,13 +217,23 @@ def substituted(built: str):
     return "---".join(out)
 
 
+# validate.sh builds every component once, into one file per component path with / as %.
+BUILDS = os.environ.get("KUSTOMIZE_BUILDS")
+
+
 def build(component: pathlib.Path):
+    if BUILDS:
+        done = pathlib.Path(BUILDS, component.as_posix().replace("/", "%"))
+        if done.is_file() and not done.with_name(done.name + ".failed").exists():
+            return done.read_text(encoding="utf-8")
     r = subprocess.run(["kustomize", "build", str(component)], capture_output=True, text=True)
     return r.stdout if r.returncode == 0 else None
 
 
+examined = 0
 for base in PREFIX:
     for component in sorted(p for p in pathlib.Path(base).glob("*") if p.is_dir()):
+        examined += 1
         marked = marked_generators(component)
 
         # (4) the option that keeps the name reachable
@@ -242,7 +253,7 @@ for base in PREFIX:
                 text = f.read_text(encoding="utf-8")
                 keys |= set(KEY_RE.findall(text))
                 # (7) the template refuses this too
-                for doc in yaml.safe_load_all(text):
+                for doc in clusters.load_all(text):
                     if (isinstance(doc, dict) and doc.get("kind") in ("Secret", "ConfigMap")
                             and (doc.get("metadata") or {}).get("namespace") == "flux-system"):
                         failures.append(
@@ -261,7 +272,7 @@ for base in PREFIX:
         build_egress(component, built)
 
         # (6) one owner per Namespace
-        for doc in yaml.safe_load_all(built):
+        for doc in clusters.load_all(built):
             if doc and doc.get("kind") == "Namespace" and doc["metadata"]["name"] in namespaces:
                 failures.append(
                     f"  {component}: Namespace/{doc['metadata']['name']} is in both the component "
@@ -271,7 +282,7 @@ for base in PREFIX:
             continue
 
         pattern = re.compile(r'\$\{(' + "|".join(sorted(keys)) + r')\}') if keys else None
-        for doc in yaml.safe_load_all(built):
+        for doc in clusters.load_all(built):
             if not doc or doc.get("kind") != "ConfigMap":
                 continue
             annotations = (doc.get("metadata") or {}).get("annotations") or {}
@@ -318,19 +329,22 @@ for base in PREFIX:
 for f in sorted(f for tree in CLUSTERS + ["shared"] for f in pathlib.Path(tree).rglob("*.yaml")):
     text = f.read_text(encoding="utf-8")
     if CONTROL_LABEL in text:
-        for doc in yaml.safe_load_all(text):
+        for doc in clusters.load_all(text):
             if isinstance(doc, dict) and CONTROL_LABEL in (((doc.get("metadata") or {}).get("labels")) or {}):
                 failures.append(f"  {f}: sets label {CONTROL_LABEL}, which only the generator may: it grants sops-age")
     if f.parent.name == "artifacts":
         continue
     if not re.search(r"^kind: (ImageComposition|ImageBuild)\s*$", text, re.M):
         continue
-    for doc in yaml.safe_load_all(text):
+    for doc in clusters.load_all(text):
         if isinstance(doc, dict) and doc.get("kind") in KINDS:
             failures.append(f"  {f}: {doc['kind']}/{doc['metadata']['name']} is not in an artifacts/ dir")
+
+if not examined:
+    failures.append("  no component found: the group bases in the root HelmReleases match no directory")
 
 if failures:
     print("== substitution check failed ==", file=sys.stderr)
     print(*failures, sep="\n", file=sys.stderr)
     sys.exit(1)
-print("substituted values stay in Secrets, and marked generators keep a reachable name")
+print(f"{examined} component(s): substituted values stay in Secrets, and marked generators keep a reachable name")

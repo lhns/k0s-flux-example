@@ -36,8 +36,8 @@ spec:
       t=/tmp/dl; mkdir -p $t
 
       # renovate: datasource=github-releases depName=cli/cli
-      url=https://github.com/cli/cli/releases/download/v2.102.0/gh_2.102.0_linux_amd64.tar.gz
-      digest=sha256:bb766f710eef8ede859c18578c72c327597cd4c8a85b06001b1f3843c6019386
+      url=https://github.com/cli/cli/releases/download/v2.102.1/gh_2.102.1_linux_amd64.tar.gz
+      digest=sha256:77b9e297e94c50336823d0f84de7ef1be60cba704601fa0d98f129f47a94987b
       fetch "$url" "$digest" $t/gh.tgz
       tar -xzf $t/gh.tgz -C /usr/local --strip-components=1 --wildcards '*/bin/gh'
 
@@ -74,14 +74,14 @@ spec:
       mkdir -p /usr/libexec/docker/cli-plugins
 
       # renovate: datasource=github-releases depName=docker/buildx
-      url=https://github.com/docker/buildx/releases/download/v0.38.0/buildx-v0.38.0.linux-amd64
-      digest=sha256:4fe4cc38adf48169132749b6ca22a990928db0118e3407584ee553723115d287
+      url=https://github.com/docker/buildx/releases/download/v0.38.1/buildx-v0.38.1.linux-amd64
+      digest=sha256:e25d5cd675092bb5d1d03632fdc46cdf3fede7b514dc5f023a105e00d3ce5ad4
       fetch "$url" "$digest" $t/buildx
       install -m 0755 $t/buildx /usr/libexec/docker/cli-plugins/docker-buildx
 
       # renovate: datasource=github-releases depName=docker/compose
-      url=https://github.com/docker/compose/releases/download/v5.6.0/docker-compose-linux-x86_64
-      digest=sha256:40343e21ca777173e69cff5dbafeb37c6f81f3b0d57d9e597f036e95eb63e76a
+      url=https://github.com/docker/compose/releases/download/v5.6.1/docker-compose-linux-x86_64
+      digest=sha256:47737f4236e6d3ccea7291995203f8f018058783b4c3a9469119811a0b5db8c0
       fetch "$url" "$digest" $t/compose
       install -m 0755 $t/compose /usr/libexec/docker/cli-plugins/docker-compose
 
@@ -111,8 +111,8 @@ spec:
       RUN <<'EOS'
       set -eu
       # renovate: datasource=github-releases depName=lhns/remote-docker
-      url=https://github.com/lhns/remote-docker/releases/download/v0.10.0/remote-docker_0.10.0_linux_amd64.tar.gz
-      digest=sha256:b93a4cbc2ca0d1805484d62d6a15febb1b1f771ea0a52e284d1f360808eee0e4
+      url=https://github.com/lhns/remote-docker/releases/download/v0.14.0/remote-docker_0.14.0_linux_amd64.tar.gz
+      digest=sha256:b1fd0bf3ebba62b1265e823a1fcceee73da27f9f65b360138e5cbb93995d1f84
       curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/rd.tgz "$url"
       echo "$(echo "$digest" | cut -d: -f2)  /tmp/rd.tgz" | sha256sum -c -
       tar -xzf /tmp/rd.tgz -C /usr/local/bin remote-docker

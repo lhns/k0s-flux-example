@@ -15,7 +15,8 @@
   [`../coturn`](../coturn/README.md) on `turn.example.com`.
 - **Certs:** cert-manager, DNS-01 via IONOS. Not Snikket's certbot.
 - **kube-vnet:** `net.traefik.traefik: ingress` — everything arrives through Traefik — plus
-  `net.lldap.lldap: egress` for authentication.
+  `net.lldap.lldap: egress` for authentication, and `net.snikket-component: ingress` for
+  cheogram-sip's component port 5347 (`vnet.yaml`).
 - **Auth:** lldap. Members of the `xmpp` or `admin` group log in with their directory password;
   `admin` maps to prosody's admin role. See [`ldap-integration.md`](ldap-integration.md).
 - **DB:** none. Prosody uses its own file storage.
@@ -38,7 +39,7 @@ Two of upstream's four are deliberately **absent**:
 ## Ports, and why none of them need a VIP
 
 With TURN split out, everything left is TCP, and Traefik carries TCP fine — so Snikket runs
-entirely on the shared Traefik VIP `10.20.2.15` and needs no address of its own. That matters:
+entirely on the shared Traefik VIP `10.20.176.210` and needs no address of its own. That matters:
 VIPs here are a scarce, hand-allocated resource.
 
 | port | entrypoint | what |
@@ -90,7 +91,7 @@ The username must match the JID localpart you want: `lhns` in lldap means
 
 ## Router and edge
 
-**Router** → the Traefik VIP `10.20.2.15`, TCP, no TLS termination: `5222`, `5269`, `5000`.
+**Router** → the Traefik VIP `10.20.176.210`, TCP, no TLS termination: `5222`, `5269`, `5000`.
 TURN's ports are separate — see [`../coturn`](../coturn/README.md).
 
 **The edge certificate must cover `*.xmpp.example.com`**, not just `*.example.com`. A DNS wildcard
@@ -100,7 +101,7 @@ certificate, falls back to its self-signed default, and clients fail on TLS veri
 *before* sending a request — which presents as a connection error rather than anything
 resembling a certificate problem.
 
-The alternative is SNI passthrough of the three hosts to `10.20.2.15:443`, letting the cluster
+The alternative is SNI passthrough of the three hosts to `10.20.176.210:443`, letting the cluster
 terminate with its own cert. That needs no certificate at the edge at all, and is the better
 option if you would rather not issue wildcards there.
 
@@ -133,8 +134,8 @@ Both were missing until 2026-09-12, with consequences that looked unrelated to e
 
 | port | to | without it |
 | --- | --- | --- |
-| TCP 5222 | `10.20.2.15` | clients cannot connect from outside the LAN ("server not found"); there is no split-horizon DNS, and a wildcard on `example.com` means even on WiFi the app dials the public address |
-| TCP 5269 | `10.20.2.15` | no inbound s2s at all, so `push.snikket.net` cannot authenticate by dialback and **push notifications never work**. A backgrounded phone is then never woken, which presents as calls not ringing and messages arriving late. Federation is also dead. |
+| TCP 5222 | `10.20.176.210` | clients cannot connect from outside the LAN ("server not found"); there is no split-horizon DNS, and a wildcard on `example.com` means even on WiFi the app dials the public address |
+| TCP 5269 | `10.20.176.210` | no inbound s2s at all, so `push.snikket.net` cannot authenticate by dialback and **push notifications never work**. A backgrounded phone is then never woken, which presents as calls not ringing and messages arriving late. Federation is also dead. |
 
 Verify from the LAN (hairpin works here, 443 is a good control):
 

@@ -1,0 +1,162 @@
+[
+ {
+  "id": 3001,
+  "seriesId": 20,
+  "seasonNumber": 1,
+  "episodeNumber": 1,
+  "absoluteEpisodeNumber": 1,
+  "hasFile": true
+ },
+ {
+  "id": 3002,
+  "seriesId": 20,
+  "seasonNumber": 1,
+  "episodeNumber": 2,
+  "absoluteEpisodeNumber": 2,
+  "hasFile": true
+ },
+ {
+  "id": 3003,
+  "seriesId": 20,
+  "seasonNumber": 1,
+  "episodeNumber": 3,
+  "absoluteEpisodeNumber": 3,
+  "hasFile": true
+ },
+ {
+  "id": 3004,
+  "seriesId": 20,
+  "seasonNumber": 1,
+  "episodeNumber": 4,
+  "absoluteEpisodeNumber": 4,
+  "hasFile": true
+ },
+ {
+  "id": 3005,
+  "seriesId": 20,
+  "seasonNumber": 1,
+  "episodeNumber": 5,
+  "absoluteEpisodeNumber": 5,
+  "hasFile": true
+ },
+ {
+  "id": 3006,
+  "seriesId": 20,
+  "seasonNumber": 1,
+  "episodeNumber": 6,
+  "absoluteEpisodeNumber": 6,
+  "hasFile": true
+ },
+ {
+  "id": 3007,
+  "seriesId": 20,
+  "seasonNumber": 1,
+  "episodeNumber": 7,
+  "absoluteEpisodeNumber": 7,
+  "hasFile": true
+ },
+ {
+  "id": 3008,
+  "seriesId": 20,
+  "seasonNumber": 1,
+  "episodeNumber": 8,
+  "absoluteEpisodeNumber": 8,
+  "hasFile": true
+ },
+ {
+  "id": 3009,
+  "seriesId": 20,
+  "seasonNumber": 1,
+  "episodeNumber": 9,
+  "absoluteEpisodeNumber": 9,
+  "hasFile": true
+ },
+ {
+  "id": 3010,
+  "seriesId": 20,
+  "seasonNumber": 1,
+  "episodeNumber": 10,
+  "absoluteEpisodeNumber": 10,
+  "hasFile": true
+ },
+ {
+  "id": 3011,
+  "seriesId": 20,
+  "seasonNumber": 1,
+  "episodeNumber": 11,
+  "absoluteEpisodeNumber": 11,
+  "hasFile": true
+ },
+ {
+  "id": 3012,
+  "seriesId": 20,
+  "seasonNumber": 1,
+  "episodeNumber": 12,
+  "absoluteEpisodeNumber": 12,
+  "hasFile": true
+ },
+ {
+  "id": 3013,
+  "seriesId": 20,
+  "seasonNumber": 2,
+  "episodeNumber": 1,
+  "absoluteEpisodeNumber": 13,
+  "hasFile": false
+ },
+ {
+  "id": 3014,
+  "seriesId": 20,
+  "seasonNumber": 2,
+  "episodeNumber": 2,
+  "absoluteEpisodeNumber": 14,
+  "hasFile": false
+ },
+ {
+  "id": 3015,
+  "seriesId": 20,
+  "seasonNumber": 2,
+  "episodeNumber": 3,
+  "absoluteEpisodeNumber": 15,
+  "hasFile": false
+ },
+ {
+  "id": 3016,
+  "seriesId": 20,
+  "seasonNumber": 2,
+  "episodeNumber": 4,
+  "absoluteEpisodeNumber": 16,
+  "hasFile": false
+ },
+ {
+  "id": 3017,
+  "seriesId": 20,
+  "seasonNumber": 2,
+  "episodeNumber": 5,
+  "absoluteEpisodeNumber": 17,
+  "hasFile": false
+ },
+ {
+  "id": 3018,
+  "seriesId": 20,
+  "seasonNumber": 2,
+  "episodeNumber": 6,
+  "absoluteEpisodeNumber": 18,
+  "hasFile": false
+ },
+ {
+  "id": 3019,
+  "seriesId": 20,
+  "seasonNumber": 2,
+  "episodeNumber": 7,
+  "absoluteEpisodeNumber": 19,
+  "hasFile": false
+ },
+ {
+  "id": 3020,
+  "seriesId": 20,
+  "seasonNumber": 2,
+  "episodeNumber": 8,
+  "absoluteEpisodeNumber": 20,
+  "hasFile": false
+ }
+]

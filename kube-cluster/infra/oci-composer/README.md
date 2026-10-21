@@ -16,7 +16,6 @@ By the digest-pinned ref the artifact exports. Nothing names a tag.
   component's Kustomizations, its control namespace `gen-<name>`, which `refExport.namespaces`
   must list. The objects' own
   Namespace goes in the component's `namespaces/`, so it exists before `artifacts/` applies.
-  Namespace `oci-composer` is legacy and still accepted.
 - After every publish the controller writes `<registry>/<namespace>/<name>@sha256:…` into
   ConfigMap `<kind>-<namespace>-<name>` there, labelled `reconcile.fluxcd.io/watch: Enabled`
   (`refExport` in `release.yaml`), so a new digest rolls its consumer at once.
@@ -108,7 +107,7 @@ is told where it really is, by a registry drop-in shipped in
 [`../../k0s-files/`](../../k0s-files/) via `k0sctl.yaml`:
 
 ```toml
-[host."http://10.20.2.72:30500"]
+[host."http://10.20.176.37:30500"]
   capabilities = ["pull", "resolve"]
 # ...and .73, .74 — no `server` line, so no node is a distinguished fallback
 ```
@@ -139,7 +138,7 @@ stops at the first root that matches anything. This root must stay first, and mu
   nodes are listed with **no `server` line**, so there is no primary: containerd tries them in
   order and falls through, and `server` would only have made one node a distinguished fallback.
 - **Node IPs never appear in an image reference.** Every reference is
-  `oci-composer.internal:30500/oci-composer/<name>@sha256:<digest>`; the addresses live only in the
+  `oci-composer.internal:30500/<namespace>/<name>@sha256:<digest>`; the addresses live only in the
   drop-in.
   That is what keeps references portable and reviewable.
 
@@ -164,10 +163,10 @@ holds still needs the registry.
 ```sh
 kubectl -n oci-composer get helmrelease,pod
 kubectl get imagecomposition,imagebuild -A
-kubectl -n flux-system get configmap -l app.kubernetes.io/managed-by=kube-oci-composer
+kubectl get configmap -A -l app.kubernetes.io/managed-by=kube-oci-composer
 # from a node that is NOT running the pod — proves the NodePort hop and that containerd
 # never tried to resolve oci-composer.internal:
-k0s ctr -n k8s.io images pull --hosts-dir /etc/k0s/registries/oci-composer   oci-composer.internal:30500/oci-composer/<name>@sha256:<digest>
+k0s ctr -n k8s.io images pull --hosts-dir /etc/k0s/registries/oci-composer   oci-composer.internal:30500/<namespace>/<name>@sha256:<digest>
 # and the regression test that matters: restart that node's spegel pod, then confirm
 # /etc/k0s/registries/oci-composer/oci-composer.internal_30500_/hosts.toml still exists
 ```

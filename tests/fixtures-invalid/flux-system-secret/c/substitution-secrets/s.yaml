@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: s
+  namespace: flux-system
+stringData:
+  K: v

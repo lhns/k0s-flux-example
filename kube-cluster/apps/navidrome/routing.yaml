@@ -79,7 +79,7 @@ metadata:
   namespace: navidrome
 spec:
   redirectRegex:
-    regex: "^https://navidrome.kube.example.com/(.*)"
+    regex: "^https?://[^/]+/(.*)"
     replacement: "https://navidrome.example.com/${1}"
     permanent: true
 ---
@@ -94,8 +94,8 @@ spec:
     - kind: Rule
       match: Host(`navidrome.kube.example.com`)
       services:
-        - name: navidrome
-          port: 4533
+        - name: noop@internal
+          kind: TraefikService
       middlewares:
         - name: navidrome-kube-redirect
   tls: {}

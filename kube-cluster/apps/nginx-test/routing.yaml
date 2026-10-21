@@ -1,0 +1,18 @@
+---
+# Test route for the anubis middleware (apps/anubis). *.example.com wildcard certificate.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: nginx-test
+  namespace: nginx-test
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`nginx-test.example.com`)
+      services:
+        - name: nginx-test
+          port: 80
+      middlewares:
+        - name: anubis
+  tls: {}

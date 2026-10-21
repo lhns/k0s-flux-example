@@ -35,7 +35,20 @@ spec:
     # nodeplugin is hostNetwork (real host port); the provisioner is pod-network
     # but kept on the same port for consistency.
     nodeplugin:
+      registrar:
+        resources:
+          requests:
+            memory: 128Mi
+          limits:
+            memory: 128Mi
       plugin:
+        # Memory limits (ADR 0028). The chart reuses these for liveness-prometheus and, in the
+        # provisioner, the plugin and plugin-controller containers too.
+        resources:
+          requests:
+            memory: 192Mi
+          limits:
+            memory: 384Mi
         # Also the provisioner's image. x86-64-v2 build of upstream: see ../ceph-csi-cephfs/README.md.
         image:
           repository: ghcr.io/lhns/ceph-csi-x86-64-v2
@@ -45,6 +58,30 @@ spec:
         service:
           servicePort: 8091
     provisioner:
+      provisioner:
+        resources:
+          requests:
+            memory: 128Mi
+          limits:
+            memory: 192Mi
+      attacher:
+        resources:
+          requests:
+            memory: 128Mi
+          limits:
+            memory: 128Mi
+      resizer:
+        resources:
+          requests:
+            memory: 128Mi
+          limits:
+            memory: 192Mi
+      snapshotter:
+        resources:
+          requests:
+            memory: 128Mi
+          limits:
+            memory: 128Mi
       httpMetrics:
         containerPort: 8091
         service:
@@ -53,18 +90,16 @@ spec:
     # the `kube` rados namespace of pool rbd.kube (radosNamespace is per-cluster
     # config here, so the StorageClass only needs `pool`).
     # clusterID identifies the Ceph *cluster* (monitor set), not a filesystem.
-    # (A `fastappdata` alias existed transiently during volume migration; all
-    # volumes now use `ceph-cluster`, so the alias is gone.)
     csiConfig:
       - clusterID: ceph-cluster
         monitors:
-          - 10.20.2.101:6789
-          - 10.20.2.102:6789
-          - 10.20.2.103:6789
+          - 10.20.176.250:6789
+          - 10.20.176.251:6789
+          - 10.20.176.252:6789
         rbd:
           radosNamespace: kube
     # We provide our own StorageClass; the secret is SHARED with the cephfs
-    # driver (csi-cephfs-secret in the ceph-csi namespace) via the StorageClass's
+    # driver (csi-cephfs-secret in the ceph-csi-cephfs namespace) via the StorageClass's
     # namespace-qualified secret refs, so none is created here.
     secret:
       create: false

@@ -1,8 +1,12 @@
-# The repo root is the generator chart. It packages each cluster's apps, infra and rbac
+# The repo root is the generator chart. It packages each cluster's component groups
 # (what .Files.Glob discovers) and k0sctl.yaml (templates/k0s-upgrade.yaml reads the k0s
 # version from it). Exclude everything else, including the bootstrap manifests under
 # <cluster>/flux-system.
 .git/
+# Local state outside git, which every local or CI render would otherwise read; .claude/
+# holds whole worktrees.
+.cache/
+.claude/
 */flux-system/gotk-*.yaml
 README.md
 */k0s-files/

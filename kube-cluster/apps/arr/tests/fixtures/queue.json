@@ -1,0 +1,864 @@
+{
+ "page": 1,
+ "pageSize": 500,
+ "totalRecords": 20,
+ "records": [
+  {
+   "id": 1,
+   "downloadId": "1111AAAA00000000000000000000000000000000",
+   "title": "Other.Name.S01E02.GERMAN.1080p.WEB-Group-A",
+   "status": "completed",
+   "trackedDownloadStatus": "warning",
+   "trackedDownloadState": "importBlocked",
+   "statusMessages": [
+    {
+     "title": "Other.Name.S01E02.GERMAN.1080p.WEB-Group-A",
+     "messages": [
+      "Found matching series via grab history, but release was matched to series by ID. Automatic import is not possible. See the FAQ for details."
+     ]
+    }
+   ],
+   "seriesId": 10,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "episode": {
+    "id": 101,
+    "seasonNumber": 1,
+    "episodeNumber": 2
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "indexer": "Indexer-A",
+   "downloadClient": "Client-A",
+   "episodeId": 101
+  },
+  {
+   "id": 2,
+   "downloadId": "2222BBBB00000000000000000000000000000000",
+   "title": "Example.Show.S02.GERMAN.1080p.WEB-Group-A",
+   "status": "completed",
+   "trackedDownloadStatus": "warning",
+   "trackedDownloadState": "importBlocked",
+   "statusMessages": [
+    {
+     "title": "Example.Show.S02.GERMAN.1080p.WEB-Group-A",
+     "messages": [
+      "Invalid season or episode"
+     ]
+    }
+   ],
+   "seriesId": 10,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "episode": {
+    "id": 201,
+    "seasonNumber": 2,
+    "episodeNumber": 1
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "indexer": "Indexer-A",
+   "downloadClient": "Client-A",
+   "episodeId": 201
+  },
+  {
+   "id": 3,
+   "downloadId": "2222BBBB00000000000000000000000000000000",
+   "title": "Example.Show.S02.GERMAN.1080p.WEB-Group-A",
+   "status": "completed",
+   "trackedDownloadStatus": "warning",
+   "trackedDownloadState": "importBlocked",
+   "statusMessages": [
+    {
+     "title": "Example.Show.S02.GERMAN.1080p.WEB-Group-A",
+     "messages": [
+      "Invalid season or episode"
+     ]
+    }
+   ],
+   "seriesId": 10,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "episode": {
+    "id": 202,
+    "seasonNumber": 2,
+    "episodeNumber": 2
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "indexer": "Indexer-A",
+   "downloadClient": "Client-A",
+   "episodeId": 202
+  },
+  {
+   "id": 4,
+   "downloadId": "2222BBBB00000000000000000000000000000000",
+   "title": "Example.Show.S02.GERMAN.1080p.WEB-Group-A",
+   "status": "completed",
+   "trackedDownloadStatus": "warning",
+   "trackedDownloadState": "importBlocked",
+   "statusMessages": [
+    {
+     "title": "Example.Show.S02.GERMAN.1080p.WEB-Group-A",
+     "messages": [
+      "Invalid season or episode"
+     ]
+    }
+   ],
+   "seriesId": 10,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "episode": {
+    "id": 203,
+    "seasonNumber": 2,
+    "episodeNumber": 3
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "indexer": "Indexer-A",
+   "downloadClient": "Client-A",
+   "episodeId": 203
+  },
+  {
+   "id": 5,
+   "downloadId": "3333CCCC00000000000000000000000000000000",
+   "title": "[Group-B] Anime Example S2 (BD 1080p)",
+   "status": "completed",
+   "trackedDownloadStatus": "warning",
+   "trackedDownloadState": "importBlocked",
+   "statusMessages": [
+    {
+     "title": "[Group-B] Anime Example S2 (BD 1080p)",
+     "messages": [
+      "Episode 2x6 was unexpected considering the [Group-B] Anime Example S2 (BD 1080p) folder name"
+     ]
+    }
+   ],
+   "seriesId": 20,
+   "series": {
+    "id": 20,
+    "title": "Anime Example",
+    "seriesType": "anime",
+    "useSceneNumbering": false
+   },
+   "episode": {
+    "id": 301,
+    "seasonNumber": 2,
+    "episodeNumber": 5,
+    "absoluteEpisodeNumber": 17
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "indexer": "Indexer-A",
+   "downloadClient": "Client-A",
+   "episodeId": 301
+  },
+  {
+   "id": 6,
+   "downloadId": "3333CCCC00000000000000000000000000000000",
+   "title": "[Group-B] Anime Example S2 (BD 1080p)",
+   "status": "completed",
+   "trackedDownloadStatus": "warning",
+   "trackedDownloadState": "importBlocked",
+   "statusMessages": [
+    {
+     "title": "[Group-B] Anime Example S2 (BD 1080p)",
+     "messages": [
+      "Episode 2x6 was unexpected considering the [Group-B] Anime Example S2 (BD 1080p) folder name"
+     ]
+    }
+   ],
+   "seriesId": 20,
+   "series": {
+    "id": 20,
+    "title": "Anime Example",
+    "seriesType": "anime",
+    "useSceneNumbering": false
+   },
+   "episode": {
+    "id": 302,
+    "seasonNumber": 2,
+    "episodeNumber": 6,
+    "absoluteEpisodeNumber": 18
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "indexer": "Indexer-A",
+   "downloadClient": "Client-A",
+   "episodeId": 302
+  },
+  {
+   "id": 7,
+   "downloadId": "4444DDDD00000000000000000000000000000000",
+   "title": "Example.Show.S03E01.FRENCH.1080p.WEB-Group-A",
+   "status": "completed",
+   "trackedDownloadStatus": "warning",
+   "trackedDownloadState": "importBlocked",
+   "statusMessages": [],
+   "seriesId": 10,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "episode": {
+    "id": 401,
+    "seasonNumber": 3,
+    "episodeNumber": 1
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "French"
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "indexer": "Indexer-A",
+   "downloadClient": "Client-A",
+   "episodeId": 401
+  },
+  {
+   "id": 8,
+   "downloadId": "5555EEEE00000000000000000000000000000000",
+   "title": "Example.Show.S01E05.GERMAN.720p.WEB-Group-A",
+   "status": "completed",
+   "trackedDownloadStatus": "warning",
+   "trackedDownloadState": "importBlocked",
+   "statusMessages": [],
+   "seriesId": 10,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "episode": {
+    "id": 105,
+    "seasonNumber": 1,
+    "episodeNumber": 5
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 2,
+     "name": "WEBDL-720p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "indexer": "Indexer-A",
+   "downloadClient": "Client-A",
+   "episodeId": 105
+  },
+  {
+   "id": 9,
+   "downloadId": "6666FFFF00000000000000000000000000000000",
+   "title": "Example.Show.S04E01.GERMAN.1080p.WEB-Group-A",
+   "status": "completed",
+   "trackedDownloadStatus": "warning",
+   "trackedDownloadState": "importBlocked",
+   "statusMessages": [],
+   "seriesId": 10,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "episode": {
+    "id": 501,
+    "seasonNumber": 4,
+    "episodeNumber": 1
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "indexer": "Indexer-A",
+   "downloadClient": "Client-A",
+   "episodeId": 501
+  },
+  {
+   "id": 10,
+   "downloadId": "7777AAAA00000000000000000000000000000000",
+   "title": "Example.Show.S04E01.GERMAN.720p.HDTV-Group-C",
+   "status": "completed",
+   "trackedDownloadStatus": "warning",
+   "trackedDownloadState": "importBlocked",
+   "statusMessages": [],
+   "seriesId": 10,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "episode": {
+    "id": 501,
+    "seasonNumber": 4,
+    "episodeNumber": 1
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 2,
+     "name": "WEBDL-720p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "indexer": "Indexer-A",
+   "downloadClient": "Client-A",
+   "episodeId": 501
+  },
+  {
+   "id": 11,
+   "downloadId": "8888BBBB00000000000000000000000000000000",
+   "title": "Example.Show.S05E01.GERMAN.1080p-Group-A",
+   "status": "completed",
+   "trackedDownloadStatus": "warning",
+   "trackedDownloadState": "importBlocked",
+   "statusMessages": [
+    {
+     "title": "Example.Show.S05E01.GERMAN.1080p-Group-A",
+     "messages": [
+      "Caution: Found potentially dangerous file with extension: .exe"
+     ]
+    }
+   ],
+   "seriesId": 10,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "episode": {
+    "id": 601,
+    "seasonNumber": 5,
+    "episodeNumber": 1
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "indexer": "Indexer-A",
+   "downloadClient": "Client-A",
+   "episodeId": 601
+  },
+  {
+   "id": 12,
+   "downloadId": "9999CCCC00000000000000000000000000000000",
+   "title": "Unknown.Thing.S01E01.1080p-Group-A",
+   "status": "completed",
+   "trackedDownloadStatus": "warning",
+   "trackedDownloadState": "importBlocked",
+   "statusMessages": [
+    {
+     "title": "Unknown.Thing.S01E01.1080p-Group-A",
+     "messages": [
+      "Series title mismatch"
+     ]
+    }
+   ],
+   "seriesId": null,
+   "series": null,
+   "episode": null,
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "indexer": "Indexer-A",
+   "downloadClient": "Client-A",
+   "episodeId": 0
+  },
+  {
+   "id": 13,
+   "downloadId": "AAAA101000000000000000000000000000000000",
+   "title": "Example.Show.S06E01.GERMAN.1080p-Group-A",
+   "status": "completed",
+   "trackedDownloadStatus": "warning",
+   "trackedDownloadState": "importBlocked",
+   "statusMessages": [
+    {
+     "title": "Example.Show.S06E01.GERMAN.1080p-Group-A",
+     "messages": [
+      "Found archive file, might need to be extracted"
+     ]
+    }
+   ],
+   "seriesId": 10,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "episode": {
+    "id": 701,
+    "seasonNumber": 6,
+    "episodeNumber": 1
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "indexer": "Indexer-A",
+   "downloadClient": "Client-A",
+   "episodeId": 701
+  },
+  {
+   "id": 14,
+   "downloadId": "BBBB111100000000000000000000000000000000",
+   "title": "Example.Show.S07.complete-Group-A",
+   "status": "completed",
+   "trackedDownloadStatus": "warning",
+   "trackedDownloadState": "importBlocked",
+   "statusMessages": [
+    {
+     "title": "Example.Show.S07.complete-Group-A",
+     "messages": [
+      "Unable to parse file name"
+     ]
+    }
+   ],
+   "seriesId": 10,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "episode": {
+    "id": 801,
+    "seasonNumber": 7,
+    "episodeNumber": 1
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "indexer": "Indexer-A",
+   "downloadClient": "Client-A",
+   "episodeId": 801
+  },
+  {
+   "id": 15,
+   "downloadId": "CCCC121200000000000000000000000000000000",
+   "title": "Example.Show.S01E01.GERMAN.1080p-Group-A",
+   "status": "completed",
+   "trackedDownloadStatus": "warning",
+   "trackedDownloadState": "importBlocked",
+   "statusMessages": [],
+   "seriesId": 10,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "episode": {
+    "id": 100,
+    "seasonNumber": 1,
+    "episodeNumber": 1
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "indexer": "Indexer-A",
+   "downloadClient": "Client-A",
+   "episodeId": 100
+  },
+  {
+   "id": 16,
+   "downloadId": "DDDD131300000000000000000000000000000000",
+   "title": "Example.Show.S08.GERMAN.1080p-Group-A",
+   "status": "completed",
+   "trackedDownloadStatus": "warning",
+   "trackedDownloadState": "importBlocked",
+   "statusMessages": [],
+   "seriesId": 10,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "episode": {
+    "id": 901,
+    "seasonNumber": 8,
+    "episodeNumber": 1
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "indexer": "Indexer-A",
+   "downloadClient": "Client-A",
+   "episodeId": 901
+  },
+  {
+   "id": 17,
+   "downloadId": "EEEE141400000000000000000000000000000000",
+   "title": "Example.Show.S09E01.GERMAN.1080p-Group-A",
+   "status": "completed",
+   "trackedDownloadStatus": "warning",
+   "trackedDownloadState": "importBlocked",
+   "statusMessages": [],
+   "seriesId": 10,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "episode": {
+    "id": 1001,
+    "seasonNumber": 9,
+    "episodeNumber": 1
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "indexer": "Indexer-A",
+   "downloadClient": "Client-A",
+   "episodeId": 1001
+  },
+  {
+   "id": 18,
+   "downloadId": "FFFF151500000000000000000000000000000000",
+   "title": "[Group-B] Anime Example S14E922 [1080p]",
+   "status": "completed",
+   "trackedDownloadStatus": "warning",
+   "trackedDownloadState": "importBlocked",
+   "statusMessages": [
+    {
+     "title": "[Group-B] Anime Example S14E922 [1080p]",
+     "messages": [
+      "Invalid season or episode"
+     ]
+    }
+   ],
+   "seriesId": 20,
+   "series": {
+    "id": 20,
+    "title": "Anime Example",
+    "seriesType": "anime",
+    "useSceneNumbering": false
+   },
+   "episode": {
+    "id": 311,
+    "seasonNumber": 14,
+    "episodeNumber": 1
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "indexer": "Indexer-A",
+   "downloadClient": "Client-A",
+   "episodeId": 311
+  },
+  {
+   "id": 19,
+   "downloadId": "0000AAAA11111111111111111111111111111111",
+   "title": "Example.Show.S10E01-Group-A",
+   "status": "completed",
+   "trackedDownloadStatus": "warning",
+   "trackedDownloadState": "importBlocked",
+   "statusMessages": [
+    {
+     "title": "Example.Show.S10E01-Group-A",
+     "messages": [
+      "Something unexpected happened"
+     ]
+    }
+   ],
+   "seriesId": 10,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "episode": {
+    "id": 1101,
+    "seasonNumber": 10,
+    "episodeNumber": 1
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "indexer": "Indexer-A",
+   "downloadClient": "Client-A",
+   "episodeId": 1101
+  },
+  {
+   "id": 20,
+   "downloadId": "1717BBBB00000000000000000000000000000000",
+   "title": "Example.Show.S11E01-Group-A",
+   "status": "completed",
+   "trackedDownloadStatus": "warning",
+   "trackedDownloadState": "downloading",
+   "statusMessages": [],
+   "seriesId": 10,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "episode": {
+    "id": 1201,
+    "seasonNumber": 11,
+    "episodeNumber": 1
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "indexer": "Indexer-A",
+   "downloadClient": "Client-A",
+   "episodeId": 1201
+  }
+ ]
+}

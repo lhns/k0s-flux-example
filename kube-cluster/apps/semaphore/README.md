@@ -1,6 +1,6 @@
 # semaphore
 
-Ansible / automation web UI (`semaphoreui/semaphore`) — migrated from Docker Swarm (`10.20.2.10`).
+Ansible / automation web UI (`semaphoreui/semaphore`).
 
 ## Shape
 Single self-contained service: an **embedded BoltDB** (`SEMAPHORE_DB_DIALECT: bolt`, no external
@@ -19,22 +19,6 @@ Single-writer → `Recreate`, `replicas: 1`.
 > **config.json is not optional.** It holds `access_key_encryption`, the key that decrypts the SSH
 > keys/secrets stored in the BoltDB keystore. It is copied verbatim — regenerating it makes every stored
 > key undecryptable.
-
-## Cutover (done)
-How the state got here:
-
-1. Confirm applied (ns + `semaphore-data` PVC bound).
-2. **Stop the Swarm semaphore stack** (frees the BoltDB for a consistent copy).
-3. Copy `config/` + `data/` (~17M) from `10.20.2.10:/mnt/fastappdata/docker/semaphore` into the PVC — a
-   temp pod mounting `semaphore-data`, tar-pipe over ssh, landing at `<vol>/config` and `<vol>/data`;
-   `chown -R 0:0`.
-4. Scale up:
-   ```
-   kubectl -n semaphore scale deploy/semaphore --replicas=1
-   ```
-   (or set `replicas: 1` in `resources.yaml`). Semaphore opens the copied BoltDB, decrypts the keystore
-   with the copied `config.json`, reconciles the admin.
-5. **DNS**: point `semaphore.example.com` (+ `.kube`) at the Traefik VIP `10.20.2.15`.
 
 ## Verify
 - `kubectl -n semaphore get pods` → `1/1`; no keystore-decrypt errors in the log.

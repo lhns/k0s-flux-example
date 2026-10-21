@@ -1,0 +1,49 @@
+# Grafana Operator objects of this component (README.md, "Grafana objects"). Each opts out of Flux
+# substitution: rule templates and dashboard JSON are full of ${...}.
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaAlertRuleGroup
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: infra-flux-alerts
+  namespace: grafana
+spec:
+  name: infra-flux-alerts
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: ag1airdsjen7kc # Cluster
+  interval: 1m
+  rules:
+    - uid: flux-never-reconciling
+      title: Flux object has not reconciled in a day
+      condition: C
+      for: 1h
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 90000, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            # Flux exports no suspend metric, so suspended components are excluded by name: add a
+            # component's Kustomizations here when it gets `suspend: "true"`.
+            expr: >-
+              sum by (kind, exported_namespace, name) (increase(gotk_reconcile_duration_seconds_count{name!~"app-gitea(-runner)?(-namespaces)?"}[25h])) == 0
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: lt, params: [1]}
+      labels:
+        severity: info
+      annotations:
+        summary: '{{ $labels.kind }} {{ $labels.exported_namespace }}/{{ $labels.name }} has not reconciled in 25h'
+        description: 'Normally every object reconciles at least hourly. Deliberately suspended components are excluded by name in the query.'
+      notificationSettings:
+        receiver: matrix

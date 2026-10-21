@@ -13,6 +13,8 @@ spec:
       services:
         - name: zensical
           port: 8000
+      middlewares:
+        - name: anubis
   tls: {}
 ---
 # zensical.example.com, the apex example.com, and blog.kube.example.com all redirect to the
@@ -40,8 +42,8 @@ spec:
     - kind: Rule
       match: Host(`zensical.example.com`) || Host(`example.com`) || Host(`blog.kube.example.com`)
       services:
-        - name: zensical
-          port: 8000
+        - name: noop@internal
+          kind: TraefikService
       middlewares:
         - name: zensical-redirect
   tls: {}

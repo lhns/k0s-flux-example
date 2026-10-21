@@ -5,9 +5,9 @@
 #    /docker/matrix/synapse until the media sweep shrank media_store enough to
 #    copy; that directory still holds the pre-migration copy and is not
 #    referenced by anything here.
-#  - mas /config, whatsapp /data: small -> COPIED into fresh CephFS PVCs by the
-#    migration pod (their DB URIs are sed-edited in the copy; Swarm originals
-#    untouched).
+#  - whatsapp /data: small -> COPIED into a fresh CephFS PVC by the migration pod
+#    (its DB URI is sed-edited in the copy; Swarm original untouched). mas's
+#    config was copied the same way and now lives in git.
 #  - baibot: its matrix-sdk SQLite session/crypto store -> COPIED into a fresh
 #    ceph-rbd PVC (block storage for SQLite; preserves the bot's device session).
 # ===========================================================================
@@ -43,7 +43,7 @@ spec:
 # The sweep is what keeps this bounded, so a sweep that silently stops eventually
 # fills this.
 #
-# Same `cephfs` class, i.e. the same fsName (fastappdata) it already lives on, so
+# Same `cephfs` class, i.e. the same fsName (fastdata) it already lives on, so
 # performance is unchanged and the copy is intra-filesystem. RWX as before.
 # homeserver.yaml needs no edit: media_store_path is /data/media_store and the
 # mount point does not move.
@@ -59,8 +59,8 @@ spec:
     requests:
       storage: 32Gi
 ---
-# Fresh CephFS PVC — the migration pod copies the Swarm mas/ config in and
-# sed-edits its database.uri. mas reads config only; no writes.
+# mas's config before it moved to git (mas-config.yaml + secret-mas.yaml). No longer
+# mounted; kept as the rollback, so do not delete it.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -103,7 +103,7 @@ spec:
 ---
 # ===========================================================================
 # Synapse — the homeserver. The image's /start.py is bypassed so we can pass a
-# second --config-path (the DB override) that deep-merges over the in-place
+# extra --config-path overlays that deep-merge over the in-place
 # homeserver.yaml. Runs as uid 991 (owns /data on CephFS). Single-writer ->
 # Recreate.
 # ===========================================================================
@@ -144,6 +144,11 @@ spec:
         # See README, "Stream sequences".
         - name: sequence-guard
           image: postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+          resources:
+            requests:
+              memory: 32Mi
+            limits:
+              memory: 128Mi
           command: ["sh", "/guard/guard.sh"]
           env:
             - name: PGHOST
@@ -162,7 +167,7 @@ spec:
               readOnly: true
       containers:
         - name: synapse
-          image: matrixdotorg/synapse:v1.162.0
+          image: matrixdotorg/synapse:v1.163.0
           command: ["python", "-m", "synapse.app.homeserver"]
           args:
             - "--config-path"
@@ -202,6 +207,7 @@ spec:
             - name: http
               containerPort: 8008
           readinessProbe:
+            timeoutSeconds: 5
             httpGet:
               path: /health
               port: http
@@ -246,6 +252,9 @@ spec:
             - name: turn-secret
               mountPath: /turn
               readOnly: true
+          resources:
+            requests: {memory: 768Mi}
+            limits: {memory: 1536Mi}
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -325,15 +334,18 @@ spec:
     spec:
       containers:
         - name: redis
-          image: valkey/valkey:9
+          image: valkey/valkey:9.1.1@sha256:64e361b630ecf18dff7ca4df6a88e6eafc193687eb48cff2c7e0a293ab67d29a
           ports:
             - name: redis
               containerPort: 6379
           readinessProbe:
+            timeoutSeconds: 5
             tcpSocket:
               port: redis
             initialDelaySeconds: 5
             periodSeconds: 10
+          resources:
+            limits: {memory: 128Mi}
 ---
 apiVersion: v1
 kind: Service
@@ -349,14 +361,16 @@ spec:
       targetPort: redis
 ---
 # ===========================================================================
-# MAS (matrix-authentication-service). Config copied into mas-config (CephFS)
-# with its DB URI repointed to the shared CNPG. Auto-runs migrations on start.
+# MAS (matrix-authentication-service). Config in git: see README, "MAS config".
+# Auto-runs migrations on start.
 # ===========================================================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: mas
   namespace: matrix
+  annotations:
+    reloader.stakater.com/auto: "true"
 spec:
   replicas: 1
   strategy:
@@ -377,15 +391,18 @@ spec:
       enableServiceLinks: false
       containers:
         - name: mas
-          image: ghcr.io/element-hq/matrix-authentication-service:1.26.0
-          args: ["-c", "/config/config.yaml"]
+          image: ghcr.io/element-hq/matrix-authentication-service:1.27.0
           env:
             - name: TZ
               value: Europe/Berlin
+            # In place of -c, so `kubectl exec deploy/mas -- mas-cli ...` loads both too.
+            - name: MAS_CONFIG
+              value: /config/config.yaml:/secrets/secrets.yaml
           ports:
             - name: http
               containerPort: 8080
           readinessProbe:
+            timeoutSeconds: 5
             tcpSocket:
               port: http
             initialDelaySeconds: 10
@@ -394,10 +411,25 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /config
+              readOnly: true
+            - name: secrets
+              mountPath: /secrets
+              readOnly: true
+            - name: admin-client
+              mountPath: /admin-client
+              readOnly: true
+          resources:
+            limits: {memory: 256Mi}
       volumes:
         - name: config
-          persistentVolumeClaim:
-            claimName: mas-config
+          configMap:
+            name: mas-config
+        - name: secrets
+          secret:
+            secretName: mas
+        - name: admin-client
+          secret:
+            secretName: mas-admin-client
 ---
 apiVersion: v1
 kind: Service
@@ -438,7 +470,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: lk-jwt
-          image: ghcr.io/element-hq/lk-jwt-service:0.8.0
+          image: ghcr.io/element-hq/lk-jwt-service:0.9.0
           env:
             - name: LIVEKIT_URL
               value: https://matrix-rtc.example.com/livekit/sfu
@@ -458,10 +490,13 @@ spec:
             - name: http
               containerPort: 8080
           readinessProbe:
+            timeoutSeconds: 5
             tcpSocket:
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
+          resources:
+            limits: {memory: 128Mi}
 ---
 apiVersion: v1
 kind: Service
@@ -479,7 +514,7 @@ spec:
 # ===========================================================================
 # livekit-redis - shared state between the LiveKit SFU and livekit-sip, which
 # coordinate through it. Ephemeral like synapse-redis: the only thing here that
-# is not rebuilt from the SFU itself is the SIP trunk object, and ec-phone-shim
+# is not rebuilt from the SFU itself is the SIP trunk object, and matrix-sip-bridge
 # reconciles that on every loop rather than it being hand-created state.
 # ===========================================================================
 apiVersion: apps/v1
@@ -506,15 +541,18 @@ spec:
     spec:
       containers:
         - name: redis
-          image: valkey/valkey:9
+          image: valkey/valkey:9.1.1@sha256:64e361b630ecf18dff7ca4df6a88e6eafc193687eb48cff2c7e0a293ab67d29a
           ports:
             - name: redis
               containerPort: 6379
           readinessProbe:
+            timeoutSeconds: 5
             tcpSocket:
               port: redis
             initialDelaySeconds: 5
             periodSeconds: 10
+          resources:
+            limits: {memory: 128Mi}
 ---
 apiVersion: v1
 kind: Service
@@ -566,7 +604,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: livekit-sip
-          image: livekit/sip:v1.18.0
+          image: livekit/sip:v1.20.0
           env:
             # No SIP_CONFIG_FILE: the image's ENTRYPOINT is
             # ["livekit-sip", "--config=/sip/config.yaml"], and the flag always wins, so
@@ -590,6 +628,7 @@ spec:
             - name: health
               containerPort: 8081
           readinessProbe:
+            timeoutSeconds: 5
             httpGet:
               path: /
               port: health
@@ -600,6 +639,8 @@ spec:
               mountPath: /sip/config.yaml
               subPath: livekit-sip.yaml
               readOnly: true
+          resources:
+            limits: {memory: 128Mi}
       volumes:
         - name: config
           configMap:
@@ -607,7 +648,7 @@ spec:
 ---
 # ===========================================================================
 # LiveKit SFU — Element Call media. Signaling (:7880) via Traefik; ICE/media on
-# a dedicated MetalLB VIP (10.20.2.19): TCP 7881 + UDP 50100-50120.
+# a dedicated MetalLB VIP (10.20.176.222): TCP 7881 + UDP 50100-50120.
 # ===========================================================================
 apiVersion: apps/v1
 kind: Deployment
@@ -635,17 +676,17 @@ spec:
       enableServiceLinks: false
       containers:
         - name: livekit
-          image: livekit/livekit-server:v1.13.9
+          image: livekit/livekit-server:v1.13.10
           # livekit-sip coordinates with the server through a shared Redis. The flag
           # overrides redis.address in livekit.yaml -- updateFromCLI runs after the config
-          # file is parsed -- so the SOPS-encrypted config is never decrypted to add it.
+          # file is parsed -- so the config file needs no edit to add it.
           # The server does NOT start while this address is unreachable.
           args:
             - "--config"
             - "/etc/livekit.yaml"
             - "--redis-host"
             - "livekit-redis.matrix.svc.cluster.local:6379"
-            # use_external_ip in the SOPS config rewrites every ICE host candidate to the
+            # node_ip in livekit.yaml forces every ICE host candidate to the
             # public address, and the edge does not hairpin, so in-cluster peers (livekit-sip)
             # can never reach it. Appends the pod IP as a second candidate; browsers ignore it.
             - "--rtc.advertise_internal_ip=true"
@@ -655,6 +696,7 @@ spec:
             - name: rtc-tcp
               containerPort: 7881
           readinessProbe:
+            timeoutSeconds: 5
             tcpSocket:
               port: signal
             initialDelaySeconds: 5
@@ -664,6 +706,8 @@ spec:
               mountPath: /etc/livekit.yaml
               subPath: livekit.yaml
               readOnly: true
+          resources:
+            limits: {memory: 384Mi}
       volumes:
         - name: config
           secret:
@@ -690,7 +734,7 @@ metadata:
   name: livekit-lb
   namespace: matrix
   annotations:
-    metallb.io/loadBalancerIPs: 10.20.2.19
+    metallb.io/loadBalancerIPs: 10.20.176.222
 spec:
   type: LoadBalancer
   externalTrafficPolicy: Local
@@ -743,11 +787,12 @@ spec:
       enableServiceLinks: false
       containers:
         - name: nginx
-          image: nginx:1.31-alpine
+          image: nginx:1.31.7-alpine@sha256:892bb2152464f0c5d8972593a5f5afaf8054552580b699d95f8ff4af08c2d33d
           ports:
             - name: http
               containerPort: 80
           readinessProbe:
+            timeoutSeconds: 5
             httpGet:
               path: /
               port: http
@@ -762,6 +807,8 @@ spec:
               mountPath: /www/index.json
               subPath: index.json
               readOnly: true
+          resources:
+            limits: {memory: 128Mi}
       volumes:
         - name: conf
           configMap:
@@ -794,8 +841,7 @@ spec:
 #     so this IS the retry path -- with store_synchronous: false it is required)
 #   - nothing, for files already uploaded; those are just candidates for --delete
 #
-# SUSPENDED on creation. The first run reads ~200k files and pushes tens of GB
-# out over the internet, so it is enabled deliberately, not by merging a commit.
+# Runs with --delete (SWEEP_DELETE): local copies are removed once verified in S3.
 #
 # Shares /data with the synapse Deployment, which is why synapse-data is RWX: this
 # reads media_store while synapse serves from it.
@@ -946,9 +992,7 @@ metadata:
   name: whatsapp-bridge
   namespace: matrix
 spec:
-  # Set replicas here, never with `kubectl scale` -- Flux reconciles the
-  # Deployment and puts the git value straight back, which it already did once
-  # during the Aug 2026 telegram revival.
+  # Set replicas here, never with `kubectl scale` -- Flux puts the git value straight back.
   replicas: 1
   strategy:
     type: Recreate
@@ -997,12 +1041,15 @@ spec:
           # const in appservice/ping.go, which is why a bridge restart still costs a crash
           # cycle or two before it settles.
           readinessProbe:
+            timeoutSeconds: 5
             tcpSocket:
               port: appservice
             periodSeconds: 2
           volumeMounts:
             - name: data
               mountPath: /data
+          resources:
+            limits: {memory: 256Mi}
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -1067,11 +1114,8 @@ metadata:
   name: telegram-bridge
   namespace: matrix
 spec:
-  # Was 0 while the PVC was loaded and the config hardened -- a bridge started
-  # against an empty /data would build a fresh database and create new portals,
-  # the one outcome this exercise exists to avoid. Now 1: the legacy database
-  # migrated cleanly, all 38 portals kept their original Matrix room IDs, and the
-  # ghost count held at exactly 407.
+  # Never start this bridge against an empty /data: it would build a fresh database
+  # and create new portals instead of keeping the existing Matrix room IDs.
   replicas: 1
   strategy:
     type: Recreate
@@ -1096,11 +1140,12 @@ spec:
       enableServiceLinks: false
       containers:
         - name: telegram
-          image: dock.mau.dev/mautrix/telegram:v0.2609.0@sha256:e6e7f109928cc9f447c8f081c816ff5f034cc1f157084a74d1bf08007c91807b
+          image: dock.mau.dev/mautrix/telegram:v0.2610.0@sha256:90f049ca3b25081985c413157a189ea7fb2d13ace7a0da2a093d846acd95570c
           ports:
             - name: appservice
               containerPort: 29317
           readinessProbe:
+            timeoutSeconds: 5
             tcpSocket:
               port: appservice
             periodSeconds: 2
@@ -1183,11 +1228,12 @@ spec:
       enableServiceLinks: false
       containers:
         - name: signal
-          image: dock.mau.dev/mautrix/signal:v0.2609.0@sha256:ff70897075fbccc7085322c6b341cb2a6fc29e26aea6231f6b498dd3fc925933
+          image: dock.mau.dev/mautrix/signal:v0.2610.0@sha256:bf8282036a7965876a2d9b7e21d1e3c92ccb4bf23c890435ce7e67a8800a7075
           ports:
             - name: appservice
               containerPort: 29328
           readinessProbe:
+            timeoutSeconds: 5
             tcpSocket:
               port: appservice
             periodSeconds: 2
@@ -1277,11 +1323,12 @@ spec:
       enableServiceLinks: false
       containers:
         - name: instagram
-          image: dock.mau.dev/mautrix/meta:ig-v0.2609.0@sha256:bdf4b2f7d50f59d1053639d1da31612be72e2fb6fba4c20b2285a0fdeebff2df
+          image: dock.mau.dev/mautrix/meta:ig-v0.2610.0@sha256:a65249320ab4fba15587b77b9aa7d4024e4ff3e68ade1077da6000a899abbf26
           ports:
             - name: appservice
               containerPort: 29330
           readinessProbe:
+            timeoutSeconds: 5
             tcpSocket:
               port: appservice
             periodSeconds: 2
@@ -1372,6 +1419,7 @@ spec:
             - name: appservice
               containerPort: 29334
           readinessProbe:
+            timeoutSeconds: 5
             tcpSocket:
               port: appservice
             periodSeconds: 2
@@ -1505,6 +1553,7 @@ spec:
           # The cost is real: the pod is Ready ~30s before SIP binds. Asterisk's qualify on
           # the [matrixbridge] peer is what covers that window.
           readinessProbe:
+            timeoutSeconds: 5
             tcpSocket:
               port: appservice
             periodSeconds: 2
@@ -1575,11 +1624,12 @@ spec:
       enableServiceLinks: false
       containers:
         - name: element-web
-          image: vectorim/element-web:v1.12.30
+          image: vectorim/element-web:v1.12.32
           ports:
             - name: http
               containerPort: 80
           readinessProbe:
+            timeoutSeconds: 5
             httpGet:
               path: /
               port: http
@@ -1590,6 +1640,8 @@ spec:
               mountPath: /app/config.json
               subPath: config.json
               readOnly: true
+          resources:
+            limits: {memory: 128Mi}
       volumes:
         - name: config
           configMap:
@@ -1634,7 +1686,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: baibot
-          image: ghcr.io/etkecc/baibot:v1.28.0
+          image: ghcr.io/etkecc/baibot:v1.29.0
           env:
             - name: TZ
               value: Europe/Berlin
@@ -1648,6 +1700,8 @@ spec:
             - name: baibot
               mountPath: /data
               subPath: data
+          resources:
+            limits: {memory: 128Mi}
       volumes:
         - name: baibot
           persistentVolumeClaim:
@@ -1681,6 +1735,7 @@ spec:
             - name: http
               containerPort: 8080
           readinessProbe:
+            timeoutSeconds: 5
             httpGet:
               path: /
               port: http
@@ -1691,6 +1746,8 @@ spec:
               mountPath: /app/config.json
               subPath: config.json
               readOnly: true
+          resources:
+            limits: {memory: 128Mi}
       volumes:
         - name: config
           configMap:

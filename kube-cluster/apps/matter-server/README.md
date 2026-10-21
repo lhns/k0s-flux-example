@@ -8,7 +8,8 @@ because Matter cannot work any other way in a pod.
 - **Image** — `ghcr.io/matter-js/matterjs-server`, the successor to
   python-matter-server (EOL at 8.1.2). See *Why matterjs-server* below.
 - **Two interfaces** — `eth0` on the pod network for the control channel, `net1` on the LAN
-  (macvlan, `10.20.3.8/16`) for device traffic.
+  (macvlan, `10.20.37.108/16`) for device traffic. The websocket is unauthenticated, so
+  `--listen-address $(POD_IP)` binds it to `eth0` only (ADR 0031).
 - **Storage** — `cephfs` RWX 1Gi at `/data`, `strategy: Recreate`.
 - **Home Assistant** connects to `ws://matter-server.matter-server.svc.cluster.local:5580`.
 - **kube-vnet** — `net.matter-server: ingress`; HA carries
@@ -57,7 +58,7 @@ device.
 
 ## Thread
 
-The border router is [**`../otbr`**](../otbr/README.md), a pod on macvlan `10.20.3.7`. The
+The border router is [**`../otbr`**](../otbr/README.md), a pod on macvlan `10.20.37.150`. The
 SLZB-MR5U's Thread SoC now runs as a bare **RCP**, with `otbr-agent` in the cluster driving it
 over serial-over-IP. It previously ran OTBR on-device; that was replaced because SMLIGHT label
 it beta and it underperformed.
@@ -66,8 +67,8 @@ That device has **two independent SoCs**, which is what makes this painless:
 
 | radio | endpoint | used by |
 |---|---|---|
-| Zigbee | `10.20.1.50:6638` | zigbee2mqtt |
-| Thread | RCP on `10.20.1.50:7638` | `../otbr`, which serves the REST API on `:8081` |
+| Zigbee | `10.20.62.170:6638` | zigbee2mqtt |
+| Thread | RCP on `10.20.62.170:7638` | `../otbr`, which serves the REST API on `:8081` |
 
 Both run at once on separate channels, so Thread does not disturb Zigbee. (Earlier revisions
 of this file claimed no radio existed and that the coordinator was single-client — true of a
@@ -108,8 +109,8 @@ to loopback rather than `:8080`.
 
 - **Back up `/data`.** It holds the fabric credentials identifying this controller to every
   commissioned device. Losing it means re-commissioning everything by hand. It lives under
-  `fastappdata`, which Backrest already mounts — but confirm a plan actually covers it.
-- **`10.20.3.8` must stay outside the DHCP pool.** A collision produces intermittent failures
+  `fastdata`, which Backrest already mounts — but confirm a plan actually covers it.
+- **`10.20.37.108` must stay outside the DHCP pool.** A collision produces intermittent failures
   that look like Matter being flaky.
 - **`master: ens18` is hardcoded in the NAD** and must exist on whichever node the pod lands.
   Verified: all three workers have exactly one NIC, `ens18`, carrying the default route —

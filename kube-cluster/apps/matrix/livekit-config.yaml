@@ -1,7 +1,7 @@
 # LiveKit SFU config (Element Call RTC backend). The key/secret are reused verbatim
 # from the Swarm compose so existing Element Call sessions and the lk-jwt token signer
 # stay consistent. Differs from the Swarm copy in one place: use_external_ip is true so
-# ICE advertises the reachable public address behind the MetalLB VIP (10.20.2.19).
+# ICE advertises the reachable public address behind the MetalLB VIP (10.20.176.222).
 #
 # `keys` is the only credential here; it and the two env keys in kustomization.yaml now
 # come from the SAME pair of variables, so the SFU and everything that signs a token for

@@ -32,7 +32,7 @@ spec:
           "mode": "bridge",
           "ipam": {
             "type": "static",
-            "addresses": [{"address": "10.20.3.8/16"}]
+            "addresses": [{"address": "10.20.37.108/16"}]
           }
         },
         {
@@ -48,7 +48,7 @@ spec:
 # Matter fabric credentials live here — the certificates that identify this controller to
 # every commissioned device. Losing this volume means re-commissioning every Matter device
 # by hand, so it matters far more than its size suggests. cephfs (files only, no database),
-# and it sits under fastappdata which Backrest already mounts.
+# and it sits under fastdata which Backrest already mounts.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -70,7 +70,7 @@ spec:
   replicas: 1
   # Recreate, and it is NOT implied by the volume (cephfs is RWX): two controllers sharing
   # one fabric identity would fight over the same Matter node IDs. It is also the only
-  # sensible option with a fixed macvlan IP — two pods cannot hold 10.20.3.8 at once.
+  # sensible option with a fixed macvlan IP — two pods cannot hold 10.20.37.108 at once.
   strategy:
     type: Recreate
   selector:
@@ -105,24 +105,38 @@ spec:
           # matterjs-server, the successor to python-matter-server (EOL at 8.1.2). Beta and
           # not yet CSA-recertified, adopted now because there is no commissioned fabric to
           # migrate — this is the cheapest possible moment to be on it.
-          image: ghcr.io/matter-js/matterjs-server:1.4.0
+          image: ghcr.io/matter-js/matterjs-server:1.5.2
           args:
             - --storage-path
             - /data
             - --port
             - "5580"
+            # The websocket is unauthenticated: bind it to eth0 only, never net1 (ADR 0031).
+            # Matter's own device traffic does not use this socket and stays on net1.
+            - --listen-address
+            - $(POD_IP)
           env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
             - name: TZ
               value: Europe/Berlin
           ports:
             - name: ws
               containerPort: 5580
           readinessProbe:
+            timeoutSeconds: 5
             tcpSocket:
               port: ws
             initialDelaySeconds: 10
             periodSeconds: 10
             failureThreshold: 12
+          resources:
+            requests:
+              memory: 256Mi
+            limits:
+              memory: 768Mi
           volumeMounts:
             - name: data
               mountPath: /data

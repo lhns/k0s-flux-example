@@ -3,7 +3,7 @@ kind: Kustomization
 metadata:
   annotations:
     # Static CephFS PV (the 249G home) needs infra-ceph-csi-cephfs; the syncthing-lb
-    # LoadBalancer's 10.20.2.18 needs the syncthing-vip MetalLB pool (infra-metallb);
+    # LoadBalancer's 10.20.176.138 needs the syncthing-vip MetalLB pool (infra-metallb);
     # the syncthing.example.net cert needs infra-cert-manager. Read by the root
     # generator; inert to kustomize.
     flux-component-generator/dependsOn: infra-ceph-csi-cephfs,infra-metallb,infra-cert-manager

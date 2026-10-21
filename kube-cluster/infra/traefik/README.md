@@ -1,9 +1,9 @@
 # traefik
 
 The cluster ingress controller — a DaemonSet exposed via a metallb LoadBalancer at
-**`10.20.2.15`** (ports 80/443), with the dashboard at `traefik.kube.example.com`.
+**`10.20.176.210`** (ports 80/443), with the dashboard at `traefik.kube.example.com`.
 
-- `release.yaml` — HelmRepository `traefik` + HelmRelease `traefik` `39.0.6`
+- `release.yaml` — HelmRepository `traefik` + HelmRelease `traefik`
   (DaemonSet, `LoadBalancer`, `externalTrafficPolicy: Local`).
 - `tls.yaml` — a `Certificate` for the wildcard `*.kube.example.com` (cert-manager
   `letsencrypt-ionos-prod`) + a default `TLSStore`, so every host gets TLS without
@@ -15,8 +15,8 @@ External traffic to the LB is auto-allowed by kube-vnet (`ext.svc`).
 
 ## Client IPs: why three swarm addresses are trusted
 
-`web` and `websecure` set `forwardedHeaders.trustedIPs` to `10.20.2.31/32`, `10.20.2.32/32` and
-`10.20.2.33/32` — the docker swarm nodes running the traefik that sits in front of this one. Every
+`web` and `websecure` set `forwardedHeaders.trustedIPs` to `10.20.176.125/32`, `10.20.176.185/32` and
+`10.20.176.190/32` — the docker swarm nodes running the traefik that sits in front of this one. Every
 external request arrives from one of them.
 
 Traefik v3's default is an empty trust list, and that does not mean "leave the inbound header
@@ -30,11 +30,29 @@ one in `apps/guacamole/README.md` for a while; it was not.
 it preserves the *TCP* source faithfully, but for a proxied request the TCP source really is the
 edge node.
 
-**`/32` each, not `10.20.2.0/24`.** Trusting an address means allowing it to assert any client IP
-it likes. LAN clients reach this VIP directly and come from `10.20.2.0/24` themselves; they must
+**`/32` each, not `10.20.176.0/24`.** Trusting an address means allowing it to assert any client IP
+it likes. LAN clients reach this VIP directly and come from `10.20.176.0/24` themselves; they must
 stay ordinary untrusted peers, or anyone on the LAN could claim to be anyone.
 
 Consumers still need to trust the extra hop themselves — see the `internalProxies` list in
 `apps/guacamole/resources.yaml` and the `KnownProxies` note in `apps/jellyfin/README.md`. Only the
 raw-TCP entrypoints (`mqtt`, `ldap`, `authelia`, `xmpp-*`) are unaffected, forwarded headers being
 an HTTP concept.
+
+## Alerts
+
+`grafana.yaml`: rule group `infra-traefik`, folder *Cluster*; every rule was backtested over 7 days before it was added.
+
+| Rule | Fires when | For | Severity |
+| --- | --- | --- | --- |
+| `traefik-cert-expiry-21d` / `-7d` | edge certificate expires within 21d / 7d | 1h | warning / critical |
+| `traefik-5xx` | over 10% 5xx for a service with over 0.2 requests/s (15m) | 15m | warning |
+| `traefik-metrics-stalled` | no edge Traefik request counter for 10m (also on NoData) | 5m | warning |
+
+Backtests over 7 days:
+
+| Rule | Result | Decision |
+| --- | --- | --- |
+| `traefik-cert-expiry-*` | nothing; the shortest is 27 days | as specified; a superseded `example.com` certificate with an `xmpp` SAN will trip the 21d rule first |
+| `traefik-5xx` | at 0.05 requests/s: `ceph-s3` 7 times | request floor raised to 0.2/s: only `kube-traefik-websecure`, 3 episodes on one day |
+| `traefik-metrics-stalled` | nothing | as specified |

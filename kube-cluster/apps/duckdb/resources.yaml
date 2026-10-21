@@ -11,15 +11,16 @@ spec:
     requests:
       storage: 10Gi
 ---
+# StatefulSet, not Deployment: single writer on a RWO volume, and a replacement starts only
+# once the old pod is confirmed gone (README, "Decisions").
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: duckdb
   namespace: duckdb
 spec:
   replicas: 1
-  strategy:
-    type: Recreate # single writer on a RWO volume
+  serviceName: duckdb
   selector:
     matchLabels:
       app.kubernetes.io/name: duckdb
@@ -56,6 +57,11 @@ spec:
           volumeMounts:
             - name: workspace
               mountPath: /workspace
+          resources:
+            requests:
+              memory: 128Mi
+            limits:
+              memory: 384Mi
         # The UI binds to [::1]:4213 (IPv6 localhost only), so forward a
         # pod-reachable port to it — same trick as the Swarm socat, but as a
         # sidecar sharing the pod's network namespace.
@@ -67,6 +73,12 @@ spec:
           ports:
             - name: http
               containerPort: 4214
+          resources:
+            requests:
+              memory: 64Mi
+            limits:
+              memory: 64Mi
+      # The existing PVC by name. A volumeClaimTemplate would provision a new, empty volume.
       volumes:
         - name: workspace
           persistentVolumeClaim:

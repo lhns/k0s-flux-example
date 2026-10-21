@@ -29,7 +29,7 @@ metadata:
   namespace: uptime-kuma
 spec:
   redirectRegex:
-    regex: "^https://uptimekuma.kube.example.com/(.*)"
+    regex: "^https?://[^/]+/(.*)"
     replacement: "https://uptimekuma.example.com/${1}"
     permanent: true
 ---
@@ -44,8 +44,8 @@ spec:
     - kind: Rule
       match: Host(`uptimekuma.kube.example.com`)
       services:
-        - name: uptime-kuma
-          port: 3001
+        - name: noop@internal
+          kind: TraefikService
       middlewares:
         - name: uptime-kuma-kube-redirect
   tls: {}

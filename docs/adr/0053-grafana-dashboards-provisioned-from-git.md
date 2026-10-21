@@ -1,9 +1,10 @@
 # 0053 — Grafana dashboards provisioned from git
 
-- Status: Accepted
-- Date: 2026-10-08
-- Current answer: dashboards kept in git are file-provisioned into the Grafana folder `CI` from
-  `apps/grafana/dashboards/` and are read-only in the UI; edit the JSON in git.
+- Status: Superseded by [0058](0058-grafana-operator-manages-grafana-and-its-content.md)
+- Date: 2026-10-08, amended 2026-10-20
+- Current answer: no longer used. Dashboards kept in git were file-provisioned from
+  `apps/grafana/dashboards/`, one provider and ConfigMap per Grafana folder (`CI`, `Cluster`,
+  `Postgres`), and were read-only in the UI; the JSON was edited in the repo.
 
 ## Context
 
@@ -22,6 +23,9 @@ need are enabled in the same change.
 - Dashboards already in the database stay there; moving them is not part of this decision.
 - Dashboards pick the datasource through a `datasource` variable of type
   `victoriametrics-metrics-datasource` instead of a hard-coded uid.
+- **One provider and ConfigMap per folder** (2026-10-20): `dashboards/<folder>/` feeds folder
+  `<Folder>` (`CI` from the top level, `Cluster`, `Postgres`). App metrics reach Grafana through the
+  OTel collector's annotation scrape, never a `PodMonitor`.
 
 ## Consequences
 
@@ -29,3 +33,7 @@ need are enabled in the same change.
 - ConfigMaps cap at 1 MiB, so a few hundred KiB of dashboards fit; past that, split the generator.
 - Metrics a dashboard needs are enabled in the same PR as the dashboard (see
   [`apps/arc-controller`](../../kube-cluster/apps/arc-controller/README.md)).
+
+## References
+
+- `24589638`; superseded by [0058](0058-grafana-operator-manages-grafana-and-its-content.md).

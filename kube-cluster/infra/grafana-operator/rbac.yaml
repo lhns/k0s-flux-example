@@ -1,0 +1,140 @@
+# The chart's Roles (rbac.create: false in release.yaml), with its 5.25.0 rules. Bump them with the chart:
+# `helm template` it with the values in release.yaml and compare. The `grafana` namespace's is in apps/grafana/rbac.yaml.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: grafana-operator-access
+  namespace: grafana-operator
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - configmaps
+  - persistentvolumeclaims
+  - secrets
+  - serviceaccounts
+  - services
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ''
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - gateway.networking.k8s.io
+  resources:
+  - httproutes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - grafana.integreatly.org
+  resources:
+  - '*'
+  verbs:
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - grafana.integreatly.org
+  resources:
+  - '*/finalizers'
+  verbs:
+  - patch
+  - update
+- apiGroups:
+  - grafana.integreatly.org
+  resources:
+  - '*/status'
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: grafana-operator-access
+  namespace: grafana-operator
+subjects:
+- kind: ServiceAccount
+  name: grafana-operator
+  namespace: grafana-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: grafana-operator-access
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: grafana-operator-leader-election
+  namespace: grafana-operator
+rules:
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: grafana-operator-leader-election
+  namespace: grafana-operator
+subjects:
+- kind: ServiceAccount
+  name: grafana-operator
+  namespace: grafana-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: grafana-operator-leader-election

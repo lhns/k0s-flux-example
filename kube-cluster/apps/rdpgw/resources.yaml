@@ -1,0 +1,148 @@
+---
+# OIDC state, lockout counters and tunnels live in memory: one replica only (README, "Decisions").
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rdpgw
+  namespace: rdpgw
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rdpgw
+  template:
+    metadata:
+      # Scraped by the otel `cluster` collector; `rdpgw` must also be in its `namespaces.names`
+      # (infra/opentelemetry-monitoring/release.yaml).
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: /metrics
+      labels:
+        app.kubernetes.io/name: rdpgw
+        app.kubernetes.io/instance: rdpgw
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.opentelemetry.otel-scrape: ingress
+        kube-vnet/net.lldap.lldap: egress
+    spec:
+      # Service links would inject RDPGW_PORT=tcp://..., which rdpgw reads as config.
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      # auth.example.com pinned to Traefik's VIP (the public address hairpins through the router);
+      # the egress policy allows only this address. rdpgw matches the requested host against
+      # RDPGW_SERVER__HOSTS exactly (case-sensitive) and the web UI lists those entries, so only
+      # the VM names are allowed there.
+      hostAliases:
+        - ip: "10.20.176.210"
+          hostnames:
+            - auth.example.com
+        - ip: "10.20.150.99"
+          hostnames: [admin-vm]
+        - ip: "10.20.150.187"
+          hostnames: [user-vm]
+        - ip: "10.20.150.135"
+          hostnames: [user2-vm]
+        - ip: "10.20.150.5"
+          hostnames: [user3-vm]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: rdpgw
+          # The owner's fork, branch ldap-auth (README, "Decisions").
+          image: ghcr.io/lhns/rdpgw:sha-97efef8eed46f1beb45fb2c6e7541efad83e4724@sha256:8d1049c139a174b4fc7f6cca2d89c09212d7d4dfb85c82b82a1345b6b77fa639
+          # The image's entrypoint is a run.sh that needs root to `su` to the rdpgw user.
+          command: ["/opt/rdpgw/rdpgw"]
+          workingDir: /opt/rdpgw
+          envFrom:
+            # RDPGW_OPEN_ID__CLIENT_SECRET, RDPGW_SERVER__SESSION_KEY,
+            # RDPGW_SERVER__SESSION_ENCRYPTION_KEY, RDPGW_SECURITY__PAA_TOKEN_SIGNING_KEY.
+            # The keys must be exactly 32 characters, or rdpgw silently uses a random one.
+            - secretRef:
+                name: rdpgw
+            # RDPGW_SECURITY__PAA_TOKEN_ENCRYPTION_KEY. The PAA token is only signed, so this key
+            # is unused; set so rdpgw does not generate a random one on every start.
+            - secretRef:
+                name: rdpgw-paa
+          env:
+            - name: RDPGW_SERVER__GATEWAY_ADDRESS
+              value: rdp.example.com
+            - name: RDPGW_SERVER__PORT
+              value: "8080"
+            - name: RDPGW_SERVER__TLS
+              value: disable
+            - name: RDPGW_SERVER__TLS_TERMINATED_BY_PROXY
+              value: "true"
+            # Both hops, or the client IP (token binding, lockout) becomes a traefik pod:
+            # traefik pods, then the swarm edge. Not 10.20.176.0/24, LAN clients come from there.
+            - name: RDPGW_SERVER__TRUSTED_PROXIES
+              value: "172.18.0.0/16 10.20.176.125/32 10.20.176.185/32 10.20.176.190/32"
+            - name: RDPGW_SERVER__AUTHENTICATION
+              value: "openid ldap"
+            # `paa` breaks the Android app, which sends credentials only after a Basic 401
+            # (README, "Login modes").
+            - name: RDPGW_SERVER__UNAUTHENTICATED_REQUESTS
+              value: challenge
+            # Plaintext LDAP: lldap has no TLS. The password stays on the pod network.
+            - name: RDPGW_LDAP__URL
+              value: ldap://lldap.lldap.svc.cluster.local:3890
+            - name: RDPGW_LDAP__USER_DN_TEMPLATE
+              value: uid={username},ou=people,dc=example,dc=com
+            # The same groups the Authelia `rdpgw` policy admits; space-separated, any one suffices.
+            - name: RDPGW_LDAP__REQUIRED_GROUPS
+              value: cn=admin,ou=groups,dc=example,dc=com cn=rdp,ou=groups,dc=example,dc=com
+            # The user picks one of HOSTS and rdpgw refuses any other; the default
+            # (`roundrobin`) would pick a random VM.
+            - name: RDPGW_SERVER__HOST_SELECTION
+              value: unsigned
+            - name: RDPGW_SERVER__HOSTS
+              value: "admin-vm:3389 user-vm:3389 user2-vm:3389 user3-vm:3389"
+            - name: RDPGW_OPEN_ID__PROVIDER_URL
+              value: https://auth.example.com
+            - name: RDPGW_OPEN_ID__CLIENT_ID
+              value: rdpgw
+            # Otherwise the .rdp prefills the Authelia username, which is not the Windows account.
+            - name: RDPGW_CLIENT__NO_USERNAME
+              value: "true"
+          ports:
+            - {name: http, containerPort: 8080}
+          # /metrics is the cheapest route that needs no login; there is no health endpoint.
+          # Startup does OIDC discovery, so rdpgw exits until Authelia answers.
+          readinessProbe:
+            timeoutSeconds: 5
+            httpGet: {path: /metrics, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            timeoutSeconds: 5
+            httpGet: {path: /metrics, port: http}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            requests:
+              memory: 32Mi
+              cpu: 10m
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rdpgw
+  namespace: rdpgw
+spec:
+  selector:
+    app.kubernetes.io/name: rdpgw
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

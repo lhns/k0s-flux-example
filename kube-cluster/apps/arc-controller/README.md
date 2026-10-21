@@ -19,7 +19,8 @@ their pods and their credentials are in [`apps/github-runner`](../github-runner/
   `listenerTemplate.metadata`. In VictoriaMetrics the metric's own `namespace` label becomes
   `exported_namespace`, and the scale set is `actions_github_com_scale_set_name` (a pod label).
   `listenerMetrics` stays unset, which keeps the `job_workflow_*` labels off. Dashboard:
-  "GitHub Runners" in Grafana ([ADR 0053](../../../docs/adr/0053-grafana-dashboards-provisioned-from-git.md)).
+  "GitHub Runners" (`/d/github-runners`, folder *CI*), a `GrafanaDashboard` in `grafana.yaml`
+  ([ADR 0060](../../../docs/adr/0060-grafana-objects-in-the-component.md)); its `arc-listener-down` rule is under [Alerts](#alerts).
 - **CRDs** come from the chart's `crds/` and are upgraded by the generator's default
   `crdPolicy: CreateReplace`.
 
@@ -28,3 +29,17 @@ their pods and their credentials are in [`apps/github-runner`](../github-runner/
 The controller and `gha-runner-scale-set` must be the same version; `renovate.json` groups the
 two charts into one PR, never automerged. Read the release notes first: some ARC upgrades have
 required removing the scale sets before the controller.
+
+## Alerts
+
+`grafana.yaml`: rule group `app-arc-controller`, folder *Cluster*; backtested over 7 days before it was added.
+
+| Rule | Fires when | For | Severity |
+| --- | --- | --- | --- |
+| `arc-listener-down` | an ARC runner scale-set listener is down | 20m | warning |
+
+Backtest over 7 days:
+
+| Rule | Result | Decision |
+| --- | --- | --- |
+| `arc-listener-down` | an ARC listener: 4 gaps of 15 to 18m in 7 days | `for` raised from 15m to 20m: no hit |

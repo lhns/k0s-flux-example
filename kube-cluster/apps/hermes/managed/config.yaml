@@ -1,0 +1,16 @@
+# Managed scope: pinned for every profile. Edits restart the pod.
+model:
+  provider: anthropic
+  base_url: https://api.anthropic.com
+auth:
+  # Subscription logins belong to the official claude binary only (README, "Decisions").
+  adopt_external_logins: false
+terminal:
+  backend: local
+approvals:
+  # Block even under approvals.mode off.
+  deny:
+    - "kubectl *"
+    - "flux *"
+    - "git push --force*"
+    - "sops -d*"

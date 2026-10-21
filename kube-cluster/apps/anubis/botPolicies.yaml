@@ -1,0 +1,28 @@
+bots:
+  # Chat link previews (README, "Decisions"). Telegram and Google are verified by rDNS / IP range.
+  - import: (data)/clients/telegram-preview.yaml
+  - import: (data)/clients/google-user-triggered-fetchers.yaml
+  # User agent only, so spoofable.
+  - name: link-preview-bots
+    user_agent_regex: >-
+      Discordbot/|^WhatsApp/|facebookexternalhit/|Slackbot-LinkExpanding|Twitterbot/|^Synapse \(bot;
+    action: ALLOW
+  # Browsers fetch web app manifests (and the icons they list) without cookies, so a challenge
+  # breaks "install app" and home-screen icons. Matched by file name at any depth.
+  - name: app-manifests-and-icons
+    path_regex: >-
+      ^/(?:.*/)?(?:manifest\.json|manifest\.webmanifest|site\.webmanifest|(?:apple-touch-icon|android-chrome|favicon|icon|logo|mstile)[^/]*\.(?:png|svg|ico|webp))$
+    action: ALLOW
+  # Anubis's default rules: good search crawlers allowed, AI scrapers denied, browsers weighed.
+  - import: (data)/meta/default-config.yaml
+
+# forwardAuth reads the status code. The default DENY is 200, which Traefik treats as "pass".
+status_codes:
+  CHALLENGE: 200
+  DENY: 403
+
+# Shared by both replicas, so a challenge issued by one can be solved against the other.
+store:
+  backend: valkey
+  parameters:
+    url: redis://valkey.anubis.svc.cluster.local:6379/0

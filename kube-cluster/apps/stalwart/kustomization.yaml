@@ -4,7 +4,7 @@ metadata:
   annotations:
     # DB role/database in the shared CNPG (infra-postgres); the db-role + wildcard
     # cert secrets are reflected into this ns by Reflector (infra-reflector); the
-    # stalwart-lb LoadBalancer's 10.20.2.8 needs the stalwart-vip MetalLB pool
+    # stalwart-lb LoadBalancer's 10.20.176.66 needs the stalwart-vip MetalLB pool
     # (infra-metallb); bulwark/umleiter state PVCs need infra-ceph-csi-rbd. Read by
     # the root generator; inert to kustomize.
     # infra-reloader: the as-secret generators carry disableNameSuffixHash, so a config

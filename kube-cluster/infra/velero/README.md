@@ -14,9 +14,18 @@ volumes, to Ceph RGW (`s3.example.com`), the `kube-barman` bucket under a `veler
 
 **Scope:** resources everywhere; volume snapshots are cheap Ceph CoW (no data-movement to
 S3), so they're an in-cluster safety net, not full-Ceph-loss DR. **`postgres` is excluded**
-because CNPG owns its backups (snapshots + WAL), `opentelemetry-gateway` because its
+because CNPG owns its backups (barman plugin: base backups + WAL), `opentelemetry-gateway` because its
 Kafka volumes are a buffer, not a record, and `nats` because a snapshot of a JetStream raft
 member is not a consistent restore point. Egress-only → no kube-vnet rule.
+
+**`victoriametrics-cluster` is excluded from `hourly` only**: its TSDB volumes rewrite
+constantly, so every extra snapshot pins Ceph copy-on-write data. `daily` and `monthly` keep it.
+
+**Docker graph volumes (`graph-remote-docker*`) are not snapshotted**: rebuildable caches whose
+snapshots pin Ceph copy-on-write data. Only size tells them from the `state-*` claims (host
+keys, still backed up), so `remote-docker` and `remote-docker-ci` are excluded from the three
+main schedules and covered by `*-graph` twins (10 min offset) whose `velero-volume-policy-graph`
+skips every volume of 5Gi or more.
 
 ## What Velero does NOT cover
 
@@ -44,6 +53,6 @@ untouched. Expect zero errors per run: a `PartiallyFailed` is now worth reading.
 `snapshotVolumes: true` in the schedules therefore means "every volume Velero *can* snapshot",
 not "every volume".
 
-backrest mounts the `appdata`, `fastappdata` and `userdata` roots, so the statics on the
+backrest mounts the `appdata`, `fastdata` and `userdata` roots, so the statics on the
 `archive` filesystem (`arr-media`, `jellyfin-media`, `sftpgo-archive`, `restic-*`) are outside
 what it can reach: bulk media and other hosts' restic repos, covered by neither tool.

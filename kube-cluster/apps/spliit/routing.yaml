@@ -17,6 +17,17 @@ spec:
     average: 50
     burst: 100
 ---
+# nginx in the web image has gzip off, so compress here (first, so the response is encoded last).
+# Traefik defaults: gzip/br/zstd by Accept-Encoding, bodies of at least 1024 bytes, and responses
+# that already carry Content-Encoding are left alone.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: spliit-compress
+  namespace: spliit
+spec:
+  compress: {}
+---
 # spliit-cloud. Traefik talks only to the web pod (nginx): it serves the SPA and reverse proxies
 # /trpc, /auth, /health and friends to the api Service. The api is deliberately not routable from
 # outside.
@@ -43,6 +54,25 @@ spec:
         - name: web
           port: 80
       middlewares:
+        - name: spliit-compress
+        - name: spliit-ratelimit
+        - name: anubis
+    # Everything the SPA fetches in the background or loads without credentials. Anubis's cookie
+    # can lapse (and fails on a changed client IP), and a forwardAuth 307 to the challenge page
+    # breaks fetch/XHR and the service worker. Only the HTML shell stays challenged. /auth/ and
+    # /trpc/ authenticate natively; the deny route below (priority 100) still wins for password
+    # sign-in. The catch-all's priority is its rule length (21), so 50 beats it.
+    - kind: Rule
+      priority: 50
+      match: >-
+        Host(`spliit.example.com`) && (PathPrefix(`/trpc/`) || PathPrefix(`/auth/`)
+        || PathPrefix(`/health/`) || PathPrefix(`/assets/`) || PathPrefix(`/favicon/`)
+        || Path(`/sw.js`) || Path(`/manifest.webmanifest`) || PathRegexp(`^/logo.*\.(svg|png)$`))
+      services:
+        - name: web
+          port: 80
+      middlewares:
+        - name: spliit-compress
         - name: spliit-ratelimit
   tls: {}
 ---
@@ -108,7 +138,7 @@ metadata:
   namespace: spliit
 spec:
   redirectRegex:
-    regex: "^https://spliit.kube.example.com/(.*)"
+    regex: "^https?://[^/]+/(.*)"
     replacement: "https://spliit.example.com/${1}"
     permanent: true
 ---
@@ -123,8 +153,8 @@ spec:
     - kind: Rule
       match: Host(`spliit.kube.example.com`)
       services:
-        - name: web
-          port: 80
+        - name: noop@internal
+          kind: TraefikService
       middlewares:
         - name: spliit-kube-redirect
   tls: {}

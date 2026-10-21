@@ -99,7 +99,7 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: Recreate
+    type: Recreate  # singleton: a second instance would run schedulers and imports on one DB
   selector:
     matchLabels:
       app.kubernetes.io/name: sonarr
@@ -148,6 +148,11 @@ spec:
             - name: s6-run
               mountPath: /etc/s6-overlay/s6-rc.d/svc-sonarr/run
               subPath: run
+          resources:
+            requests:
+              memory: 384Mi
+            limits:
+              memory: 3Gi
       volumes:
         - name: config
           persistentVolumeClaim:
@@ -191,7 +196,7 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: Recreate
+    type: Recreate  # singleton: a second instance would run schedulers and imports on one DB
   selector:
     matchLabels:
       app.kubernetes.io/name: radarr
@@ -235,6 +240,11 @@ spec:
             - name: s6-run
               mountPath: /etc/s6-overlay/s6-rc.d/svc-radarr/run
               subPath: run
+          resources:
+            requests:
+              memory: 384Mi
+            limits:
+              memory: 1536Mi
       volumes:
         - name: config
           persistentVolumeClaim:
@@ -270,16 +280,8 @@ spec:
       port: 7878
       targetPort: http
 ---
-# hotio's plugins build -- the live instance. Its SQLite file is 401 KB and
-# dated Dec 2024 only because this instance does not use SQLite: config.xml
-# points at Postgres lidarr-main, which holds 2,987 artists / 104,849 albums /
-# 300,565 track files and was being written the morning of the migration.
-#
-# The blampe/hearring-aid tree is the abandoned experiment (42 MB SQLite, last
-# written Nov 2025) and is not deployed. Dropped with it: the RandomNinjaAtk
-# arr-scripts hook, which was already dormant -- its init file is dot-prefixed
-# so the runner skips it, /config/scripts was never created, and the
-# custom-services.d mount is commented out in the compose.
+# hotio's plugins build; config.xml points at Postgres lidarr-main, so its SQLite file is unused.
+# The blampe/hearring-aid tree is abandoned and not deployed.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -288,7 +290,7 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: Recreate
+    type: Recreate  # singleton: a second instance would run schedulers and imports on one DB
   selector:
     matchLabels:
       app.kubernetes.io/name: lidarr
@@ -340,6 +342,11 @@ spec:
             - name: s6-run
               mountPath: /etc/s6-overlay/s6-rc.d/service-lidarr/run
               subPath: run
+          resources:
+            requests:
+              memory: 512Mi
+            limits:
+              memory: 4Gi
       volumes:
         - name: config
           persistentVolumeClaim:
@@ -386,7 +393,7 @@ metadata:
 spec:
   replicas: 1
   strategy:
-    type: Recreate
+    type: Recreate  # singleton: a second instance would run schedulers and imports on one DB
   selector:
     matchLabels:
       app.kubernetes.io/name: prowlarr
@@ -426,6 +433,11 @@ spec:
             - name: s6-run
               mountPath: /etc/s6-overlay/s6-rc.d/svc-prowlarr/run
               subPath: run
+          resources:
+            requests:
+              memory: 256Mi
+            limits:
+              memory: 512Mi
       volumes:
         - name: config
           persistentVolumeClaim:
@@ -504,6 +516,11 @@ spec:
             - name: incomplete
               mountPath: /incomplete-downloads-slskd
               subPath: incomplete-downloads-slskd
+          resources:
+            requests:
+              memory: 384Mi
+            limits:
+              memory: 1Gi
       volumes:
         - name: fast
           persistentVolumeClaim:
@@ -584,6 +601,11 @@ spec:
             - name: config
               mountPath: /app/config.yaml
               subPath: config.yaml
+          resources:
+            requests:
+              memory: 64Mi
+            limits:
+              memory: 64Mi
       volumes:
         - name: config
           configMap:
@@ -645,6 +667,11 @@ spec:
             - name: config
               mountPath: /app/config/config.yaml
               subPath: config.yaml
+          resources:
+            requests:
+              memory: 64Mi
+            limits:
+              memory: 96Mi
       volumes:
         - name: config
           configMap:

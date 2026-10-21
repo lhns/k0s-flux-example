@@ -8,13 +8,15 @@ resources:
 patches:
 # Without the gate, postBuild substitutes an undefined ${VAR} as an empty string and applies
 # it; with it, the reconcile fails instead. scripts/check-substitution.py checks the same offline.
+# CancelHealthCheckOnNewRevision: a reconcile stuck in its health wait yields to a new revision,
+# spec or reconcile request instead of blocking until the timeout.
 - target:
     kind: Deployment
     name: kustomize-controller
   patch: |
     - op: add
       path: /spec/template/spec/containers/0/args/-
-      value: --feature-gates=StrictPostBuildSubstitutions=true
+      value: --feature-gates=StrictPostBuildSubstitutions=true,CancelHealthCheckOnNewRevision=true
 # A handful of components: Flux's default concurrency and limits, except a faster dependsOn requeue.
 - target:
     kind: Deployment

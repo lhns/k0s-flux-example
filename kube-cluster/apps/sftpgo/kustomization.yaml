@@ -4,7 +4,7 @@ metadata:
   annotations:
     # Static CephFS PVs (the served filesystems) need infra-ceph-csi-cephfs; the
     # sftpgo-config PVC needs infra-ceph-csi-rbd; the sftpgo-lb LoadBalancer's
-    # 10.20.2.17 needs the sftpgo-vip MetalLB pool (infra-metallb). Read by the
+    # 10.20.176.224 needs the sftpgo-vip MetalLB pool (infra-metallb). Read by the
     # root generator; inert to kustomize.
     flux-component-generator/dependsOn: infra-ceph-csi-cephfs,infra-ceph-csi-rbd,infra-metallb
 resources:

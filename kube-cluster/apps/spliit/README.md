@@ -93,7 +93,7 @@ Authelia client `spliit`, secret held here in `secret.yaml` and as a pbkdf2 dige
 `apps/authelia/configuration.yml`.
 
 ```
-redirect_uri  https://spliit.example.com/auth/oauth2/callback/oidc
+redirect_uri  https://spliit.example.com/auth/callback/oidc
 discovery     https://auth.example.com/.well-known/openid-configuration
 scopes        openid profile email
 ```
@@ -101,7 +101,7 @@ scopes        openid profile email
 That redirect URI is derived, not documented, and is the single most likely thing to get wrong —
 it fails only at the last hop, after the login otherwise looks healthy. The fork overrides
 better-auth's `basePath` to `/auth` (its default `/api/auth` would 404, because nginx only proxies
-`^/(trpc|auth)` to the API), and `genericOAuth` appends `/oauth2/callback/<providerId>`.
+`^/(trpc|auth)` to the API), and `genericOAuth` appends `/callback/<providerId>`.
 
 PKCE is required — the fork registers the provider with `pkce: true` and `requireIssuerValidation`.
 The client is registered `token_endpoint_auth_method: client_secret_post`, **not** the
@@ -125,6 +125,12 @@ First sign-in therefore creates a fresh account rather than linking onto a match
   relay, so no SMTP credentials. Sender `admin+spliit@example.com`, per the relay's rule.
   The `spliit` namespace is listed in `apps/msmtpd/vnet.yaml`; without that entry, invitations
   silently never send.
+- **Only the HTML shell is behind Anubis.** `routing.yaml` serves `/trpc/`, `/auth/`, `/health/`,
+  `/assets/`, `/favicon/`, `/logo*`, `/sw.js` and `/manifest.webmanifest` from a priority-50 route
+  without it: a challenge redirect breaks the SPA's background fetches and the service worker.
+  A new client path the SPA fetches must be added to that list. The rate limit still applies.
+- **Compression is Traefik's** (`spliit-compress`, on both routes): the nginx image has gzip off,
+  and first load is ~2.3 MB raw against ~0.7 MB compressed.
 - **The rate limit is the brute-force protection.** With the forward-auth challenge gone, the
   `spliit-ratelimit` middleware is what stands in front of the auth endpoints. It is per source
   IP, which only works because the api runs `TRUST_PROXY=true` — which

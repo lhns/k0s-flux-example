@@ -73,6 +73,7 @@ spec:
             - name: http
               containerPort: 17170
           readinessProbe:
+            timeoutSeconds: 5
             tcpSocket:
               port: ldap
             initialDelaySeconds: 5
@@ -80,6 +81,8 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+          resources:
+            limits: {memory: 128Mi}
       volumes:
         - name: data
           emptyDir: {}

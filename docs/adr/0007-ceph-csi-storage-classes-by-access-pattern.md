@@ -1,10 +1,10 @@
 # 0007 — Storage is the external Ceph cluster through ceph-csi; the class follows the access pattern
 
 - Status: Accepted; amended by [0035](0035-a-csi-driver-per-failure-domain.md)
-- Date: 2026-07-07, amended 2026-07-08, 2026-07-23, 2026-08-06 and 2026-08-28
+- Date: 2026-07-07, amended 2026-07-08, 2026-07-23, 2026-08-06, 2026-08-28 and 2026-10-20
 - Current answer: three dynamic StorageClasses on the existing Ceph cluster, all
   `reclaimPolicy: Retain`. `ceph-rbd` (RWO block, NVMe pool, mounted with `discard`) for
-  databases, SQLite and anything fsync-heavy; `cephfs` (RWX, the SSD `fastappdata` filesystem)
+  databases, SQLite and anything fsync-heavy; `cephfs` (RWX, the SSD `fastdata` filesystem)
   for config and files, the default; `cephfs-appdata` (RWX, the HDD `appdata` filesystem) for
   bulk data. What decides is how the app writes, not whether it is single-instance.
 
@@ -31,6 +31,9 @@ HDD, RBD pools, RGW). The cluster consumes it rather than running its own storag
   `strategy: Recreate`; that, not the access mode, is what prevents two writers, and RWO on RBD only
   adds Multi-Attach stalls on reschedule. RBD is for a live embedded database (SQLite, BoltDB) or
   fsync-heavy work; a small file rewritten by tmp-and-rename is not a database.
+- **A live embedded database on RBD runs as a one-replica StatefulSet** (2026-10-20), mounting
+  its PVC by `claimName`: `Recreate` keeps two writers apart during a rollout, not after a node
+  is lost, when a Deployment replaces a pod that may still be running.
 - **`discard` on RBD** (2026-08-28): ext4 on RBD never trims by default, so deleted files do not
   return space to the pool. CephFS has no block layer and needs nothing.
 

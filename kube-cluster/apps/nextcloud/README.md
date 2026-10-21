@@ -20,8 +20,8 @@ Nextcloud, migrated from Docker Swarm.
 Nextcloud had to restore into the CNPG DB *before* it booted (`config.php` has `installed=true`, so an empty
 DB errors). How it ran:
 1. Deploy (this dir); wait for the CNPG `Database nextcloud` + reflected `nextcloud-db` secret + the PVs.
-2. `pg_dump` the Swarm DB (`10.20.2.10:5436`, still up) → restore into CNPG (one-shot Job on the CNPG image).
+2. `pg_dump` the Swarm DB (`10.20.176.187:5436`, still up) → restore into CNPG (one-shot Job on the CNPG image).
 3. Seed the app into rbd, then flip `nextcloud` to `replicas: 1`; it mounts `data/` in place + the
    override, connects to the restored DB, and starts.
-4. Point `nextcloud.{lhns,lolhens}.de` DNS → Traefik VIP `10.20.2.15`.
+4. Point `nextcloud.{lhns,lolhens}.de` DNS → Traefik VIP `10.20.176.210`.
 5. Post-cutover: `occ maintenance:repair`; optionally prune the 23G of logs + `occ preview:generate-all`.

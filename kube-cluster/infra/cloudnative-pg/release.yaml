@@ -25,3 +25,7 @@ spec:
         name: cnpg
   # Chart defaults: crds.create=true (installs the postgresql.cnpg.io CRDs) and
   # the operator watches all namespaces cluster-wide.
+  values:
+    resources:
+      limits:
+        memory: 256Mi

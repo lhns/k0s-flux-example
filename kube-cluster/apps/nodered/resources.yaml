@@ -1,5 +1,5 @@
 # Node-RED's /data (flows.json, flows_cred.json, settings.js, .config.*, node_modules,
-# projects) — copied once from the old Swarm volume fastappdata:/docker/nodered
+# projects) — copied once from the old Swarm volume fastdata:/docker/nodered
 # (excluding its 189M log/). File-based, single-writer -> CephFS + Recreate.
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -55,6 +55,7 @@ spec:
             - {name: gh-udp4, containerPort: 8882, protocol: UDP}
             - {name: gh-tcp, containerPort: 8882, protocol: TCP}
           readinessProbe:
+            timeoutSeconds: 5
             tcpSocket:
               port: http
             initialDelaySeconds: 20
@@ -63,6 +64,9 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+          resources:
+            requests: {memory: 192Mi}
+            limits: {memory: 512Mi}
       volumes:
         - name: data
           persistentVolumeClaim:
@@ -82,7 +86,7 @@ spec:
     - {name: gsh, port: 3001, targetPort: gsh}
 ---
 # Raw TCP/UDP LAN ports for Google Home local fulfillment, on a dedicated MetalLB VIP
-# (10.20.2.16). externalTrafficPolicy: Local preserves the client source IP (needed for
+# (10.20.176.90). externalTrafficPolicy: Local preserves the client source IP (needed for
 # UDP discovery replies); single pod so the VIP follows it.
 apiVersion: v1
 kind: Service
@@ -90,7 +94,7 @@ metadata:
   name: nodered-lb
   namespace: nodered
   annotations:
-    metallb.io/loadBalancerIPs: 10.20.2.16
+    metallb.io/loadBalancerIPs: 10.20.176.90
 spec:
   type: LoadBalancer
   externalTrafficPolicy: Local

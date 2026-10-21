@@ -51,7 +51,7 @@
     {
       "topics": [
         "zigbee2mqtt/bridge/#",
-        "zigbee2mqtt_michelle/bridge/#",
+        "zigbee2mqtt_user3/bridge/#",
       ],
       "discard": true
     },
@@ -78,10 +78,10 @@
     {
       "metricName": "zigbee2mqtt",
       "topics": [
-        "zigbee2mqtt_michelle/#",
+        "zigbee2mqtt_user3/#",
       ],
       "labels": {
-        "location": "michelle"
+        "location": "user3"
       },
       "labelMatchers": [
         "[^/]*/(?<device>(?<device.type>[^/#]+)(/(?<device.location>[^/#]+)(/(?<device.sub>[^/#]+))?)?(/[^#]*)?)/#>/(?<attribute>.*)"

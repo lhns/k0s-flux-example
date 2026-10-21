@@ -28,18 +28,18 @@ deep chapters and the per-service appendix as needed.
 | Concern | What we run | Key facts |
 |---|---|---|
 | Orchestrator | **k0s** + **Flux** GitOps | repo = `k0s-flux`; a generator HelmRelease renders one Kustomization per component dir |
-| Ingress | **Traefik** DaemonSet via **MetalLB** | HTTPS VIP **`10.20.2.15`** — the address all `*.example.com` DNS points at; `websecure` (443) default entrypoint |
+| Ingress | **Traefik** DaemonSet via **MetalLB** | HTTPS VIP **`10.20.176.210`** — the address all `*.example.com` DNS points at; `websecure` (443) default entrypoint |
 | TLS | **cert-manager** wildcard | `*.example.com` / `*.kube.example.com` cert + `TLSStore/default` → routes just write `tls: {}` |
 | Network policy | **kube-vnet** | default-**deny** ingress everywhere (even same-namespace); membership by pod label |
 | SSO | **Authelia** forwardAuth | reflected `Middleware` `authelia`; attach per-route, or skip for apps that own auth |
 | Block storage | Ceph **RBD** → SC `ceph-rbd` | RWO, pool `rbd.kube`; **databases, SQLite** |
-| Shared FS | Ceph **CephFS** → SC `cephfs` (fs `fastappdata`, SSD) and `cephfs-appdata` (fs `appdata`, HDD, its own CSI driver) | RWX; media/config/**mount-in-place** |
+| Shared FS | Ceph **CephFS** → SC `cephfs` (fs `fastdata`, SSD) and `cephfs-appdata` (fs `appdata`, HDD, its own CSI driver) | RWX; media/config/**mount-in-place** |
 | Object store | Ceph **RGW** S3 | `https://s3.example.com` (path-style, region placeholder `us-east-1`); admin via `radosgw-admin` on the mgr nodes |
 | Shared Postgres | **CloudNativePG** | `infra/postgres` Cluster, default entry point `postgres-pooler.postgres.svc.cluster.local` (pgbouncer); `postgres-rw` only for session-scoped features |
 | Secrets | **SOPS + age** | single recipient; encrypt on the jumphost |
-| Jumphost | `admin@10.20.5.15` (a.k.a. `debian-01`) | has `sops` + `age`, `kubectl`, `flux`; SSH to hosts |
-| Swarm host (source) | `10.20.2.10` | **read-only**; dumped over the network into the cluster |
-| Ceph mgr / RGW nodes | `10.20.2.101/102/103` | `ceph`, `radosgw-admin` here; **read-only, never destructive** |
+| Jumphost | `admin@10.20.150.84` (a.k.a. `debian-01`) | has `sops` + `age`, `kubectl`, `flux`; SSH to hosts |
+| Swarm host (source) | `10.20.176.187` | **read-only**; dumped over the network into the cluster |
+| Ceph mgr / RGW nodes | `10.20.176.250/251/252` | `ceph`, `radosgw-admin` here; **read-only, never destructive** |
 
 Windows note: this repo is edited from a Windows checkout. `kubectl`/`flux`/`sops` are driven **from the
 jumphost** over SSH, not locally.
@@ -109,7 +109,7 @@ kubectl -n gen-app-<name> annotate kustomization app-<name> \
 
 **11. Verify, then cut over.** Pods `1/1`; `/health` (or equivalent) 200; TLS valid; kube-vnet path works
 (`nc -zv -w3 host port`, **not** `nc -z` — see Ch. 8). Then the **user stops the Swarm service** and you
-point DNS at `10.20.2.15` (or the app's MetalLB VIP for raw-port services).
+point DNS at `10.20.176.210` (or the app's MetalLB VIP for raw-port services).
 
 ---
 
@@ -176,7 +176,7 @@ CNPG). Use the CNPG image so client-major matches server-major (**same PG major 
 ```bash
 # inside a Job pod: SRC_PW = old Swarm pw (env), TGT_PW = <app>-db/password
 PGPASSWORD="$SRC_PW" pg_dump -Fc --no-owner --no-acl \
-  -h 10.20.2.10 -p <srcport> -U postgres -d <srcdb> -f /tmp/x.dump
+  -h 10.20.176.187 -p <srcport> -U postgres -d <srcdb> -f /tmp/x.dump
 PGPASSWORD="$TGT_PW" pg_restore --no-owner --no-acl \
   -h postgres-rw.postgres.svc.cluster.local -p 5432 -U <app> -d <app> /tmp/x.dump \
   || echo "pg_restore exit $? (benign object errors possible)"
@@ -188,7 +188,7 @@ Streaming variant (wipe target first, no temp file) — the Grafana precedent:
 ```bash
 PGPASSWORD="$TGT_PW" psql "$T" -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
 PGPASSWORD="$SRC_PW" pg_dump "$S" --no-owner --no-acl -Fc | PGPASSWORD="$TGT_PW" pg_restore --no-owner --no-acl -d "$T"
-# S="host=10.20.2.10 port=<p> user=postgres dbname=postgres"
+# S="host=10.20.176.187 port=<p> user=postgres dbname=postgres"
 # T="host=postgres-rw.postgres.svc.cluster.local user=<app> dbname=<app> sslmode=require"
 ```
 Notes / footguns:
@@ -247,13 +247,13 @@ Not a homogeneous dump. Two done here:
 
 ### 4.7 Getting the dump off the Swarm and running SQL safely
 - There is **no reusable copy Job in the repo** — write a one-shot **labelled** pod (every pod needs ≥1
-  label, Ch. 8) that reaches `10.20.2.10:<port>` and CNPG.
+  label, Ch. 8) that reaches `10.20.176.187:<port>` and CNPG.
 - **Quoting footgun** [CURRENT]: single quotes in inline SQL collide with the outer `ssh '…'` wrapper and get
   mangled; nested `ssh → kubectl exec → sh -c → mysql -e "…"` triple-quoting is worse. **Write the SQL to a
   file and pipe it via stdin**, or use a single-quoted heredoc:
   ```bash
-  ssh admin@10.20.5.15 'kubectl -n <ns> exec -i <pod> -- sh -c "mysql -uroot -p\"$MYSQL_ROOT_PASSWORD\""' < grant.sql
-  # or:  ssh admin@10.20.5.15 'bash -s' <<'EOF'  … script with quotes/$()…  EOF
+  ssh admin@10.20.150.84 'kubectl -n <ns> exec -i <pod> -- sh -c "mysql -uroot -p\"$MYSQL_ROOT_PASSWORD\""' < grant.sql
+  # or:  ssh admin@10.20.150.84 'bash -s' <<'EOF'  … script with quotes/$()…  EOF
   ```
 
 ---
@@ -264,7 +264,7 @@ Not a homogeneous dump. Two done here:
 | SC | Access | Backing | Use for |
 |---|---|---|---|
 | `ceph-rbd` | **RWO** block | pool `rbd.kube` (ext4) | databases, SQLite, anything wanting real block semantics |
-| `cephfs` | **RWX** file | fs `fastappdata` (SSD), `Retain` | media, config, and **mounting existing data in place** |
+| `cephfs` | **RWX** file | fs `fastdata` (SSD), `Retain` | media, config, and **mounting existing data in place** |
 | `cephfs-appdata` | **RWX** file | fs `appdata` (HDD), `Retain`, separate CSI driver | bulk — media, repository trees, archives |
 | `local-path` | RWO | node-local disk | throwaway/node-pinned only |
 
@@ -290,7 +290,7 @@ spec:
     nodeStageSecretRef: {name: csi-cephfs-secret, namespace: ceph-csi-cephfs}
     volumeAttributes:
       clusterID: ceph-cluster
-      fsName: appdata                # or fastappdata
+      fsName: appdata                # or fastdata
       staticVolume: "true"
       rootPath: /docker/observability/<app>     # the existing dir on the Ceph FS
 ---
@@ -339,8 +339,9 @@ kubectl get pv <pv> -o jsonpath='{.spec.claimRef.namespace}/{.spec.claimRef.name
   kubectl uncordon <node>
   ```
 - **Static PV sizing** is a dummy `1Gi` (ignored). **StorageClass/PV params are immutable** — to change class,
-  mount options, or reclaim policy you delete+recreate the SC and re-provision. `cephfs` is `Retain`, so a
-  deleted PVC leaves a `Released` PV + orphaned subvolume (`pv-reaper` reclaims those).
+  mount options, or reclaim policy you delete+recreate the SC and re-provision. `cephfs` is `Retain`: a
+  deleted PVC leaves a `Released` PV that still holds the data. Deleting that PV destroys the
+  subvolume (`pv-reaper`, [AGENTS.md](../AGENTS.md)); leave it until the data is genuinely unwanted.
 - **Swarm-host → PVC:** no NFS/hostPath/Job precedent exists — write your own `rsync`/`cp -a` pod from a
   Swarm node into a pod mounting the target PVC.
 
@@ -405,7 +406,7 @@ spec:
   for apps that own their auth (E2E apps like Notesnook / Standard Notes — the account password derives the
   encryption key, so auth can't be delegated). `authelia-basicauth` exists for API/CLI clients.
 - **Raw TCP ports** (SMTP/IMAP/MQTT/LDAP) don't go through `IngressRoute` — give the Service a **MetalLB VIP**
-  (e.g. mail on `10.20.2.8`) with `externalTrafficPolicy: Local` for real source IPs, and add the entrypoint
+  (e.g. mail on `10.20.176.66`) with `externalTrafficPolicy: Local` for real source IPs, and add the entrypoint
   to Traefik if it multiplexes the shared VIP.
 
 ---
@@ -424,7 +425,7 @@ Encrypt on the jumphost (has `sops 3.13.2` + `age`; the private key is in `flux-
 and `~/.config/sops/age/keys.txt` on the jumphost — **back it up or the repo secrets are unrecoverable**):
 ```bash
 # write the plaintext Secret, then encrypt in place / to the repo path, deleting plaintext immediately:
-ssh admin@10.20.5.15 "sops --encrypt --age age1exampleexampleexampleexampleexampleexampleexampleexamplexxxxx \
+ssh admin@10.20.150.84 "sops --encrypt --age age1exampleexampleexampleexampleexampleexampleexampleexamplexxxxx \
   --encrypted-regex '^(data|stringData)$' --input-type yaml --output-type yaml /dev/stdin" \
   < plain-secret.yaml > kube-cluster/apps/<app>/secret.yaml
 ```
@@ -432,8 +433,8 @@ Reference from a Deployment with `secretKeyRef` per env var (or a projected volu
 reads `{{ secret "/secrets/…" }}`).
 
 ### 7.2 The generator & the app file set
-`templates/kustomizations.yaml` globs `kube-cluster/{apps,infra,rbac}/*/kustomization.yaml` and emits one
-Flux `Kustomization` per dir, named **`app-<dir>`** / **`infra-<dir>`** / **`rbac-<dir>`**. So the standard app dir is:
+`templates/kustomizations.yaml` globs `kube-cluster/{apps,infra,rbac,external}/*/kustomization.yaml` and emits one
+Flux `Kustomization` per dir, named **`app-<dir>`** / **`infra-<dir>`** / **`rbac-<dir>`** / **`ext-<dir>`**. So the standard app dir is:
 ```
 resources.yaml       # Namespace + Deployments/StatefulSets/Services/PVCs
 routing.yaml         # Traefik IngressRoutes (web-fronted apps)
@@ -498,7 +499,7 @@ Conventions & footguns:
 | 15 | Stale Kustomization "failed" after slow image pulls | `[CURRENT]` | pods healthy → re-annotate `requestedAt` to clear it |
 
 **Proxmox / AVX (footgun 11) [ENV-SPECIFIC]:** worker VMs ran CPU type `x86-64-v2-AES`, which **masks AVX**
-(an AVX/v3 feature). The oldest host (pve-04, Xeon E5-2680 **v2** = Ivy Bridge) has AVX but **not** AVX2, so
+(an AVX/v3 feature). The oldest host (pve-d, Xeon E5-2680 **v2** = Ivy Bridge) has AVX but **not** AVX2, so
 `x86-64-v3` won't run there. Fix — set every worker VM to the oldest host's microarch so it's migration-safe:
 ```bash
 qm set <vmid> --cpu IvyBridge     # then STOP/START the VM (CPU-type change needs a full power-cycle, not reboot)
@@ -506,7 +507,7 @@ qm set <vmid> --cpu IvyBridge     # then STOP/START the VM (CPU-type change need
 ```
 Never use `host` passthrough (pins the VM to one CPU, breaks live-migration). Fix the CPU type, not the image.
 
-**Ceph triage (footgun 12):** `ssh root@10.20.2.101 ceph -s`. On this cluster the `appdata`/`archive` pools are
+**Ceph triage (footgun 12):** `ssh root@10.20.176.250 ceph -s`. On this cluster the `appdata`/`archive` pools are
 the slow HDD tier (`crush_rule 3`); `ceph-rbd` (pool `rbd.kube`) and RGW metadata are the fast tier. A
 `HEALTH_ERR` HDD tier silently stalls any DB/backfill that opens storage there — that's why large observability
 data is mounted in place (never copied onto a near-full HDD pool) and why the `vmctl` backfill is blocked.
@@ -517,7 +518,7 @@ data is mounted in place (never copied onto a near-full HDD pool) and why the `v
 
 Concrete "what broke → fix" notes. Many are one-offs but illustrate general classes.
 
-**stalwart (mail).** Config lives in Postgres (`pg_dump` → CNPG); mail ports on MetalLB VIP `10.20.2.8`
+**stalwart (mail).** Config lives in Postgres (`pg_dump` → CNPG); mail ports on MetalLB VIP `10.20.176.66`
 (ETP-Local). Footguns: **ghost "Cluster Nodes"** — stalwart's node-id is a lease keyed on the OS hostname,
 which in k8s is the random pod name, so every roll piles up a ghost → pin `STALWART_HOSTNAME=stalwart`
 (safe only with `replicas:1` + `strategy: Recreate`). **S3 `SignatureDoesNotMatch`** on blob purge = wrong
@@ -533,10 +534,10 @@ an empty result in a global search). Rule: **lldap can't evaluate an `OR` over �
 
 **umleiter (Gmail→stalwart IMAP mirror).** `dial mail.example.com:993: tls: no application protocol` for 27h —
 the **public edge** answered `:993` with an HTTP/TLS reverse proxy (wrong cert + ALPN) instead of passing TCP
-through to the stalwart VIP `10.20.2.8`. Fix: make the edge **TCP-passthrough** `:993/:465/:25/:4190` → the VIP;
+through to the stalwart VIP `10.20.176.66`. Fix: make the edge **TCP-passthrough** `:993/:465/:25/:4190` → the VIP;
 restart umleiter to clear its backoff. Also: its GHCR image was private → 403 (make public or add a pull secret).
 
-**grafana → victoriatraces/logs/metrics.** Datasource host-IP `http://10.20.2.10:10428` →
+**grafana → victoriatraces/logs/metrics.** Datasource host-IP `http://10.20.176.187:10428` →
 `http://victoriatraces.victoriatraces.svc.cluster.local:10428`. Cross-ns default-deny: add `grafana` to the
 target vnet's `allowedNamespaces.names` **and** label grafana `kube-vnet/net.victoriatraces.victoriatraces:
 egress` (mirrors its existing postgres egress).
@@ -588,14 +589,14 @@ the `sed` targets can't drift, with `grep` guards that fail the pod if a target 
 ### Cluster facts
 | Thing | Value |
 |---|---|
-| Traefik HTTPS VIP (DNS target) | `10.20.2.15` |
-| Mail VIP (SMTP/IMAP/managesieve) | `10.20.2.8` |
+| Traefik HTTPS VIP (DNS target) | `10.20.176.210` |
+| Mail VIP (SMTP/IMAP/managesieve) | `10.20.176.66` |
 | CNPG service | `postgres-rw.postgres.svc.cluster.local:5432` (PG 18.4) |
 | RGW S3 endpoint | `https://s3.example.com` (path-style, region `us-east-1`) |
-| Workers | `10.20.2.72` / `.73` / `.74` |
-| Ceph mgr / RGW nodes | `10.20.2.101` / `.102` / `.103` (`ceph`, `radosgw-admin`) |
-| Swarm host (source, read-only) | `10.20.2.10` |
-| Jumphost | `admin@10.20.5.15` (`sops`, `age`, `kubectl`, `flux`) |
+| Workers | `10.20.176.37` / `.73` / `.74` |
+| Ceph mgr / RGW nodes | `10.20.176.250` / `.102` / `.103` (`ceph`, `radosgw-admin`) |
+| Swarm host (source, read-only) | `10.20.176.187` |
+| Jumphost | `admin@10.20.150.84` (`sops`, `age`, `kubectl`, `flux`) |
 | age recipient | `age1exampleexampleexampleexampleexampleexampleexampleexamplexxxxx` |
 | StorageClasses | `ceph-rbd` (RWO), `cephfs` / `cephfs-appdata` (RWX), `local-path` |
 | kube-vnet | chart `oci://ghcr.io/lhns/charts/kube-vnet`, `ingressIsolationLevel: pod` |

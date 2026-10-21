@@ -18,12 +18,16 @@ spec:
   chart:
     spec:
       chart: headlamp
-      version: "0.45.0"
+      version: "0.46.0"
       interval: 1h0m0s
       sourceRef:
         kind: HelmRepository
         name: headlamp
   values:
+    # The chart binds its ServiceAccount to cluster-admin by default. Unused: every call is made
+    # with the user's own token, OIDC or break-glass (README, "Decisions").
+    clusterRoleBinding:
+      create: false
     config:
       # Log in as yourself via Authelia instead of pasting a service-account token.
       # The API server side of this lives in k0s-files/authentication-config.yaml;
@@ -59,6 +63,8 @@ spec:
         - "-oidc-scopes=openid,profile,email,groups"
     pluginsManager:
       enabled: true
+      # Chart default is node:lts-alpine. No Renovate manager matches `baseImage`; bump by hand.
+      baseImage: node:24.19.0-alpine@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43
       configContent: |
         plugins:
           - name: helm-plugin
@@ -73,38 +79,27 @@ spec:
         installOptions:
           parallel: true
           maxConcurrent: 2
-    # Our own plugin (headlamp-app-view — not on ArtifactHub, so it can't ride the
-    # pluginsManager). Load it via Headlamp's separate *user*-plugins dir, NOT the
-    # shared /headlamp/plugins: the pluginsManager reconciles that dir to its own
-    # config and would try to prune anything not listed there (i.e. us).
-    #
-    # Mounted straight from its image as an image volume. This replaced an initContainer
-    # that did `cp -r /plugins/. /headlamp/user-plugins/` into an emptyDir — the kubelet
-    # already has the image mounted, so copying it into a second volume bought nothing.
-    #
-    # No oci-composer here, deliberately: the artifact already exists as a published
-    # image, and composing would only re-wrap it. The composer earns its place when the
-    # inputs are NOT images (git repos, jars, ConfigMaps) — see apps/freshrss.
-    #
-    # `subPath: plugins` is what makes it work: the plugin sits at /plugins/headlamp-app-view
-    # in the image, and Headlamp wants that directory at the root of its user-plugins dir.
-    # Verified on-cluster that image volumes honour subPath, and that they mount read-only
-    # either way (overlay `ro`) — with or without readOnly on the mount.
+      resources:
+        requests: {memory: 192Mi}
+        limits: {memory: 512Mi}
+    # Our own plugin (headlamp-app-view), mounted as an image volume into the *user*-plugins
+    # dir, NOT /headlamp/plugins: the pluginsManager prunes that dir to its own config.
+    # `subPath: plugins` because the plugin sits at /plugins/headlamp-app-view in the image.
+    # See README.
     volumes:
       - name: app-view-plugin
         image:
           # renovate: datasource=docker
           reference: ghcr.io/lhns/headlamp-app-view:0.3.0
-          # IfNotPresent, matching what the initContainer got by default for a tagged image.
-          # Always would put ghcr.io in the path of every pod start, which is the dependency
-          # this whole line of work has been removing. Renovate bumps the tag; that is the
-          # update path, not a silent rebuild under the same tag.
+          # IfNotPresent: Always would put ghcr.io in the path of every pod start.
           pullPolicy: IfNotPresent
     volumeMounts:
       - name: app-view-plugin
         mountPath: /headlamp/user-plugins
         subPath: plugins
         readOnly: true
+    resources:
+      limits: {memory: 192Mi}
     ingress:
       enabled: true
       ingressClassName: traefik

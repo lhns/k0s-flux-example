@@ -34,7 +34,20 @@ spec:
     # ceph-csi liveness sidecars live at 8090+ — cephfs 8090, rbd 8091. (Chart
     # default is 8081.) The nodeplugin is hostNetwork, so this is a real host port.
     nodeplugin:
+      registrar:
+        resources:
+          requests:
+            memory: 128Mi
+          limits:
+            memory: 128Mi
       plugin:
+        # Memory limits (ADR 0028). The chart reuses these for liveness-prometheus and, in the
+        # provisioner, the plugin and plugin-controller containers too.
+        resources:
+          requests:
+            memory: 128Mi
+          limits:
+            memory: 256Mi
         # Also the provisioner's image. x86-64-v2 build of upstream: see README.md.
         image:
           repository: ghcr.io/lhns/ceph-csi-x86-64-v2
@@ -44,21 +57,43 @@ spec:
         service:
           servicePort: 8090
     provisioner:
+      provisioner:
+        resources:
+          requests:
+            memory: 128Mi
+          limits:
+            memory: 192Mi
+      attacher:
+        resources:
+          requests:
+            memory: 128Mi
+          limits:
+            memory: 128Mi
+      resizer:
+        resources:
+          requests:
+            memory: 128Mi
+          limits:
+            memory: 128Mi
+      snapshotter:
+        resources:
+          requests:
+            memory: 128Mi
+          limits:
+            memory: 128Mi
       httpMetrics:
         containerPort: 8090
         service:
           servicePort: 8090
     # Map clusterID -> Ceph monitors. clusterID is an arbitrary key that must
     # match the StorageClass; it identifies the Ceph *cluster* (monitor set), not
-    # a filesystem — one cluster hosts both `fastappdata` and `archive`.
-    # (A `fastappdata` alias existed transiently while volumes were migrated off
-    # the old clusterID; all volumes now use `ceph-cluster`, so the alias is gone.)
+    # a filesystem — one cluster hosts both `fastdata` and `archive`.
     csiConfig:
       - clusterID: ceph-cluster
         monitors:
-          - 10.20.2.101:6789
-          - 10.20.2.102:6789
-          - 10.20.2.103:6789
+          - 10.20.176.250:6789
+          - 10.20.176.251:6789
+          - 10.20.176.252:6789
         cephFS:
           # subvolumes are created under /volumes/kube/ (must match the
           # subvolumegroup created on the Ceph cluster)
@@ -71,31 +106,9 @@ spec:
       create: false
     storageClass:
       create: false
-  # Turn OFF the SlowGRPCRestart feature gate on the *node* plugin.
-  #
-  # ceph-csi 3.17.0 ships killOnSlowGRPC (PR #6286): any unary gRPC handler that
-  # runs longer than a hardcoded 10 minutes calls os.Exit(1) on the whole
-  # process. That is far too blunt here, because the node plugin is ONE process
-  # per node serving EVERY CephFS volume on it: a single unresponsive mount takes
-  # down all the others. The driver then deregisters from the kubelet, so every
-  # pod on that node fails with "driver name cephfs.csi.ceph.com not found in the
-  # list of registered CSI drivers", and pods whose containers died meanwhile get
-  # stuck for good (terminated + PodReadyToStartContainers=False, nothing retries
-  # the mount) until they are deleted by hand.
-  #
-  # What actually hangs is NodeGetVolumeStats -> os.Stat() on an unresponsive
-  # mount, which blocks in the kernel and never returns; that is upstream bug
-  # #6418, fixed in v3.18.0. Revisit this block once the chart is on 3.18.
-  #
-  # Trade-off: with the gate off a wedged volume keeps its VolumeLock, so calls
-  # for THAT volume return "Aborted: operation already in progress" until the
-  # plugin is restarted manually. That is deliberate -- one broken volume beats
-  # every volume on the node, which is what the self-restart actually costs us.
-  #
-  # Set via postRenderers because the chart exposes no extraArgs for
-  # nodeplugin.plugin (only image/resources); --feature-gates itself is a normal
-  # cephcsi flag (cmd/cephcsi.go). The provisioner is deliberately NOT patched:
-  # there the restart is cheap and the blast radius is one replica of three.
+  # SlowGRPCRestart=false on the node plugin: the self-kill leaves the D-state umount
+  # child behind and unmounts every volume on the node (ADR 0035; do not re-enable).
+  # The provisioner is deliberately not patched; its restart is cheap.
   postRenderers:
     - kustomize:
         patches:

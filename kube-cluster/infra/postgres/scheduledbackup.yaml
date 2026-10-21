@@ -1,10 +1,9 @@
 # Daily base backup through the barman-cloud plugin to ObjectStore/postgres-store, alongside
 # the continuous WAL archiving the same plugin does, giving point-in-time recovery.
 #
-# Not volumeSnapshot: CNPG has no retention for volume-snapshot backups, so nothing ever
-# deleted them (45 accumulated) and, because barman prunes WAL only up to the oldest barman
-# backup, the WAL archive was never trimmed either -- 97 GiB in 49 days, unbounded. The
-# plugin's ObjectStore retentionPolicy handles both, and keeps Postgres off the NVMe pool.
+# Not volumeSnapshot: CNPG has no retention for those, and barman prunes WAL only up to
+# the oldest barman backup, so the WAL archive would grow unbounded. The ObjectStore
+# retentionPolicy handles both.
 #
 # 6-field cron (sec min hour dom mon dow) → 02:00 daily.
 apiVersion: postgresql.cnpg.io/v1

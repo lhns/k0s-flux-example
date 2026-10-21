@@ -3,9 +3,8 @@
 # applied by k0s-files/authentication-config.yaml and is what stops an Authelia group
 # named e.g. system:masters from being a cluster takeover.
 #
-# cluster-admin: matches the access the pasted service-account token already gave.
-# Anyone Authelia puts in group `admin` gets it, so that group is now a cluster-admin
-# grant; Authelia's `headlamp` policy gates the login on two_factor.
+# cluster-admin. Anyone Authelia puts in group `admin` gets it, so that group is a
+# cluster-admin grant; Authelia's `headlamp` policy gates the login on two_factor.
 #
 # roleRef is immutable -- changing the role means replacing this object under a new
 # name, not editing it in place.

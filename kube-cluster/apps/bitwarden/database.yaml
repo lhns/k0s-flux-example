@@ -17,7 +17,7 @@ spec:
   databaseRoleReclaimPolicy: retain
 ---
 # The vaultwarden database, owned by that role. A pg_dump of the old Swarm Postgres
-# (10.20.2.10:5436) is restored into it once (same major, PG 18 -> PG 18, clean restore).
+# (10.20.176.187:5436) is restored into it once (same major, PG 18 -> PG 18, clean restore).
 apiVersion: postgresql.cnpg.io/v1
 kind: Database
 metadata:

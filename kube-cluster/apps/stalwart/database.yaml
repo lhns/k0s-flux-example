@@ -18,7 +18,7 @@ spec:
   databaseRoleReclaimPolicy: retain
 ---
 # The stalwart database (all config + all mail). A pg_dump of the old Swarm
-# Postgres (10.20.2.10:5436, ~1.5G) is restored into it once (PG 18 -> PG 18).
+# Postgres (10.20.176.187:5436, ~1.5G) is restored into it once (PG 18 -> PG 18).
 apiVersion: postgresql.cnpg.io/v1
 kind: Database
 metadata:

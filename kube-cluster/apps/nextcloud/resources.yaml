@@ -34,7 +34,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: redis
-          image: redis:8-alpine
+          image: redis:8.10.2-alpine@sha256:3811787313eba226a2ef38658c6ccb91cd5e110edc89c37767de373120a0e5a0
           resources:
             requests:
               memory: 32Mi
@@ -43,6 +43,7 @@ spec:
           ports:
             - {name: redis, containerPort: 6379}
           readinessProbe:
+            timeoutSeconds: 5
             exec: {command: ["redis-cli", "ping"]}
             initialDelaySeconds: 5
             periodSeconds: 10
@@ -151,7 +152,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: nextcloud
-          image: nextcloud:35.0.1-apache
+          image: nextcloud:35.0.2-apache
           ports:
             - {name: http, containerPort: 80}
           env:
@@ -159,6 +160,7 @@ spec:
             - {name: PHP_UPLOAD_LIMIT, value: "16G"}
             - {name: PHP_MEMORY_LIMIT, value: "1G"}
           readinessProbe:
+            timeoutSeconds: 5
             # Send a trusted Host — the default probe Host is the pod IP, which
             # Nextcloud's trusted_domains check rejects with 400.
             httpGet:
@@ -173,6 +175,9 @@ spec:
             - {name: html, mountPath: /var/www/html}
             - {name: data, mountPath: /var/www/html/data}
             - {name: config-override, mountPath: /var/www/html/config/zz-kube.config.php, subPath: zz-kube.config.php, readOnly: true}
+          resources:
+            requests: {memory: 256Mi}
+            limits: {memory: 768Mi}
       volumes:
         - {name: html, persistentVolumeClaim: {claimName: nextcloud-html}}
         - {name: data, persistentVolumeClaim: {claimName: nextcloud-data}}

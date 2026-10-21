@@ -24,7 +24,7 @@ spec:
       containers:
         - name: dashy
           # Pinned to a real release tag so Renovate tracks version bumps.
-          image: lissy93/dashy:4.8.1
+          image: lissy93/dashy:4.8.7
           env:
             - name: TZ
               value: Europe/Berlin
@@ -39,12 +39,18 @@ spec:
               subPath: conf.yml
               readOnly: true
           readinessProbe:
+            timeoutSeconds: 5
             httpGet:
               path: /
               port: http
             initialDelaySeconds: 20
             periodSeconds: 10
             failureThreshold: 18 # dashy may rebuild on start; be lenient
+          resources:
+            requests:
+              memory: 128Mi
+            limits:
+              memory: 256Mi
       volumes:
         - name: config
           configMap:
@@ -69,7 +75,7 @@ metadata:
   name: dashy
   namespace: dashy
   annotations:
-    # SSO via the external Authelia (dashy also does its own OIDC per conf.yml).
+    # SSO via the reflected Authelia middleware (dashy also does its own OIDC per conf.yml).
     traefik.ingress.kubernetes.io/router.middlewares: dashy-authelia@kubernetescrd
 spec:
   ingressClassName: traefik

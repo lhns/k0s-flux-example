@@ -63,14 +63,13 @@ spec:
       # MetalLB VIP so the traffic never leaves the cluster.
       #
       # TLS still validates: Traefik serves the *.example.com wildcard and the
-      # hostname asked for is unchanged. It also lets the runner work before
-      # forgejo.example.com is published, which is the state today.
+      # hostname asked for is unchanged.
       #
       # Caveat: containers started by the dind daemon do NOT inherit this — they
       # get their resolver from dockerd. A workflow that clones forgejo.example.com
       # still needs public DNS to be correct.
       hostAliases:
-        - ip: "10.20.2.15"
+        - ip: "10.20.176.210"
           hostnames:
             - forgejo.example.com
       # Long, because a drain must let running jobs finish rather than killing
@@ -83,10 +82,8 @@ spec:
         # exits, so in-flight jobs drain.
         - name: dind
           restartPolicy: Always
-          # Shared pin with apps/gitea-runner — bump both together, and re-run the
-          # listener check afterwards (README). Also satisfies v13's hard minimum
-          # of Docker 25.0.
-          image: docker:29.9.0-dind
+          # Re-run the listener check after a bump (README). The runner needs Docker 25.0+.
+          image: docker:29.9.2-dind
           securityContext:
             # dockerd needs it to manage cgroups, netfilter and overlay mounts.
             # Note this is root on the NODE, not merely in the pod — see the
@@ -129,6 +126,7 @@ spec:
           # An exec probe rather than tcpSocket: the kubelet dials the POD IP,
           # and this listener is deliberately loopback-only.
           startupProbe:
+            timeoutSeconds: 5
             exec:
               command: [nc, -z, 127.0.0.1, "2375"]
             periodSeconds: 2

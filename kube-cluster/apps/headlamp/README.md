@@ -25,3 +25,25 @@
   Renovate tracks the reference through the `image-volume` custom manager in
   `renovate.json`; the built-in kubernetes manager only sees `image: <string>`, and an
   image volume spells it as a mapping.
+
+## Break-glass login
+
+Normal logins are OIDC through Authelia. When Authelia is down, use a short-lived token for the
+ServiceAccount `headlamp-breakglass` (`breakglass.yaml`, bound to cluster-admin):
+
+```sh
+ssh admin@10.20.150.84 'kubectl -n headlamp create token headlamp-breakglass --duration=1h'
+```
+
+Open `headlamp.kube.example.com`, choose **Use A Token** instead of **Sign In**, and paste it. Headlamp
+offers both whenever OIDC is configured and auto-redirect is off (the default). The token expires
+on its own; nothing stores it.
+
+## Decisions
+
+- **Headlamp's own ServiceAccount has no binding.** Every call is made with the logged-in user's
+  token (OIDC, or the break-glass token above). The SA token stays mounted only because in-cluster
+  mode builds its config from it (`rest.InClusterConfig()` reads the token and `ca.crt` files);
+  unbound, it grants discovery only.
+- **The break-glass account is a separate ServiceAccount** that no pod mounts, so its rights exist
+  only in a token someone deliberately mints on the jumphost.

@@ -101,7 +101,7 @@ Each step is its own change; stop after any of them.
 5. **Done: vmselect queries both stores** ([`resources.yaml`](resources.yaml),
    `-storageNode=vmstorage:8401,vmstorage-longterm:8401`, `-search.minStalenessInterval=2m`).
    vmselect waits for the slower store, and a slow one fails the query: the per-node search
-   timeout is the whole query's `-search.maxQueryDuration` (30s). A down vmstorage-longterm makes
+   timeout is the whole query's `-search.maxQueryDuration` (1m). A down vmstorage-longterm makes
    queries partial (`isPartial: true`). Both stores have the same disk layout, so the long-term
    one is as fast once its caches are warm; after a restart, old ranges are slow until then.
 6. **After at least one month and repeated verification, lower `vmstorage`'s `-retentionPeriod`**
@@ -113,7 +113,7 @@ Against a vmselect that sees **only** the long-term store, e.g. a temporary pod:
 
 ```
 kubectl -n victoriametrics-cluster run vmselect-lt --restart=Never \
-  --image=victoriametrics/vmselect:v1.153.0-cluster --labels=kube-vnet/net.vmstorage=egress \
+  --image=victoriametrics/vmselect:<running tag> --labels=kube-vnet/net.vmstorage=egress \
   -- -storageNode=vmstorage-longterm:8401 -dedup.minScrapeInterval=1ms
 kubectl -n victoriametrics-cluster port-forward pod/vmselect-lt 18482:8481
 ```
@@ -164,7 +164,7 @@ created with `MustMkdirFailIfExist`, and a pre-made mount or symlink there panic
     only), and the small-part threshold is `min(memory.Remaining()/15, free small space/CPUs)`
     (`getMaxSmallPartSize`, 20 CPUs per node), so a full hot volume pushes merges to HDD early.
     Sized so memory decides: 32Gi (~573 MB at 8Gi remaining), 16Gi (~286 MB at 4Gi).
-  - Cold: big merges are capped at free/4 and the final dedup needs free â‰¥ the partition, and a
+  - Cold: big merges are capped at free/4 and the final dedup needs free ≥ the partition, and a
     full volume turns vmstorage read-only. Expand (all three classes allow it) well before that.
 - **Snapshots** hardlink small parts into `data/small/snapshots/` on the hot volume;
   `snapshots/<name>/data/small` is a relative symlink to it.
@@ -193,7 +193,7 @@ downtime and a copy. Never write to `vmstorage-data` or the old `vmstorage-hot`.
    `successfully opened storage ... partsCount ... rowsCount` log line first. vminsert then
    fails, the exporter's main group stops committing offsets, and Kafka holds ~10 days
    (`retention.ms`). The `-latest` group drops, by design. Queries fail until step 4.
-3. **Copy, by hand**, in a helper pod (`victoriametrics/vmstorage:v1.153.0-cluster`,
+3. **Copy, by hand**, in a helper pod (`victoriametrics/vmstorage:<running tag>`,
    `command: [sh, -c, "sleep 1000000"]`, `runAsUser: 0`) mounting `vmstorage-data` at `/cold`
    and `vmstorage-hot` at `/src`, both `readOnly`, and `vmstorage-hot-rbd` at `/dst`:
    ```
@@ -226,3 +226,19 @@ At the old series churn: vmstorage at 24 months ≈ 1.65 TiB logical, vmstorage-
 ≈ 1.9 TiB, against ~4.3 TiB logical free on HDD with the Ceph HDD pools 82% used. Most of that was
 indexdb from per-pid `process.*` series; the host collectors, configured outside this repo, now
 aggregate them by process name, which should cut indexdb growth from ~20 GiB to ~1–1.5 GiB a month.
+
+## Alerts
+
+`grafana.yaml`: rule group `app-victoriametrics-cluster`, folder *Cluster*; backtested over 7 days before it was added.
+
+| Rule | Fires when | For | Severity |
+| --- | --- | --- | --- |
+| `victoriametrics-component-down` | `up` is 0 for a vminsert, vmselect or vmstorage (also on NoData); emailed | 10m | warning |
+| `kafka-exporter-members` | fewer than 2 consumers in a `victoriametrics-cluster-exporter*` group (also on NoData); emailed | 15m | warning |
+
+Backtest over 7 days:
+
+| Rule | Result | Decision |
+| --- | --- | --- |
+| `victoriametrics-component-down` | vmstorage: 44 brief blips, 3 of 5m or more (rollouts, the longest 19m) | `for` raised from 5m to 10m: one hit |
+| `kafka-exporter-members` | one dip of under 5m per group | as specified, no hit with `for` 15m |

@@ -1,0 +1,78 @@
+# Grafana Operator objects of this component (README.md, "Grafana objects"). Each opts out of Flux
+# substitution: rule templates and dashboard JSON are full of ${...}.
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaAlertRuleGroup
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: app-victoriametrics-cluster
+  namespace: grafana
+spec:
+  name: app-victoriametrics-cluster
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: ag1airdsjen7kc # Cluster
+  interval: 1m
+  rules:
+    # Not filtered with == 0 in the query: NoData (series gone) must alert too.
+    - uid: victoriametrics-component-down
+      title: VictoriaMetrics component down
+      condition: C
+      for: 10m
+      noDataState: Alerting
+      execErrState: Error
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move(max by ("service.name") (up{"service.name"=~"vm(insert|select|storage)(-longterm)?"}), "service.name", "service")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: lt, params: [1]}
+      labels:
+        severity: warning
+      annotations:
+        summary: '{{ $labels.service }} is down'
+        description: 'The scrape of {{ $labels.service }} fails. Short blips during a rollout clear within minutes; check the pod and its StatefulSet.'
+      notificationSettings:
+        receiver: matrix-and-email
+    - uid: kafka-exporter-members
+      title: Telemetry exporter has too few consumers
+      condition: C
+      for: 15m
+      noDataState: Alerting
+      execErrState: Error
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              max by (group) ({__name__="kafka.consumer_group.members", group=~"victoriametrics-cluster-exporter.*"})
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: lt, params: [2]}
+      labels:
+        severity: warning
+      annotations:
+        summary: 'Kafka group {{ $labels.group }} has {{ with $values.A }}{{ humanize .Value }}{{ end }} of 2 consumers'
+        description: 'One exporter replica is gone: no redundancy and half the throughput. NoData means the group itself vanished.'
+      notificationSettings:
+        receiver: matrix-and-email

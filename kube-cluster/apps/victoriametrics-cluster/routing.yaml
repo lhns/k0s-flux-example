@@ -8,7 +8,7 @@ metadata:
   namespace: victoriametrics-cluster
 spec:
   redirectRegex:
-    regex: '^https://victoriametrics\.example\.com/.*'
+    regex: "^https?://[^/]+/.*"
     replacement: "https://victoriametrics.example.com/select/0/vmui/"
     permanent: false
 ---

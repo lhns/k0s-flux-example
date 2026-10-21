@@ -4,9 +4,9 @@ metadata:
   annotations:
     # DB role/databases in the shared CNPG (infra-postgres); matrix-db is
     # reflected into this ns by Reflector (infra-reflector); the livekit-lb
-    # LoadBalancer's 10.20.2.19 needs the livekit-vip MetalLB pool (infra-metallb);
-    # Traefik carries all HTTP ingress (infra-traefik); synapse mounts a CephFS
-    # static PV + mas/whatsapp use CephFS PVCs (infra-ceph-csi-cephfs); baibot's
+    # LoadBalancer's 10.20.176.222 needs the livekit-vip MetalLB pool (infra-metallb);
+    # Traefik carries all HTTP ingress (infra-traefik); synapse/mas/whatsapp
+    # use CephFS PVCs (infra-ceph-csi-cephfs); baibot's
     # SQLite store is on ceph-rbd (infra-ceph-csi-rbd). Read by the root
     # generator; inert to kustomize.
     # app-coturn: synapse's TURN credentials are derived from the shared secret
@@ -29,7 +29,15 @@ resources:
 - database.yaml
 - db-role-secret.yaml
 - vnet.yaml
+- secret-mas.yaml
+- secret-mas-admin-client.yaml
+- grafana.yaml
 configMapGenerator:
+# MAS config without secrets; secret-mas.yaml holds the rest. See README, "MAS config".
+- name: mas-config
+  namespace: matrix
+  files:
+  - config.yaml=mas-config.yaml
 - name: element-web-config
   namespace: matrix
   files:

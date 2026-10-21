@@ -75,6 +75,11 @@ spec:
         # Everything here is idempotent — safe on every restart, does real work only once.
         - name: seed-config
           image: alpine/git:2.54.0
+          resources:
+            requests:
+              memory: 64Mi
+            limits:
+              memory: 256Mi
           env:
             - name: HA_DB_PASSWORD
               valueFrom:
@@ -162,7 +167,7 @@ spec:
               mountPath: /config
       containers:
         - name: homeassistant
-          image: ghcr.io/home-assistant/home-assistant:2026.10.1
+          image: ghcr.io/home-assistant/home-assistant:2026.10.2
           env:
             - name: TZ
               value: Europe/Berlin
@@ -170,6 +175,7 @@ spec:
             - name: http
               containerPort: 8123
           readinessProbe:
+            timeoutSeconds: 5
             httpGet:
               path: /
               port: http
@@ -185,6 +191,9 @@ spec:
             - name: packages
               mountPath: /config/packages
               readOnly: true
+          resources:
+            requests: {memory: 768Mi}
+            limits: {memory: 2Gi}
       volumes:
         - name: config
           persistentVolumeClaim:
@@ -208,7 +217,7 @@ spec:
       targetPort: http
 ---
 # The LAN attachment, for DISCOVERY ONLY. mDNS and SSDP are multicast, which never reaches a
-# normal pod — a MetalLB VIP is unicast and NAT'd, which is why the 10.20.2.7 VIP that used to
+# normal pod — a MetalLB VIP is unicast and NAT'd, which is why the 10.20.176.128 VIP that used to
 # be here was deleted rather than kept: it could not do this, and everything else it carried
 # is served by Traefik over TLS.
 #
@@ -235,7 +244,7 @@ spec:
           "mode": "bridge",
           "ipam": {
             "type": "static",
-            "addresses": [{"address": "10.20.3.9/16"}]
+            "addresses": [{"address": "10.20.37.236/16"}]
           }
         }
       ]

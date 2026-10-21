@@ -1,5 +1,5 @@
 # The blog SOURCE (docs/ markdown + overrides/ theme), copied once from the old Swarm
-# volume fastappdata:/docker/zensical. Mounted read-only; zensical builds from it into
+# volume fastdata:/docker/zensical. Mounted read-only; zensical builds from it into
 # an ephemeral emptyDir. Small + read-mostly -> CephFS RWX (both pods can mount it RO
 # during a start-first rollover). The regenerable site/ + .cache/ are NOT persisted.
 apiVersion: v1
@@ -20,7 +20,6 @@ metadata:
   name: zensical
   namespace: zensical
 spec:
-  # Source PVC populated (see README), now live.
   replicas: 1
   # Stateless working dir (emptyDir per pod) -> start-first rolling updates, matching
   # the Swarm order:start-first. No shared writable state, so overlap is fully safe.
@@ -42,7 +41,12 @@ spec:
       containers:
         - name: zensical
           # Runs as root, so it can write the ephemeral emptyDir /docs (site/, .cache/).
-          image: zensical/zensical:0.0.69
+          image: zensical/zensical:0.0.71
+          resources:
+            requests:
+              memory: 128Mi
+            limits:
+              memory: 128Mi
           env:
             - name: TZ
               value: Europe/Berlin
@@ -50,6 +54,7 @@ spec:
             - name: http
               containerPort: 8000
           readinessProbe:
+            timeoutSeconds: 5
             httpGet:
               path: /
               port: http

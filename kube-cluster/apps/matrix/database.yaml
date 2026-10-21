@@ -1,5 +1,5 @@
 ---
-# One login role in the shared CNPG cluster owns all three Matrix databases
+# One login role in the shared CNPG cluster owns all the Matrix databases
 # (stalwart/spliit precedent). Password from secret/matrix-db (postgres ns).
 # retain: never drop on delete.
 apiVersion: postgresql.cnpg.io/v1
@@ -21,7 +21,7 @@ spec:
 # LC_CTYPE=C (verified: template1 = C/C), which is exactly what Synapse
 # requires, so a plain Database inherits C collation from template1 — no
 # locale fields or template0 dance needed. A pg_dump of the Swarm Postgres
-# (10.20.2.10:5437, db "postgres") is restored into it once (PG18 -> PG18).
+# (10.20.176.187:5437, db "postgres") is restored into it once (PG18 -> PG18).
 apiVersion: postgresql.cnpg.io/v1
 kind: Database
 metadata:
@@ -35,7 +35,7 @@ spec:
   databaseReclaimPolicy: retain
 ---
 # matrix-authentication-service (MAS) database. Restored from the Swarm
-# synapse-db instance (10.20.2.10:5437, db "mas").
+# synapse-db instance (10.20.176.187:5437, db "mas").
 apiVersion: postgresql.cnpg.io/v1
 kind: Database
 metadata:
@@ -49,7 +49,7 @@ spec:
   databaseReclaimPolicy: retain
 ---
 # mautrix-whatsapp bridge database. Restored from the Swarm whatsapp-bridge-db
-# instance (10.20.2.10:5436, db "postgres").
+# instance (10.20.176.187:5436, db "postgres").
 apiVersion: postgresql.cnpg.io/v1
 kind: Database
 metadata:

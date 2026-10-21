@@ -88,12 +88,18 @@ spec:
             - name: http
               containerPort: 8000
           readinessProbe:
+            timeoutSeconds: 5
             httpGet:
               path: /__heartbeat__
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
             failureThreshold: 12
+          resources:
+            requests:
+              memory: 384Mi
+            limits:
+              memory: 1Gi
 ---
 apiVersion: v1
 kind: Service

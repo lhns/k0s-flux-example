@@ -7,3 +7,4 @@ resources:
 - ../../../shared/infra/reflector
 patches:
 - path: version.yaml
+- path: resources.yaml

@@ -1,0 +1,28 @@
+---
+# Password from secret/litellm-db (postgres ns), reflected into the app ns.
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: litellm
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: litellm
+  ensure: present
+  login: true
+  passwordSecret:
+    name: litellm-db
+  databaseRoleReclaimPolicy: retain
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: litellm
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: litellm
+  owner: litellm
+  databaseReclaimPolicy: retain

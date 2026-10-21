@@ -1,0 +1,639 @@
+{
+  "uid": "anubis",
+  "title": "Anubis",
+  "tags": [
+    "cluster",
+    "anubis"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "graphTooltip": 1,
+  "refresh": "1m",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "description": "Provisioned from git (kube-cluster/apps/grafana/dashboards/cluster). Anubis forwardAuth metrics from the otel cluster collector; counters appear on their first increment.",
+  "templating": {
+    "list": [
+      {
+        "name": "ds",
+        "label": "Datasource",
+        "type": "datasource",
+        "query": "victoriametrics-metrics-datasource",
+        "refresh": 1,
+        "current": {},
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Allowed",
+      "description": "Share of ALLOW among ALLOW, CHALLENGE and DENY decisions over the selected range (WEIGH is an intermediate score and excluded).",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(anubis_policy_results{action=\"ALLOW\"}[$__range])) or vector(0)) / sum(increase(anubis_policy_results{action=~\"ALLOW|CHALLENGE|DENY\"}[$__range]))",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Challenged",
+      "description": "Share of CHALLENGE decisions over the selected range.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.3
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(anubis_policy_results{action=\"CHALLENGE\"}[$__range])) or vector(0)) / sum(increase(anubis_policy_results{action=~\"ALLOW|CHALLENGE|DENY\"}[$__range]))",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Denied",
+      "description": "Share of DENY decisions over the selected range.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.1
+              },
+              {
+                "color": "red",
+                "value": 0.3
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(anubis_policy_results{action=\"DENY\"}[$__range])) or vector(0)) / sum(increase(anubis_policy_results{action=~\"ALLOW|CHALLENGE|DENY\"}[$__range]))",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Challenge pass ratio",
+      "description": "Validated / issued challenges over the selected range. Low with plenty issued means the challenge or cookie flow is broken; bots that never solve also lower it.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.05
+              },
+              {
+                "color": "green",
+                "value": 0.2
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(increase(anubis_challenges_validated[$__range])) or vector(0)) / sum(increase(anubis_challenges_issued[$__range]))",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Decisions by action",
+      "description": "Policy decisions per second. WEIGH adds to a request's score and is followed by a final decision, so the stack counts some requests twice.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 20,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ALLOW"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "CHALLENGE"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "yellow"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "DENY"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "WEIGH"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (action) (rate(anubis_policy_results[$__rate_interval]))",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "legendFormat": "{{action}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Challenges issued, validated and failed",
+      "description": "Challenge pages served, solutions accepted and solutions rejected, per second. Counters appear on their first increment.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(anubis_challenges_issued[$__rate_interval]))",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "legendFormat": "issued"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(anubis_challenges_validated[$__rate_interval]))",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "legendFormat": "validated"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(rate(anubis_failed_validations[$__rate_interval]))",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "legendFormat": "failed"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Rules by action",
+      "description": "Decisions per rule and action over the selected range, most used first.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 14,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "Decisions",
+            "desc": true
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value": "Decisions",
+              "rule": "Rule",
+              "action": "Action"
+            }
+          }
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (rule, action) (increase(anubis_policy_results[$__range])) > 0",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Requests by pod",
+      "description": "Policy decisions per second per Anubis pod; a lopsided split points at a pod that is not in the Service.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 14,
+        "y": 12,
+        "w": 10,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 20,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (pod) (rate(anubis_policy_results[$__rate_interval]))",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "legendFormat": "{{pod}}"
+        }
+      ]
+    }
+  ]
+}

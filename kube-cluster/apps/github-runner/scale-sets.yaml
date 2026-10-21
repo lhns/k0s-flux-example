@@ -2,8 +2,8 @@
 # ARC runner scale sets (apps/arc-controller): one fresh pod per job, deleted after it. A
 # workflow selects one with `runs-on: <runnerScaleSetName>`; see the README.
 #
-# The pods inherit this namespace's github-runner-egress (DNS and the public internet). Like
-# the runners in resources.yaml they run as root, unprivileged, with no ServiceAccount token.
+# The pods inherit this namespace's github-runner-egress (DNS and the public internet). They run
+# as root, unprivileged, with no ServiceAccount token.
 # Only k0s-flux has Docker, from the remote-docker-ci workspace through ephemeral clients.
 # ===========================================================================
 apiVersion: source.toolkit.fluxcd.io/v1

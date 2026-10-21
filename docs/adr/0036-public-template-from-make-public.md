@@ -1,7 +1,7 @@
 # 0036 — The public version is a sanitised orphan branch, never this repo
 
 - Status: Accepted
-- Date: 2026-08-24, amended 2026-09-04 and 2026-09-16
+- Date: 2026-08-24, amended 2026-09-04, 2026-09-16 and 2026-10-21
 - Current answer: this repository stays private. `scripts/make-public.py` builds a sanitised
   `public-template` branch from `HEAD`, sharing no ancestry with `main`, to be pushed to a
   separate, empty repo. It removes and rewrites what `scripts/public.config.yaml` lists, then
@@ -28,6 +28,10 @@ all of its history, not just the one meant.
   a hard stop, and every new kind of identifier is matched by shape where it can be, not by value.
 - Later rounds: redact infrastructure identifiers and third-party repos, scoped substitutions
   (2026-09-16).
+- **LAN addresses come from a random table** (2026-10-21): `ip_map` in the config maps each real
+  /24 and host to a fake one drawn once and committed, instead of keeping the real octets. The
+  build fails on any home-LAN address without an entry. Hostnames and filesystem names of the
+  storage backend are literal substitutions like other identifiers.
 
 ## Alternatives considered
 

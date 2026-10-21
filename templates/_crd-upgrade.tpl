@@ -8,7 +8,7 @@ That failure is silent: new fields simply do not exist, and the API server prune
 from anything that sets one. Since `crds` exists only per HelmRelease, this is the only
 place a repo-wide default can live.
 
-Only charts that ship a crds/ directory are affected, currently traefik and velero.
+Only charts that ship a crds/ directory are affected.
 Charts that template their CRDs upgrade them already and this is a no-op for them.
 
 CreateReplace really does replace, which is safe for the additive changes a CRD bump

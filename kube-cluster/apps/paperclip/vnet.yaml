@@ -1,0 +1,11 @@
+# Only Hermes may reach the API in-cluster; Traefik reaches it through its own vnet.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: paperclip
+  namespace: paperclip
+spec:
+  description: "hermes -> paperclip API (:3100)."
+  allowedNamespaces:
+    names:
+      - hermes

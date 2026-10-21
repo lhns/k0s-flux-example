@@ -1,0 +1,33 @@
+# Grafana Operator objects of this component (README.md, "Grafana objects"). Each opts out of Flux
+# substitution: rule templates and dashboard JSON are full of ${...}.
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaFolder
+metadata:
+  name: ext-proxmox
+  namespace: grafana
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+    # Pruning a GrafanaFolder deletes the dashboards in it.
+    kustomize.toolkit.fluxcd.io/prune: disabled
+spec:
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  title: Proxmox
+  uid: proxmox
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: ext-proxmox-proxmox
+  namespace: grafana
+spec:
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: proxmox
+  configMapRef:
+    name: ext-proxmox-dashboards
+    key: proxmox.json

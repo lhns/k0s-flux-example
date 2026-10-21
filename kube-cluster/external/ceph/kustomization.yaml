@@ -1,0 +1,26 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Ceph's collector runs on the hosts (cephadm/, README.md); this component holds namespaces/ and
+# the Grafana objects.
+resources:
+- grafana.yaml
+# Dashboard JSON: stable names with the operator's label (its informer only sees labelled
+# ConfigMaps, so a JSON change syncs at once instead of at the next resync), no substitution.
+configMapGenerator:
+- name: ext-ceph-dashboards
+  namespace: grafana
+  options:
+    disableNameSuffixHash: true
+    labels:
+      app.kubernetes.io/managed-by: grafana-operator
+    annotations:
+      kustomize.toolkit.fluxcd.io/substitute: disabled
+  files:
+  - dashboards/ceph-cluster.json
+  - dashboards/ceph-osds.json
+  - dashboards/ceph-osd-device.json
+  - dashboards/ceph-pools.json
+  - dashboards/ceph-pool.json
+  - dashboards/ceph-cephfs.json
+  - dashboards/ceph-rgw.json
+  - dashboards/ceph-rgw-detail.json

@@ -1,9 +1,8 @@
 # forgejo
 
 [Forgejo](https://forgejo.org) — git forge at `forgejo.example.com` (traefik ingress, wildcard TLS).
-Image `codeberg.org/forgejo/forgejo`. Runs **alongside** [`../gitea`](../gitea/README.md)
-until the repositories move across; see *The migration from Gitea* below for why they cannot simply
-share a database.
+Image `codeberg.org/forgejo/forgejo`. Replaces [`../gitea`](../gitea/README.md) (retired); see *The migration from Gitea* below for why they
+could not simply share a database.
 
 ## Shape
 
@@ -153,7 +152,7 @@ warranted to preserve data that does not exist. **Mirrors must be re-pointed at 
 upstreams, not at Gitea**, or Forgejo would mirror a mirror and the chain breaks the moment Gitea
 is retired.
 
-### Status: all 175 across and current with Gitea as of 2026-10-10; Gitea still stays
+### Status: all 175 repositories migrated
 
 `~/gitea2forgejo/` on the jumphost holds the whole thing — `classify.sh`, `migrate.sh`, `plan.tsv`
 (175 rows, one per repo, pre-reviewed), `dead.list`, `state/` (per-repo `done` / `failed`), and the
@@ -217,10 +216,8 @@ what has not landed. **Gitea is never written to**, so it remains a complete rol
 
 ## Notes
 
-- **v16 is the quarterly line**, superseded roughly every three months, so staying supported needs
-  a deliberate major bump. v15 is the LTS (patched to 2027-07) if that trade ever looks wrong.
-- **`REVERSE_PROXY_TRUSTED_PROXIES` is set explicitly** because v16 removed the container image's
-  implicit `*`. Nothing here breaks without it — we do not use
+- **`REVERSE_PROXY_TRUSTED_PROXIES` is set explicitly** because the container image no longer trusts
+  `*` implicitly. Nothing here breaks without it — we do not use
   `ENABLE_REVERSE_PROXY_AUTHENTICATION` — but every client address in the logs and in rate-limiting
   would otherwise be a Traefik pod.
 - **`DEFAULT_ACTIONS_URL` differs from Gitea's**, which defaults to `github.com`. Forgejo's is
@@ -237,6 +234,3 @@ what has not landed. **Gitea is never written to**, so it remains a complete rol
 - **`forgejo.kube.example.com` 301s to `forgejo.example.com`**, matching every other app here. It served
   the app during setup — the staging URL SSO, mail and the runner were verified on — and was
   flipped once the instance went live.
-- Ceph is `HEALTH_ERR` with the `appdata` pool at ~92 %. Standing this up writes almost nothing;
-  the moment that matters is the migration, when ~27 G lands — which is exactly where it stalled.
-  See *Status* above.

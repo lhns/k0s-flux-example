@@ -13,3 +13,4 @@ resources:
 - tls.yaml
 - vnet.yaml
 - redirect.yaml
+- grafana.yaml

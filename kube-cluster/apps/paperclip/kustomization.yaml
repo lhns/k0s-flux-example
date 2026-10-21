@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # anubis/authelia: the reflected middlewares must exist before the route references them,
+    # or Traefik drops the route.
+    flux-component-generator/dependsOn: infra-traefik,infra-postgres,infra-reflector,app-anubis,app-authelia
+resources:
+- resources.yaml
+- routing.yaml
+- database.yaml
+- db-role-secret.yaml
+- secret.yaml
+- vnet.yaml
+- networkpolicy.yaml

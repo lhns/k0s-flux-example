@@ -1,0 +1,1013 @@
+{
+  "uid": "ceph-cephfs",
+  "title": "Ceph CephFS",
+  "description": "CephFS metadata servers: client sessions, request load and latency, cache, memory. Derived from ceph-mixin v20.2.4; provisioned from git (kube-cluster/apps/grafana/dashboards/ceph).",
+  "tags": [
+    "ceph"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "1m",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "links": [
+    {
+      "type": "link",
+      "title": "Ceph cluster",
+      "icon": "dashboard",
+      "url": "/d/ceph-cluster/ceph-cluster",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "Health, capacity, throughput and PGs",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph OSDs",
+      "icon": "dashboard",
+      "url": "/d/ceph-osds/ceph-osds",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "All OSDs",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph OSD device",
+      "icon": "dashboard",
+      "url": "/d/ceph-osd-device/ceph-osd-device",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "One OSD and its device",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph pools",
+      "icon": "dashboard",
+      "url": "/d/ceph-pools/ceph-pools",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "All pools",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph pool",
+      "icon": "dashboard",
+      "url": "/d/ceph-pool/ceph-pool",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "One pool",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph RGW",
+      "icon": "dashboard",
+      "url": "/d/ceph-rgw/ceph-rgw",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "S3 gateways",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph RGW instance",
+      "icon": "dashboard",
+      "url": "/d/ceph-rgw-detail/ceph-rgw-detail",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "One S3 gateway",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Servers",
+      "icon": "dashboard",
+      "url": "/d/servers/servers",
+      "includeVars": false,
+      "keepTime": true,
+      "tooltip": "Host metrics of the Ceph nodes (CPU, memory, disks, network)",
+      "targetBlank": false
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "ds",
+        "label": "Datasource",
+        "type": "datasource",
+        "query": "victoriametrics-metrics-datasource",
+        "refresh": 1,
+        "current": {},
+        "hide": 0
+      },
+      {
+        "name": "cluster",
+        "label": "Cluster",
+        "type": "query",
+        "datasource": {
+          "type": "victoriametrics-metrics-datasource",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "label_values(ceph_health_status, cluster)",
+          "refId": "cluster"
+        },
+        "definition": "label_values(ceph_health_status, cluster)",
+        "regex": "",
+        "refresh": 2,
+        "sort": 1,
+        "multi": false,
+        "includeAll": false,
+        "hide": 0,
+        "current": {}
+      },
+      {
+        "name": "mds_servers",
+        "label": "MDS",
+        "type": "query",
+        "datasource": {
+          "type": "victoriametrics-metrics-datasource",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "label_values(ceph_mds_inodes{cluster=~\"$cluster|\"}, ceph_daemon)",
+          "refId": "mds_servers"
+        },
+        "definition": "label_values(ceph_mds_inodes{cluster=~\"$cluster|\"}, ceph_daemon)",
+        "regex": "",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "hide": 0,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "collapse": false,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "repeat": null,
+      "repeatIteration": null,
+      "repeatRowId": null,
+      "showTitle": true,
+      "title": "MDS Performance",
+      "titleSize": "h6",
+      "type": "row",
+      "panels": []
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Reads(-) / Writes (+)",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 0,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": []
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 1
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(ceph_objecter_op_r{ceph_daemon=~\"($mds_servers).*\", cluster=~\"$cluster\", }[$__rate_interval]))",
+          "legendFormat": "Read Ops",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        },
+        {
+          "expr": "sum(rate(ceph_objecter_op_w{ceph_daemon=~\"($mds_servers).*\", cluster=~\"$cluster\", }[$__rate_interval]))",
+          "legendFormat": "Write Ops",
+          "refId": "B",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "title": "MDS Workload - $mds_servers",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Client Requests",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 0,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": []
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 1
+      },
+      "id": 3,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "ceph_mds_server_handle_client_request{ceph_daemon=~\"($mds_servers).*\", cluster=~\"$cluster\", }",
+          "legendFormat": "{{ceph_daemon}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "title": "Client Request Load - $mds_servers",
+      "type": "timeseries"
+    },
+    {
+      "type": "timeseries",
+      "title": "Client sessions",
+      "description": "Open client sessions per MDS. **Bad:** a sudden drop (clients evicted) or a steady climb (leaking mounts). **Fix:** `ceph tell mds.<name> session ls`.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "ceph_mds_sessions_sessions_open{ceph_daemon=~\"($mds_servers).*\", cluster=~\"$cluster|\"}",
+          "refId": "A",
+          "legendFormat": "{{ceph_daemon}} open",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "ceph_mds_sessions_sessions_stale{ceph_daemon=~\"($mds_servers).*\", cluster=~\"$cluster|\"}",
+          "refId": "B",
+          "legendFormat": "{{ceph_daemon}} stale",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 8,
+        "h": 8
+      },
+      "id": 4
+    },
+    {
+      "type": "timeseries",
+      "title": "Request rate",
+      "description": "Client requests handled per second by each MDS.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "reqps",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "rate(ceph_mds_request{ceph_daemon=~\"($mds_servers).*\", cluster=~\"$cluster|\"}[$__rate_interval])",
+          "refId": "A",
+          "legendFormat": "{{ceph_daemon}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "gridPos": {
+        "x": 8,
+        "y": 10,
+        "w": 8,
+        "h": 8
+      },
+      "id": 5
+    },
+    {
+      "type": "timeseries",
+      "title": "Reply latency",
+      "description": "Mean time to reply to a client request. **Bad:** tens of ms sustained: the MDS or its metadata pool is saturated. **Fix:** check the metadata pool's OSDs (*Ceph OSDs*), the MDS cache and CPU.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "s",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "rate(ceph_mds_reply_latency_sum{ceph_daemon=~\"($mds_servers).*\", cluster=~\"$cluster|\"}[$__rate_interval]) / rate(ceph_mds_reply_latency_count{ceph_daemon=~\"($mds_servers).*\", cluster=~\"$cluster|\"}[$__rate_interval])",
+          "refId": "A",
+          "legendFormat": "{{ceph_daemon}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "gridPos": {
+        "x": 16,
+        "y": 10,
+        "w": 8,
+        "h": 8
+      },
+      "id": 6
+    },
+    {
+      "type": "timeseries",
+      "title": "Slow replies",
+      "description": "Requests that took longer than `mds_op_complaint_time` (30s). **Bad:** any. **Fix:** the MDS_SLOW_REQUEST health check names the blocked requests.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ops",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "rate(ceph_mds_slow_reply{ceph_daemon=~\"($mds_servers).*\", cluster=~\"$cluster|\"}[$__rate_interval])",
+          "refId": "A",
+          "legendFormat": "{{ceph_daemon}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 8,
+        "h": 8
+      },
+      "id": 7
+    },
+    {
+      "type": "timeseries",
+      "title": "Capabilities",
+      "description": "Capabilities issued to clients (`caps`) and inodes holding them. **Bad:** caps far above the cache size: clients hold more than the MDS can track (`MDS_CLIENT_RECALL`). **Fix:** lower `mds_max_caps_per_client` or restart the offending client.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "ceph_mds_caps{ceph_daemon=~\"($mds_servers).*\", cluster=~\"$cluster|\"}",
+          "refId": "A",
+          "legendFormat": "{{ceph_daemon}} caps",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "ceph_mds_inodes_with_caps{ceph_daemon=~\"($mds_servers).*\", cluster=~\"$cluster|\"}",
+          "refId": "B",
+          "legendFormat": "{{ceph_daemon}} inodes with caps",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "gridPos": {
+        "x": 8,
+        "y": 18,
+        "w": 8,
+        "h": 8
+      },
+      "id": 8
+    },
+    {
+      "type": "timeseries",
+      "title": "Inodes and strays",
+      "description": "Inodes in the MDS cache and deleted-but-referenced files (strays). **Bad:** strays growing without bound: purging lags. **Fix:** check the data pool's OSDs.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "ceph_mds_inodes{ceph_daemon=~\"($mds_servers).*\", cluster=~\"$cluster|\"}",
+          "refId": "A",
+          "legendFormat": "{{ceph_daemon}} inodes",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "ceph_mds_cache_num_strays{ceph_daemon=~\"($mds_servers).*\", cluster=~\"$cluster|\"}",
+          "refId": "B",
+          "legendFormat": "{{ceph_daemon}} strays",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "gridPos": {
+        "x": 16,
+        "y": 18,
+        "w": 8,
+        "h": 8
+      },
+      "id": 9
+    },
+    {
+      "type": "timeseries",
+      "title": "MDS memory",
+      "description": "Resident memory of each MDS. **Bad:** far above `mds_cache_memory_limit`. **Fix:** raise the limit or the daemon's memory; fewer caps per client.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "bytes",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "ceph_mds_mem_rss{ceph_daemon=~\"($mds_servers).*\", cluster=~\"$cluster|\"}",
+          "refId": "A",
+          "legendFormat": "{{ceph_daemon}}",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 12,
+        "h": 8
+      },
+      "id": 10
+    },
+    {
+      "type": "timeseries",
+      "title": "Journal events",
+      "description": "Metadata journal events added and trimmed per second. **Bad:** adds far above trims for long: the journal grows (`MDS_TRIM`). **Fix:** check the metadata pool's OSDs.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "ops",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "rate(ceph_mds_log_evadd{ceph_daemon=~\"($mds_servers).*\", cluster=~\"$cluster|\"}[$__rate_interval])",
+          "refId": "A",
+          "legendFormat": "{{ceph_daemon}} added",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "rate(ceph_mds_log_evtrm{ceph_daemon=~\"($mds_servers).*\", cluster=~\"$cluster|\"}[$__rate_interval])",
+          "refId": "B",
+          "legendFormat": "{{ceph_daemon}} trimmed",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 26,
+        "w": 12,
+        "h": 8
+      },
+      "id": 11
+    }
+  ]
+}

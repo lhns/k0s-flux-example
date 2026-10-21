@@ -104,6 +104,7 @@ spec:
           # valkey opens its port only after replaying AOF/RDB; give it generous grace
           # on the slow Ceph before liveness can kill it.
           startupProbe:
+            timeoutSeconds: 5
             tcpSocket: {port: valkey}
             periodSeconds: 5
             failureThreshold: 30
@@ -117,6 +118,7 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
           livenessProbe:
+            timeoutSeconds: 5
             tcpSocket: {port: valkey}
             initialDelaySeconds: 15
             periodSeconds: 20
@@ -140,10 +142,12 @@ spec:
             preStop:
               exec: {command: ["sleep", "22"]}
           readinessProbe:
+            timeoutSeconds: 5
             tcpSocket: {port: sentinel}
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
+            timeoutSeconds: 5
             tcpSocket: {port: sentinel}
             initialDelaySeconds: 15
             periodSeconds: 20

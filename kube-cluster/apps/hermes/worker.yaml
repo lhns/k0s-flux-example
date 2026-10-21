@@ -1,0 +1,154 @@
+# Instance for Paperclip-dispatched runs. Its own volume, no Matrix, no claude login, no owner
+# memory: a prompt injected through a ticket sees none of the owner's data (README, "Worker").
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hermes-worker-data
+  namespace: hermes
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes-worker
+  namespace: hermes
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  # Singleton: one process owns state.db.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hermes-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hermes-worker
+        app.kubernetes.io/instance: hermes-worker
+        # Paperclip -> :8642 (vnet.yaml).
+        kube-vnet/net.hermes: ingress
+        # Runs report back to Paperclip (comments, status) as agent Hermes.
+        kube-vnet/net.paperclip.paperclip: egress
+    spec:
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      # Not PID 1 in the pod, so the image skips s6 (which needs root) and runs its hook directly.
+      shareProcessNamespace: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+        fsGroup: 10000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # As the owner's: Hermes rewrites config.yaml, so it is copied, and reset each start.
+        - name: seed-config
+          image: nousresearch/hermes-agent:v0.22.2@sha256:36099926da316742423544e055d4734777105ffe6341873af5459b957d0c2919
+          resources:
+            requests:
+              memory: 16Mi
+            limits:
+              memory: 128Mi
+          command: [cp, /etc/hermes-profile/config.yaml, /opt/data/config.yaml]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: data, mountPath: /opt/data}
+            - {name: profile-worker, mountPath: /etc/hermes-profile, readOnly: true}
+      containers:
+        - name: hermes
+          image: nousresearch/hermes-agent:v0.22.2@sha256:36099926da316742423544e055d4734777105ffe6341873af5459b957d0c2919
+          args: [gateway, run]
+          env:
+            - {name: HERMES_MANAGED_DIR, value: /etc/hermes-managed}
+            - {name: HERMES_GATEWAY_NO_SUPERVISE, value: "1"}
+            # Value: /etc/hermes/agent-browser-executable-path in the image; re-check on upgrade.
+            - {name: AGENT_BROWSER_EXECUTABLE_PATH, value: /opt/hermes/tools/chromium-1208/chrome-linux64/chrome}
+            - {name: API_SERVER_ENABLED, value: "true"}
+            - {name: API_SERVER_HOST, value: 0.0.0.0}
+            - {name: API_SERVER_PORT, value: "8642"}
+            - {name: OBSIDIAN_VAULT_PATH, value: /wiki}
+            # The bundled llm-wiki skill looks here (default ~/wiki).
+            - {name: WIKI_PATH, value: /wiki}
+            # Paperclip expects the agent to post its comment and set the issue status itself;
+            # the hermes_gateway adapter passes no credentials. PAPERCLIP_API_KEY: agent Hermes's key.
+            - {name: PAPERCLIP_API_URL, value: "http://paperclip.paperclip.svc:3100/api"}
+            # Without the Secret the API server refuses to start, so the pod stays down (README).
+            - name: API_SERVER_KEY
+              valueFrom:
+                secretKeyRef: {name: hermes-worker-api, key: API_SERVER_KEY, optional: true}
+          envFrom:
+            - secretRef:
+                name: hermes-anthropic
+            - secretRef:
+                name: hermes-worker-paperclip
+          ports:
+            - {name: api, containerPort: 8642}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: data, mountPath: /opt/data}
+            - {name: wiki, mountPath: /wiki, readOnly: true}
+            - {name: managed, mountPath: /etc/hermes-managed, readOnly: true}
+            - {name: run, mountPath: /run}
+          startupProbe:
+            timeoutSeconds: 5
+            tcpSocket:
+              port: api
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            timeoutSeconds: 5
+            httpGet:
+              path: /health
+              port: api
+            periodSeconds: 10
+          livenessProbe:
+            timeoutSeconds: 5
+            tcpSocket:
+              port: api
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            requests: {cpu: 250m, memory: 1Gi}
+            limits: {memory: 3Gi}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: hermes-worker-data
+        - name: wiki
+          persistentVolumeClaim:
+            claimName: hermes-wiki
+            readOnly: true
+        - name: managed
+          configMap:
+            name: hermes-managed
+        - name: profile-worker
+          configMap:
+            name: hermes-profile-worker
+        - name: run
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes-worker
+  namespace: hermes
+spec:
+  selector:
+    app.kubernetes.io/name: hermes-worker
+  ports:
+    - {name: api, port: 8642, targetPort: api}

@@ -1,7 +1,7 @@
 # ===========================================================================
 # MariaDB — TeamSpeak's DB backend (ts3db_mariadb; TeamSpeak supports only SQLite
 # or MariaDB, no Postgres/CNPG). Self-managed StatefulSet on ceph-rbd. The old
-# Swarm DB (10.20.2.10:3306) is dumped in logically once before TeamSpeak first
+# Swarm DB (10.20.176.187:3306) is dumped in logically once before TeamSpeak first
 # boots (see README). kube-vnet isolates it (only the teamspeak pod gets egress).
 # ===========================================================================
 apiVersion: v1
@@ -53,6 +53,7 @@ spec:
             - {name: MARIADB_DATABASE, value: teamspeak}
             - {name: MARIADB_ROOT_PASSWORD, valueFrom: {secretKeyRef: {name: teamspeak, key: DB_ROOT_PASSWORD}}}
           readinessProbe:
+            timeoutSeconds: 5
             exec:
               command: ["sh", "-c", "mariadb-admin ping -h 127.0.0.1 -u root -p\"$MARIADB_ROOT_PASSWORD\" --silent"]
             initialDelaySeconds: 15
@@ -146,6 +147,11 @@ spec:
       containers:
         - name: teamspeak
           image: teamspeak:3.13.8
+          resources:
+            requests:
+              memory: 128Mi
+            limits:
+              memory: 128Mi
           ports:
             - {name: voice, containerPort: 9987, protocol: UDP}
             - {name: query, containerPort: 10011, protocol: TCP}
@@ -178,7 +184,7 @@ metadata:
   name: teamspeak-lb
   namespace: teamspeak
   annotations:
-    metallb.io/loadBalancerIPs: 10.20.2.9
+    metallb.io/loadBalancerIPs: 10.20.176.236
 spec:
   type: LoadBalancer
   externalTrafficPolicy: Local

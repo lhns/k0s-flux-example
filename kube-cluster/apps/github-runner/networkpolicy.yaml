@@ -3,7 +3,7 @@
 #
 # WHY THIS EXISTS: a workflow is arbitrary code, run by anyone who can push to a registered repo --
 # and one of these repos is not ours. Without this policy a job could reach the Ceph monitors at
-# 10.20.2.101-103, the Kubernetes API server, every LAN host and every other pod.
+# 10.20.176.250-252, the Kubernetes API server, every LAN host and every other pod.
 #
 # WHAT IT DOES NOT COVER: job CONTAINERS. They run on a remote-docker workspace and inherit that
 # pod's reach, confined to the internet by apps/remote-docker-ci's own policy (the

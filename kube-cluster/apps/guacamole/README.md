@@ -63,17 +63,17 @@ Two changes came out of it:
 
   `internalProxies` lists **both** hops in front of guacamole, because Tomcat walks
   `X-Forwarded-For` right to left and stops at the first address it does not recognise:
-  `172.18.0.0/16` for the traefik pods, and `10.20.2.31/.32/.33` for the docker swarm nodes running
+  `172.18.0.0/16` for the traefik pods, and `10.20.176.125/.185/.190` for the docker swarm nodes running
   the edge traefik.
 
-  Three `/32`s, deliberately — *not* `10.20.2.0/24`, and not Tomcat's default, which covers `10/8`.
-  LAN clients reach the VIP directly and arrive from `10.20.2.0/24` themselves, so anything broader
+  Three `/32`s, deliberately — *not* `10.20.176.0/24`, and not Tomcat's default, which covers `10/8`.
+  LAN clients reach the VIP directly and arrive from `10.20.176.0/24` themselves, so anything broader
   classifies a real client as a proxy, walks past it, and falls back to the traefik pod —
   reintroducing the bug.
 
   **Correction, 2026-08-15.** This file used to claim external users sharing one identity was
   "edge/NAT topology, not something Guacamole can fix". That was wrong, and it cost a second
-  investigation when jellyfin showed the same `10.20.2.33` for every external user. There was no
+  investigation when jellyfin showed the same `10.20.176.190` for every external user. There was no
   NAT involved: the *cluster* traefik had no `forwardedHeaders.trustedIPs`, and traefik v3's
   default is not "ignore the inbound header" but "discard it and rewrite `X-Forwarded-For` with
   the peer address". So the edge's header — which carried the real client all along — was being

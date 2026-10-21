@@ -1,0 +1,819 @@
+{
+ "1111AAAA00000000000000000000000000000000": [
+  {
+   "path": "/downloads/Folder/other.name.s01e02.german.1080p.web-group-a.mkv",
+   "relativePath": "other.name.s01e02.german.1080p.web-group-a.mkv",
+   "folderName": "Folder",
+   "name": "other.name.s01e02.german.1080p.web-group-a",
+   "size": 1000,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "seasonNumber": 1,
+   "episodes": [
+    {
+     "id": 101,
+     "seasonNumber": 1,
+     "episodeNumber": 2
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "releaseGroup": "Group-A",
+   "indexerFlags": 0,
+   "releaseType": "singleEpisode",
+   "downloadId": "1111AAAA00000000000000000000000000000000",
+   "customFormats": [],
+   "rejections": []
+  }
+ ],
+ "2222BBBB00000000000000000000000000000000": [
+  {
+   "path": "/downloads/Example.Show.S02.GERMAN.1080p.WEB-Group-A/example.show.s02e01.mkv",
+   "relativePath": "example.show.s02e01.mkv",
+   "folderName": "Example.Show.S02.GERMAN.1080p.WEB-Group-A",
+   "name": "example.show.s02e01",
+   "size": 1000,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "seasonNumber": 2,
+   "episodes": [
+    {
+     "id": 201,
+     "seasonNumber": 2,
+     "episodeNumber": 1
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "releaseGroup": "Group-A",
+   "indexerFlags": 0,
+   "releaseType": "singleEpisode",
+   "downloadId": "2222BBBB00000000000000000000000000000000",
+   "customFormats": [],
+   "rejections": []
+  },
+  {
+   "path": "/downloads/Example.Show.S02.GERMAN.1080p.WEB-Group-A/example.show.s02e02.mkv",
+   "relativePath": "example.show.s02e02.mkv",
+   "folderName": "Example.Show.S02.GERMAN.1080p.WEB-Group-A",
+   "name": "example.show.s02e02",
+   "size": 1000,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "seasonNumber": 2,
+   "episodes": [
+    {
+     "id": 202,
+     "seasonNumber": 2,
+     "episodeNumber": 2
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "English"
+    }
+   ],
+   "releaseGroup": "Group-A",
+   "indexerFlags": 0,
+   "releaseType": "singleEpisode",
+   "downloadId": "2222BBBB00000000000000000000000000000000",
+   "customFormats": [],
+   "rejections": []
+  },
+  {
+   "path": "/downloads/Example.Show.S02.GERMAN.1080p.WEB-Group-A/example.show.s02e03.mkv",
+   "relativePath": "example.show.s02e03.mkv",
+   "folderName": "Example.Show.S02.GERMAN.1080p.WEB-Group-A",
+   "name": "example.show.s02e03",
+   "size": 1000,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "seasonNumber": 0,
+   "episodes": [],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "releaseGroup": "Group-A",
+   "indexerFlags": 0,
+   "releaseType": "singleEpisode",
+   "downloadId": "2222BBBB00000000000000000000000000000000",
+   "customFormats": [],
+   "rejections": [
+    {
+     "reason": "Invalid season or episode",
+     "type": "permanent"
+    }
+   ]
+  },
+  {
+   "path": "/downloads/Example.Show.S02.GERMAN.1080p.WEB-Group-A/example.show.s02e01.sample.mkv",
+   "relativePath": "example.show.s02e01.sample.mkv",
+   "folderName": "Example.Show.S02.GERMAN.1080p.WEB-Group-A",
+   "name": "example.show.s02e01.sample",
+   "size": 1000,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "seasonNumber": 2,
+   "episodes": [
+    {
+     "id": 201,
+     "seasonNumber": 2,
+     "episodeNumber": 1
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "releaseGroup": "Group-A",
+   "indexerFlags": 0,
+   "releaseType": "singleEpisode",
+   "downloadId": "2222BBBB00000000000000000000000000000000",
+   "customFormats": [],
+   "rejections": [
+    {
+     "reason": "Sample",
+     "type": "permanent"
+    }
+   ]
+  }
+ ],
+ "3333CCCC00000000000000000000000000000000": [
+  {
+   "path": "/downloads/[Group-B] Anime Example S2 (BD 1080p)/[Group-B] Anime Example S2 - 05.mkv",
+   "relativePath": "[Group-B] Anime Example S2 - 05.mkv",
+   "folderName": "[Group-B] Anime Example S2 (BD 1080p)",
+   "name": "[Group-B] Anime Example S2 - 05",
+   "size": 1000,
+   "series": {
+    "id": 20,
+    "title": "Anime Example",
+    "seriesType": "anime",
+    "useSceneNumbering": false
+   },
+   "seasonNumber": 2,
+   "episodes": [
+    {
+     "id": 301,
+     "seasonNumber": 2,
+     "episodeNumber": 5,
+     "absoluteEpisodeNumber": 17
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "Japanese"
+    },
+    {
+     "id": 2,
+     "name": "English"
+    }
+   ],
+   "releaseGroup": "Group-A",
+   "indexerFlags": 0,
+   "releaseType": "singleEpisode",
+   "downloadId": "3333CCCC00000000000000000000000000000000",
+   "customFormats": [],
+   "rejections": []
+  },
+  {
+   "path": "/downloads/[Group-B] Anime Example S2 (BD 1080p)/[Group-B] Anime Example S2 - 06.mkv",
+   "relativePath": "[Group-B] Anime Example S2 - 06.mkv",
+   "folderName": "[Group-B] Anime Example S2 (BD 1080p)",
+   "name": "[Group-B] Anime Example S2 - 06",
+   "size": 1000,
+   "series": {
+    "id": 20,
+    "title": "Anime Example",
+    "seriesType": "anime",
+    "useSceneNumbering": false
+   },
+   "seasonNumber": 2,
+   "episodes": [
+    {
+     "id": 302,
+     "seasonNumber": 2,
+     "episodeNumber": 6,
+     "absoluteEpisodeNumber": 18
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "English"
+    }
+   ],
+   "releaseGroup": "Group-A",
+   "indexerFlags": 0,
+   "releaseType": "singleEpisode",
+   "downloadId": "3333CCCC00000000000000000000000000000000",
+   "customFormats": [],
+   "rejections": [
+    {
+     "reason": "Episode 2x6 was unexpected considering the [Group-B] Anime Example S2 (BD 1080p) folder name",
+     "type": "permanent"
+    },
+    {
+     "reason": "Episode 2x6 was not found in the grabbed release: [Group-B] Anime Example S2 (BD 1080p)",
+     "type": "permanent"
+    }
+   ]
+  }
+ ],
+ "4444DDDD00000000000000000000000000000000": [
+  {
+   "path": "/downloads/Folder/example.show.s03e01.french.mkv",
+   "relativePath": "example.show.s03e01.french.mkv",
+   "folderName": "Folder",
+   "name": "example.show.s03e01.french",
+   "size": 1000,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "seasonNumber": 3,
+   "episodes": [
+    {
+     "id": 401,
+     "seasonNumber": 3,
+     "episodeNumber": 1
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "French"
+    }
+   ],
+   "releaseGroup": "Group-A",
+   "indexerFlags": 0,
+   "releaseType": "singleEpisode",
+   "downloadId": "4444DDDD00000000000000000000000000000000",
+   "customFormats": [],
+   "rejections": []
+  }
+ ],
+ "5555EEEE00000000000000000000000000000000": [
+  {
+   "path": "/downloads/Folder/example.show.s01e05.mkv",
+   "relativePath": "example.show.s01e05.mkv",
+   "folderName": "Folder",
+   "name": "example.show.s01e05",
+   "size": 1000,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "seasonNumber": 1,
+   "episodes": [
+    {
+     "id": 105,
+     "seasonNumber": 1,
+     "episodeNumber": 5
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 2,
+     "name": "WEBDL-720p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "releaseGroup": "Group-A",
+   "indexerFlags": 0,
+   "releaseType": "singleEpisode",
+   "downloadId": "5555EEEE00000000000000000000000000000000",
+   "customFormats": [],
+   "rejections": [
+    {
+     "reason": "Not a Custom Format upgrade for existing episode file(s). New: [1080p, Not English, Not German] (0) do not improve on Existing: [1080p, English, German] (2000)",
+     "type": "permanent"
+    }
+   ]
+  }
+ ],
+ "6666FFFF00000000000000000000000000000000": [
+  {
+   "path": "/downloads/Folder/example.show.s04e01.mkv",
+   "relativePath": "example.show.s04e01.mkv",
+   "folderName": "Folder",
+   "name": "example.show.s04e01",
+   "size": 1000,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "seasonNumber": 4,
+   "episodes": [
+    {
+     "id": 501,
+     "seasonNumber": 4,
+     "episodeNumber": 1
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "releaseGroup": "Group-A",
+   "indexerFlags": 0,
+   "releaseType": "singleEpisode",
+   "downloadId": "6666FFFF00000000000000000000000000000000",
+   "customFormats": [],
+   "rejections": []
+  }
+ ],
+ "7777AAAA00000000000000000000000000000000": [
+  {
+   "path": "/downloads/Folder/example.show.s04e01.720p.mkv",
+   "relativePath": "example.show.s04e01.720p.mkv",
+   "folderName": "Folder",
+   "name": "example.show.s04e01.720p",
+   "size": 1000,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "seasonNumber": 4,
+   "episodes": [
+    {
+     "id": 501,
+     "seasonNumber": 4,
+     "episodeNumber": 1
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 2,
+     "name": "WEBDL-720p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "releaseGroup": "Group-C",
+   "indexerFlags": 0,
+   "releaseType": "singleEpisode",
+   "downloadId": "7777AAAA00000000000000000000000000000000",
+   "customFormats": [],
+   "rejections": []
+  }
+ ],
+ "8888BBBB00000000000000000000000000000000": [],
+ "9999CCCC00000000000000000000000000000000": [
+  {
+   "path": "/downloads/Folder/unknown.thing.s01e01.mkv",
+   "relativePath": "unknown.thing.s01e01.mkv",
+   "folderName": "Folder",
+   "name": "unknown.thing.s01e01",
+   "size": 1000,
+   "series": null,
+   "seasonNumber": 0,
+   "episodes": [],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "releaseGroup": "Group-A",
+   "indexerFlags": 0,
+   "releaseType": "singleEpisode",
+   "downloadId": "9999CCCC00000000000000000000000000000000",
+   "customFormats": [],
+   "rejections": []
+  }
+ ],
+ "AAAA101000000000000000000000000000000000": [],
+ "BBBB111100000000000000000000000000000000": [
+  {
+   "path": "/downloads/Folder/weird name.mkv",
+   "relativePath": "weird name.mkv",
+   "folderName": "Folder",
+   "name": "weird name",
+   "size": 1000,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "seasonNumber": 0,
+   "episodes": [],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "releaseGroup": "Group-A",
+   "indexerFlags": 0,
+   "releaseType": "singleEpisode",
+   "downloadId": "BBBB111100000000000000000000000000000000",
+   "customFormats": [],
+   "rejections": []
+  }
+ ],
+ "CCCC121200000000000000000000000000000000": [
+  {
+   "path": "/downloads/Folder/example.show.s01e01.mkv",
+   "relativePath": "example.show.s01e01.mkv",
+   "folderName": "Folder",
+   "name": "example.show.s01e01",
+   "size": 1000,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "seasonNumber": 1,
+   "episodes": [
+    {
+     "id": 100,
+     "seasonNumber": 1,
+     "episodeNumber": 1
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "releaseGroup": "Group-A",
+   "indexerFlags": 0,
+   "releaseType": "singleEpisode",
+   "downloadId": "CCCC121200000000000000000000000000000000",
+   "customFormats": [],
+   "rejections": [
+    {
+     "reason": "Episode file already imported at 10/8/2026 2:02:00 PM",
+     "type": "permanent"
+    }
+   ]
+  }
+ ],
+ "DDDD131300000000000000000000000000000000": [
+  {
+   "path": "/downloads/Folder/example.show.s08.mkv",
+   "relativePath": "example.show.s08.mkv",
+   "folderName": "Folder",
+   "name": "example.show.s08",
+   "size": 1000,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "seasonNumber": 8,
+   "episodes": [
+    {
+     "id": 901,
+     "seasonNumber": 8,
+     "episodeNumber": 1
+    },
+    {
+     "id": 902,
+     "seasonNumber": 8,
+     "episodeNumber": 2
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "releaseGroup": "Group-A",
+   "indexerFlags": 0,
+   "releaseType": "singleEpisode",
+   "downloadId": "DDDD131300000000000000000000000000000000",
+   "customFormats": [],
+   "rejections": [
+    {
+     "reason": "Single episode file contains all episodes in seasons. Review file name or manually import",
+     "type": "permanent"
+    }
+   ]
+  }
+ ],
+ "EEEE141400000000000000000000000000000000": [
+  {
+   "path": "/downloads/Folder/example.show.s09e01.sample.mkv",
+   "relativePath": "example.show.s09e01.sample.mkv",
+   "folderName": "Folder",
+   "name": "example.show.s09e01.sample",
+   "size": 1000,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "seasonNumber": 9,
+   "episodes": [
+    {
+     "id": 1001,
+     "seasonNumber": 9,
+     "episodeNumber": 1
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "releaseGroup": "Group-A",
+   "indexerFlags": 0,
+   "releaseType": "singleEpisode",
+   "downloadId": "EEEE141400000000000000000000000000000000",
+   "customFormats": [],
+   "rejections": [
+    {
+     "reason": "Sample",
+     "type": "permanent"
+    }
+   ]
+  }
+ ],
+ "FFFF151500000000000000000000000000000000": [
+  {
+   "path": "/downloads/Folder/[Group-B] Anime Example S14E922 [1080p].mkv",
+   "relativePath": "[Group-B] Anime Example S14E922 [1080p].mkv",
+   "folderName": "Folder",
+   "name": "[Group-B] Anime Example S14E922 [1080p]",
+   "size": 1000,
+   "series": {
+    "id": 20,
+    "title": "Anime Example",
+    "seriesType": "anime",
+    "useSceneNumbering": false
+   },
+   "seasonNumber": 0,
+   "episodes": [],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "Japanese"
+    }
+   ],
+   "releaseGroup": "Group-A",
+   "indexerFlags": 0,
+   "releaseType": "singleEpisode",
+   "downloadId": "FFFF151500000000000000000000000000000000",
+   "customFormats": [],
+   "rejections": [
+    {
+     "reason": "Invalid season or episode",
+     "type": "permanent"
+    }
+   ]
+  }
+ ],
+ "0000AAAA11111111111111111111111111111111": [
+  {
+   "path": "/downloads/Folder/example.show.s10e01.mkv",
+   "relativePath": "example.show.s10e01.mkv",
+   "folderName": "Folder",
+   "name": "example.show.s10e01",
+   "size": 1000,
+   "series": {
+    "id": 10,
+    "title": "Example Show",
+    "seriesType": "standard",
+    "useSceneNumbering": false
+   },
+   "seasonNumber": 10,
+   "episodes": [
+    {
+     "id": 1101,
+     "seasonNumber": 10,
+     "episodeNumber": 1
+    }
+   ],
+   "quality": {
+    "quality": {
+     "id": 1,
+     "name": "WEBDL-1080p"
+    },
+    "revision": {
+     "version": 1
+    }
+   },
+   "languages": [
+    {
+     "id": 1,
+     "name": "German"
+    }
+   ],
+   "releaseGroup": "Group-A",
+   "indexerFlags": 0,
+   "releaseType": "singleEpisode",
+   "downloadId": "0000AAAA11111111111111111111111111111111",
+   "customFormats": [],
+   "rejections": [
+    {
+     "reason": "Some other rejection",
+     "type": "permanent"
+    }
+   ]
+  }
+ ]
+}

@@ -21,10 +21,10 @@ redirect to the canonical host.
 
 ## One-time migration
 1. Deploy with the Deployment at `replicas: 0` (db/role + secret come up).
-2. **Verify** the source DB at `10.20.2.10:5436` is actually miniflux (same host port the bitwarden
-   stack used), then `pg_dump` `postgresql://miniflux:<pw>@10.20.2.10:5436/miniflux` into the CNPG
+2. **Verify** the source DB at `10.20.176.187:5436` is actually miniflux (same host port the bitwarden
+   stack used), then `pg_dump` it (credentials from the Swarm stack) into the CNPG
    `miniflux` db (as the `miniflux` role), `postgres-rw.postgres.svc.cluster.local:5432`,
    `sslmode=disable`. Same major (PG 18 both sides).
 3. Flip the Deployment to `replicas: 1`.
 4. Point `miniflux.example.com` (+ `miniflux.kube.example.com`, `miniflux.example.net`) DNS at the Traefik LB
-   `10.20.2.15`.
+   `10.20.176.210`.

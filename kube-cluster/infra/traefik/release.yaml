@@ -20,13 +20,11 @@ spec:
   chart:
     spec:
       chart: traefik
-      version: "41.7.1"
+      version: "42.1.2"
       interval: 1h0m0s
       sourceRef:
         kind: HelmRepository
         name: traefik
-  # Values copied verbatim from k0sctl.yaml so the rendered manifests are
-  # identical to what k0s deployed (adoption = a no-op upgrade, no pod churn).
   values:
     # The subsonic-basicauth plugin converts Subsonic auth query params into a
     # Basic Authorization header (used by navidrome's /rest router).
@@ -41,10 +39,15 @@ spec:
     # providers.kubernetesCRD.allowCrossNamespace.)
     deployment:
       kind: DaemonSet
+    resources:
+      requests:
+        memory: 256Mi
+      limits:
+        memory: 768Mi
     service:
       type: LoadBalancer
       annotations:
-        metallb.io/loadBalancerIPs: 10.20.2.15
+        metallb.io/loadBalancerIPs: 10.20.176.210
       spec:
         externalTrafficPolicy: Local
     ingressRoute:
@@ -52,7 +55,6 @@ spec:
         enabled: true
         matchRule: Host(`traefik.kube.example.com`)
         entryPoints:
-          - web
           - websecure
         # Gate the dashboard behind Authelia SSO (the reflected `authelia` forwardAuth
         # middleware, local to the traefik ns via traefik-reflector). Access is further
@@ -66,25 +68,12 @@ spec:
         # NOT a default entrypoint: Ingresses bind to websecure only, so port 80
         # carries just the catch-all HTTP->HTTPS redirect (see redirect.yaml).
         asDefault: false
-        # Trust the X-Forwarded-* the Swarm edge sends. These three are the docker swarm
-        # nodes running the traefik that sits in front of this one; every external request
-        # arrives from one of them.
-        #
-        # Without this, traefik v3 defaults to trusting NOBODY, which does not mean "ignore
-        # the header" -- it means DISCARD it and rewrite X-Forwarded-For with the peer
-        # address. So every external user reached the apps as 10.20.2.31/.32/.33 and the real
-        # client IP was thrown away one hop short. jellyfin logged the swarm node, guacamole's
-        # brute-force extension banned it, and a per-IP rateLimit became one shared bucket
-        # for the entire internet.
-        #
-        # /32 each, deliberately, not 10.20.2.0/24: trusting an address means letting it assert
-        # any client IP it likes, and a LAN client reaching the VIP directly must stay an
-        # ordinary untrusted peer.
+        # The Swarm edge nodes; /32 each, see README, "Client IPs".
         forwardedHeaders:
           trustedIPs:
-            - 10.20.2.31/32
-            - 10.20.2.32/32
-            - 10.20.2.33/32
+            - 10.20.176.125/32
+            - 10.20.176.185/32
+            - 10.20.176.190/32
         # v3 defaults readTimeout to 60s and it covers the request body, so uploads
         # over a minute are cut off. Matches the Swarm traefik in front of this one.
         transport:
@@ -96,30 +85,17 @@ spec:
         expose:
           default: true
         asDefault: true
-        # Trust the X-Forwarded-* the Swarm edge sends. These three are the docker swarm
-        # nodes running the traefik that sits in front of this one; every external request
-        # arrives from one of them.
-        #
-        # Without this, traefik v3 defaults to trusting NOBODY, which does not mean "ignore
-        # the header" -- it means DISCARD it and rewrite X-Forwarded-For with the peer
-        # address. So every external user reached the apps as 10.20.2.31/.32/.33 and the real
-        # client IP was thrown away one hop short. jellyfin logged the swarm node, guacamole's
-        # brute-force extension banned it, and a per-IP rateLimit became one shared bucket
-        # for the entire internet.
-        #
-        # /32 each, deliberately, not 10.20.2.0/24: trusting an address means letting it assert
-        # any client IP it likes, and a LAN client reaching the VIP directly must stay an
-        # ordinary untrusted peer.
+        # The Swarm edge nodes; /32 each, see README, "Client IPs".
         forwardedHeaders:
           trustedIPs:
-            - 10.20.2.31/32
-            - 10.20.2.32/32
-            - 10.20.2.33/32
+            - 10.20.176.125/32
+            - 10.20.176.185/32
+            - 10.20.176.190/32
         transport:
           respondingTimeouts:
             readTimeout: 0s
       # Raw MQTT/TCP entrypoint for the mosquitto broker, on the same VIP
-      # (10.20.2.15:1883). A HostSNI(`*`) IngressRouteTCP in the mosquitto namespace
+      # (10.20.176.210:1883). A HostSNI(`*`) IngressRouteTCP in the mosquitto namespace
       # forwards it to mosquitto:1883 (plain TCP, no TLS termination here). NOT an
       # HTTP default entrypoint.
       mqtt:
@@ -128,7 +104,7 @@ spec:
         expose:
           default: true
         asDefault: false
-      # The same broker on the standard MQTT-over-TLS port (10.20.2.15:8883), with TLS
+      # The same broker on the standard MQTT-over-TLS port (10.20.176.210:8883), with TLS
       # terminated here off the wildcard cert and forwarded to the SAME plaintext
       # mosquitto:1883. mosquitto has no TLS listener of its own.
       #
@@ -141,7 +117,7 @@ spec:
         expose:
           default: true
         asDefault: false
-      # Raw TCP entrypoint for Authelia's forwardAuth (10.20.2.15:9091). A HostSNI(`*`)
+      # Raw TCP entrypoint for Authelia's forwardAuth (10.20.176.210:9091). A HostSNI(`*`)
       # IngressRouteTCP forwards it to authelia:9091 as plain TCP — no HTTP proxying,
       # so the X-Forwarded-* headers forwardAuth needs are preserved (external proxies
       # like the Swarm Traefik can call it directly without the header-stripping that a
@@ -152,7 +128,7 @@ spec:
         expose:
           default: true
         asDefault: false
-      # Raw TCP entrypoint for the lldap LDAP port (10.20.2.15:3890). A HostSNI(`*`)
+      # Raw TCP entrypoint for the lldap LDAP port (10.20.176.210:3890). A HostSNI(`*`)
       # IngressRouteTCP in the lldap namespace forwards it to lldap:3890 as plain TCP
       # (no TLS termination here), so external clients can bind against the in-cluster
       # directory. NOT an HTTP default entrypoint.
@@ -172,21 +148,21 @@ spec:
       # Each entrypoint is 1:1 with one backend, so a second XMPP server would
       # need SNI routing or its own address.
       #
-      # client-to-server (10.20.2.15:5222)
+      # client-to-server (10.20.176.210:5222)
       xmpp-c2s:
         port: 5222
         exposedPort: 5222
         expose:
           default: true
         asDefault: false
-      # server-to-server federation (10.20.2.15:5269)
+      # server-to-server federation (10.20.176.210:5269)
       xmpp-s2s:
         port: 5269
         exposedPort: 5269
         expose:
           default: true
         asDefault: false
-      # SOCKS5 file-transfer proxy, proxy65 (10.20.2.15:5000)
+      # SOCKS5 file-transfer proxy, proxy65 (10.20.176.210:5000)
       xmpp-proxy65:
         port: 5000
         exposedPort: 5000

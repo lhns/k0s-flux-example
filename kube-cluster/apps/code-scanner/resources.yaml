@@ -29,7 +29,7 @@ spec:
     spec:
       containers:
         - name: scanner
-          image: ghcr.io/lhns/code-scanner:e0d302d
+          image: ghcr.io/lhns/code-scanner:e0d302d@sha256:18f322943b1ec3c323b5dfd8ce0743b661963cf423c51fb196e9659d1c6a18c9
           ports:
             - name: http
               containerPort: 8080
@@ -37,10 +37,16 @@ spec:
             - name: TZ
               value: Europe/Berlin
           readinessProbe:
+            timeoutSeconds: 5
             tcpSocket:
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
+          resources:
+            requests:
+              memory: 384Mi
+            limits:
+              memory: 768Mi
 ---
 apiVersion: v1
 kind: Service
@@ -61,7 +67,7 @@ metadata:
   name: code-scanner
   namespace: code-scanner
 spec:
-  # TLS is served by traefik's default TLSStore (wildcard *.kube.example.com), so no
+  # TLS is served by traefik's default TLSStore (wildcard *.example.com), so no
   # per-host cert here. Mirrors the Swarm websecure router at Host(scanner...).
   ingressClassName: traefik
   rules:

@@ -2,10 +2,10 @@
 
 The [Strimzi](https://strimzi.io) Kafka operator. **Operator only** — the `Kafka`,
 `KafkaNodePool` and `KafkaTopic` CRs live with their consumer in
-`infra/opentelemetry-gateway/`, the same split CNPG uses (operator in `infra/postgres`,
+`infra/opentelemetry-gateway/`, the same split CNPG uses (operator in `infra/cloudnative-pg`,
 `Database`/`DatabaseRole` CRs in each app's own directory).
 
-- `release.yaml` — Namespace + `OCIRepository`
+- `release.yaml` — `OCIRepository`
   (`oci://quay.io/strimzi-helm/strimzi-kafka-operator`, tag = the operator version) +
   `HelmRelease`. Same shape as `infra/kube-vnet`; Renovate tracks `ref.tag` via the
   Flux manager.
@@ -29,8 +29,7 @@ The [Strimzi](https://strimzi.io) Kafka operator. **Operator only** — the `Kaf
 
 **Check the [CHANGELOG](https://github.com/strimzi/strimzi-kafka-operator/blob/main/CHANGELOG.md)
 before bumping `ref.tag`.** The supported Kafka versions move with the operator, and
-dropping a Kafka minor is a breaking change for any `Kafka` CR pinned to it — 1.1.0
-supports only Kafka **4.3.0 / 4.2.1** (4.1.x was dropped). Bump `spec.kafka.version` in
+dropping a Kafka minor is a breaking change for any `Kafka` CR pinned to it. Bump `spec.kafka.version` in
 `infra/opentelemetry-gateway/kafka.yaml` in the same change when required.
 
 Note the API group is `kafka.strimzi.io/v1` (the `v1alpha1`/`v1beta1`/`v1beta2` versions

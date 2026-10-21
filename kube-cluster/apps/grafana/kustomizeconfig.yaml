@@ -1,0 +1,7 @@
+# Lets the configMapGenerator's hash suffix reach the Grafana CR's volumes, as it does for a
+# Deployment: a content change then edits the CR and the operator rolls the pod at once.
+nameReference:
+  - kind: ConfigMap
+    fieldSpecs:
+      - kind: Grafana
+        path: spec/deployment/spec/template/spec/volumes/configMap/name

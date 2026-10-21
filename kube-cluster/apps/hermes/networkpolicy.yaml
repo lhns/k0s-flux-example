@@ -1,0 +1,103 @@
+# Egress containment for the agent, which runs model-chosen shell commands (ADR 0031). Additive to
+# kube-vnet, which is ingress-only. Pattern: apps/github-runner, apps/forgejo-runner.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hermes-egress
+  namespace: hermes
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: hermes
+  policyTypes: [Egress]
+  egress:
+    # DNS by pod selector: a ClusterIP is DNAT'd before the policy sees it.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+        - ipBlock:
+            cidr: 172.19.0.10/32
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # matrix.example.com and auth.example.com are pinned to Traefik's VIP by hostAliases; allow both ends of the DNAT.
+    - to:
+        - ipBlock:
+            cidr: 10.20.176.210/32
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+
+    # Hermes calls the Paperclip API (task bridge).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: paperclip
+      ports:
+        - protocol: TCP
+          port: 3100
+
+    # The public internet and nothing private: not the LAN (Ceph mons, API server), not the
+    # pod/service networks (172.16/12), not CGNAT (100.64/10), not link-local.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+              - 169.254.0.0/16
+---
+# Worker egress: internet plus the Paperclip API (:3100), where the worker posts run comments and status.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: hermes-worker-egress
+  namespace: hermes
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: hermes-worker
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+        - ipBlock:
+            cidr: 172.19.0.10/32
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # Paperclip API, to report run results as agent Hermes.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: paperclip
+      ports:
+        - protocol: TCP
+          port: 3100
+
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+              - 169.254.0.0/16

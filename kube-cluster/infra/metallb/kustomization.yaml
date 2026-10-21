@@ -8,3 +8,4 @@ resources:
 - pool.yaml
 patches:
 - path: version.yaml
+- path: resources.yaml

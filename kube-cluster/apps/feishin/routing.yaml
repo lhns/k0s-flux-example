@@ -9,7 +9,7 @@ metadata:
   namespace: feishin
 spec:
   redirectRegex:
-    regex: "^https://feishin.kube.example.com/(.*)"
+    regex: "^https?://[^/]+/(.*)"
     replacement: "https://feishin.example.com/${1}"
     permanent: true
 ---
@@ -24,8 +24,8 @@ spec:
     - kind: Rule
       match: Host(`feishin.kube.example.com`)
       services:
-        - name: feishin
-          port: 9180
+        - name: noop@internal
+          kind: TraefikService
       middlewares:
         - name: feishin-kube-redirect
   tls: {}

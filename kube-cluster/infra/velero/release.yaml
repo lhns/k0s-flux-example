@@ -24,12 +24,23 @@ spec:
         kind: HelmRepository
         name: vmware-tanzu
   values:
+    resources:
+      requests:
+        memory: 256Mi
+      limits:
+        memory: 1Gi
     # S3 (object store) backend plugin. The CSI plugin is built into velero core
     # (>=1.14), so only the AWS plugin is needed as an initContainer.
     initContainers:
       - name: velero-plugin-for-aws
         image: velero/velero-plugin-for-aws:v1.14.4
         imagePullPolicy: IfNotPresent
+        # Copies one binary into the shared volume and exits.
+        resources:
+          requests:
+            memory: 32Mi
+          limits:
+            memory: 128Mi
         volumeMounts:
           - mountPath: /target
             name: plugins
@@ -84,6 +95,10 @@ spec:
             - postgres
             - opentelemetry-gateway
             - nats
+            # Rewritten TSDB parts pin Ceph CoW data per snapshot; daily and monthly keep it.
+            - victoriametrics-cluster
+            - remote-docker
+            - remote-docker-ci
       daily:
         disabled: false
         schedule: "0 3 2-31 * *"
@@ -96,7 +111,7 @@ spec:
           resourcePolicy:
             kind: configmap
             name: velero-volume-policy
-          # postgres is fully managed by CNPG (its own snapshot + WAL backups), so
+          # postgres is backed up by CNPG (plugin base backups + WAL), so
           # skip it here to avoid redundant/crash-consistent snapshots of its PVCs.
           excludedNamespaces:
             - postgres
@@ -104,6 +119,9 @@ spec:
             - opentelemetry-gateway
             # JetStream: a crash-consistent snapshot of a raft member is not a restore point.
             - nats
+            # Graph volumes are skipped by the *-graph schedules below.
+            - remote-docker
+            - remote-docker-ci
       monthly:
         disabled: false
         schedule: "0 3 1 * *"
@@ -120,3 +138,51 @@ spec:
             - postgres
             - opentelemetry-gateway
             - nats
+            - remote-docker
+            - remote-docker-ci
+      # remote-docker{,-ci}: the graph claims (Docker image/build cache) are rebuildable and their
+      # snapshots pin Ceph CoW data, but only size tells them from the 1Gi state claims (SSH host
+      # keys), so these twin schedules use a capacity policy: volume-policy.yaml.
+      # Cron is offset 10 min from the schedules above so backups never overlap.
+      hourly-graph:
+        disabled: false
+        schedule: "10 0-2,4-23 * * *"
+        useOwnerReferencesInBackup: false
+        template:
+          ttl: 72h0m0s
+          snapshotVolumes: true
+          csiSnapshotTimeout: 30m
+          resourcePolicy:
+            kind: configmap
+            name: velero-volume-policy-graph
+          includedNamespaces:
+            - remote-docker
+            - remote-docker-ci
+      daily-graph:
+        disabled: false
+        schedule: "10 3 2-31 * *"
+        useOwnerReferencesInBackup: false
+        template:
+          ttl: 720h0m0s
+          snapshotVolumes: true
+          csiSnapshotTimeout: 30m
+          resourcePolicy:
+            kind: configmap
+            name: velero-volume-policy-graph
+          includedNamespaces:
+            - remote-docker
+            - remote-docker-ci
+      monthly-graph:
+        disabled: false
+        schedule: "10 3 1 * *"
+        useOwnerReferencesInBackup: false
+        template:
+          ttl: 4320h0m0s
+          snapshotVolumes: true
+          csiSnapshotTimeout: 30m
+          resourcePolicy:
+            kind: configmap
+            name: velero-volume-policy-graph
+          includedNamespaces:
+            - remote-docker
+            - remote-docker-ci

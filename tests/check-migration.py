@@ -3,7 +3,7 @@
 
 A fake replaces the jumphost and answers each `kubectl get` from canned `-o json` objects,
 walking the component tests/fixtures/apps/controlled through moving its Namespace into
-namespaces/. Each step must pass as given, and fail on every deviation the gate exists to catch.
+namespaces/, and through a move between groups that renames it. Each step must pass as given, and fail on every deviation the gate exists to catch.
 """
 import contextlib, copy, importlib.util, io, json, pathlib, sys, tempfile
 
@@ -316,6 +316,68 @@ with tempfile.TemporaryDirectory() as tmp:
     expect("snapshot fails without the gen- release", ["snapshot", NAME, "--out", snap3 + ".2"],
            mutated("pruneoff", lambda o: o.remove(find(o, "HelmRelease", f"gen-{NAME}", OLD))), 1,
            f"HelmRelease flux-system/gen-{NAME} not found")
+
+    # A move between groups renames the component: app-controlled -> ext-controlled.
+    RNAME, RNEW = "ext-controlled", "gen-ext-controlled"
+
+    def no_secrets(o):
+        o.remove(find(o, "Kustomization", f"{NAME}-substitution-secrets", NEW))
+        o.remove(find(o, "Secret", "controlled-values", NEW))
+
+    def renamed(o):
+        """state moved, with every Kustomization, artifact, owner and the release renamed."""
+        no_secrets(o)
+        for x in o:
+            m = x["metadata"]
+            if x["kind"] in ("Kustomization", "ExternalArtifact") and NAME in m["name"]:
+                m["name"] = m["name"].replace(NAME, RNAME)
+                if x["kind"] == "Kustomization":
+                    m["namespace"] = RNEW
+                    x["spec"]["sourceRef"]["name"] = m["name"]
+                    x["status"]["lastAppliedRevision"] = art_rev(m["name"], REV2)
+                    x["metadata"]["uid"] += "-new"
+                else:
+                    x["status"]["artifact"]["revision"] = art_rev(m["name"], REV2)
+            labels = m.get("labels") or {}
+            if labels.get(gate.OWNER_NS) == NEW:
+                labels[gate.OWNER_NS] = RNEW
+                labels[gate.OWNER_NAME] = labels[gate.OWNER_NAME].replace(NAME, RNAME)
+            if m.get("namespace") == NEW:
+                m["namespace"] = RNEW
+            if x["kind"] == "Namespace" and m["name"] == NEW:
+                m["name"] = RNEW
+            if x["kind"] == "HelmRelease":
+                m["name"] = f"gen-{RNAME}"
+
+    snapr = str(pathlib.Path(tmp) / "snapr.json")
+    expect("snapshot before a rename", ["snapshot", NAME, "--out", snapr], mutated("before", no_secrets), 0)
+    rmoved = ["verify-moved", RNAME, "--snapshot", snapr, "--renamed-from", NAME]
+    expect("renamed", rmoved, mutated("moved", renamed), 0)
+    expect("renamed fails while the old Kustomization exists", rmoved,
+           mutated("moved", renamed) + [ks(NAME, NEW, False, INV_MAIN, REV2)], 1,
+           f"Kustomization {NEW}/{NAME} of the old name still exists")
+    expect("renamed fails while the old release exists", rmoved, mutated("moved", renamed) + [release(5)], 1,
+           f"HelmRelease flux-system/gen-{NAME} of the old name still exists")
+    expect("renamed fails on a stale owner label", rmoved,
+           mutated("moved", lambda o: (renamed(o), find(o, "Deployment", "web", "controlled")["metadata"]["labels"]
+                                       .update({gate.OWNER_NS: NEW, gate.OWNER_NAME: NAME}))), 1,
+           f"is labelled as owned by {NEW}/{NAME}")
+    expect("renamed fails on a deleted object", rmoved,
+           mutated("moved", lambda o: (renamed(o), o.remove(find(o, "ConfigMap", "app", "controlled")))), 1,
+           "ConfigMap/controlled/app is GONE")
+    expect("renamed cannot compare objects of the old control namespace",
+           ["verify-moved", RNAME, "--snapshot", snap, "--renamed-from", NAME], mutated("moved", renamed), 2,
+           "check those by hand")
+    expect("renamed done", ["verify-done", RNAME, "--snapshot", snapr, "--renamed-from", NAME],
+           mutated("done", renamed), 0)
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            run(["verify-prune-disabled", RNAME, "--renamed-from", NAME], state("pruneoff"))
+        failed += 1
+        print("  FAIL  --renamed-from accepted on verify-prune-disabled", file=sys.stderr)
+    except SystemExit:
+        passed += 1
+        print("  ok    --renamed-from only on verify-moved/-done")
 
 
 class Broken:

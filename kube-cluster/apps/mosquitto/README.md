@@ -6,8 +6,11 @@ Eclipse Mosquitto MQTT broker with the `mosquitto-go-auth` plugin, migrated from
 - **Two listeners**: raw **MQTT/TCP :1883** (native clients) and **MQTT-over-WebSockets :9001**.
 - **TCP exposure**: via a dedicated **`mqtt` Traefik entrypoint on :1883** (`infra/traefik`) + an
   `IngressRouteTCP` (`HostSNI(*)`, plain-TCP passthrough) → `mosquitto:1883`. Native clients connect to
-  **10.20.2.15:1883** (Traefik's VIP) or `mqtt.example.com:1883`. (MetalLB IP-sharing was not usable because
+  **10.20.176.210:1883** (Traefik's VIP) or `mqtt.example.com:1883`. (MetalLB IP-sharing was not usable because
   Traefik runs `externalTrafficPolicy: Local`, so the entrypoint reuses Traefik's own VIP instead.)
+- **TLS exposure**: a second `IngressRouteTCP` (`mosquitto-tls`) on the `mqtts` entrypoint
+  (**:8883**) terminates TLS at Traefik with the default wildcard cert and forwards to the same
+  plaintext `mosquitto:1883`.
 - **WS exposure**: Traefik `IngressRoute` on `mqtt.example.com` (addPrefix `/mqtt`, replicating the Swarm
   router) → `mosquitto:9001`. `mqtt.example.com` stays the canonical broker host (not switched to `.kube`
   — clients are configured with it). `mqtt.example.net` was dropped (not in the `*.example.com` cert).
@@ -18,7 +21,7 @@ Eclipse Mosquitto MQTT broker with the `mosquitto-go-auth` plugin, migrated from
   read-only at `/etc/mosquitto`. The LDAP bind password arrives by substitution as
   `${MOSQUITTO_LDAP_BIND_PASSWORD}` — never put a literal there.
 - **State**: persistence file `mosquitto.db` on a dedicated Ceph RBD volume (`/var/lib/mosquitto`),
-  copied once from `fastappdata:/docker/mosquitto/data`. No external database.
+  copied once from `fastdata:/docker/mosquitto/data`. No external database.
 - Single replica, `strategy: Recreate` (RWO). OTEL traces to the in-cluster gateway
   (`opentelemetry-gateway.opentelemetry-gateway:4317`), which is a ClusterIP and so needs the
   `net.opentelemetry-gateway.otel-gateway` egress label — the Swarm collector it replaced was
@@ -26,10 +29,10 @@ Eclipse Mosquitto MQTT broker with the `mosquitto-go-auth` plugin, migrated from
 
 ## One-time migration
 1. Deploy at `replicas: 0` (namespace, PVC, config secret, services come up).
-2. Copy `fastappdata:/docker/mosquitto/data` (mosquitto.db) into the `mosquitto-data` RBD PVC.
+2. Copy `fastdata:/docker/mosquitto/data` (mosquitto.db) into the `mosquitto-data` RBD PVC.
 3. Flip to `replicas: 1`.
-4. Point `mqtt.example.com` DNS at the Traefik VIP `10.20.2.15` and repoint native clients to
-   `10.20.2.15:1883`. Stop the Swarm broker.
+4. Point `mqtt.example.com` DNS at the Traefik VIP `10.20.176.210` and repoint native clients to
+   `10.20.176.210:1883`. Stop the Swarm broker.
 
 ## Note
 Raw MQTT/TCP required adding a `mqtt` entrypoint (:1883) to the Traefik chart (`infra/traefik`), since

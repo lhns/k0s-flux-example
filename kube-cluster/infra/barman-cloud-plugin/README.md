@@ -6,7 +6,7 @@ replacement for the deprecated in-tree `spec.backup.barmanObjectStore`. Runs in
 `cnpg-system` (the operator's namespace) and uses cert-manager for its gRPC TLS to the
 operator.
 
-- `manifest.yaml` — the pinned upstream release (`v0.15.0`). Provides the `ObjectStore`
+- `manifest.yaml` — the pinned upstream release. Provides the `ObjectStore`
   CRD (`barmancloud.cnpg.io`) + the plugin Deployment/RBAC/certs. There is no upstream
   Helm chart, so it's vendored and bumped by hand.
 
@@ -16,4 +16,4 @@ operator.
   one line leaves the controller and the injected sidecar on different releases.
 
 Used by `infra/postgres`: its `ObjectStore` points at the Ceph RGW bucket, and the Cluster
-references the plugin as its WAL archiver. Egress-only → no kube-vnet rule.
+references the plugin as its WAL archiver. `vnet.yaml` gives the operator a private channel to the plugin's gRPC port.

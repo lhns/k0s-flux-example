@@ -1,0 +1,63 @@
+# Grafana Operator objects of this component (README.md, "Grafana objects"). Each opts out of Flux
+# substitution: rule templates and dashboard JSON are full of ${...}.
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: app-arc-controller-github-runners
+  namespace: grafana
+spec:
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: fg0li6dpvfitce # CI
+  configMapRef:
+    name: app-arc-controller-dashboards
+    key: github-runners.json
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaAlertRuleGroup
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: app-arc-controller
+  namespace: grafana
+spec:
+  name: app-arc-controller
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: ag1airdsjen7kc # Cluster
+  interval: 1m
+  rules:
+    - uid: arc-listener-down
+      title: ARC runner listener down
+      condition: C
+      for: 20m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              max by (actions_github_com_scale_set_name) (up{app_kubernetes_io_component="runner-scale-set-listener"}) == 0 or max by (name) (gha_controller_running_listeners) == 0
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: lt, params: [1]}
+      labels:
+        severity: warning
+      annotations:
+        summary: 'ARC listener {{ $labels.actions_github_com_scale_set_name }}{{ $labels.name }} is down'
+        description: 'No jobs are picked up for this runner scale set. Listener restarts under 20 minutes are normal. Check the listener pod and the GitHub token.'
+      notificationSettings:
+        receiver: matrix

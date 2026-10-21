@@ -126,13 +126,13 @@ In words:
 1. The Flux bootstrap applies `kube-cluster/flux-system/`. Besides Flux itself, that holds the
    generator's source and its HelmRelease.
 2. The **root release** renders the chart once. For each discovered component it emits an
-   ArtifactGenerator and a HelmRelease, `gen-<group>-<component>`. With `values.k0sUpgrade` it also
+   ArtifactGenerator and a HelmRelease, `gen-<prefix>-<component>`. With `values.k0sUpgrade` it also
    emits `k0s-upgrade`, whose Job, named after the k0s version in `k0sctl.yaml`, recreates the
    Autopilot Plan when that version moves.
 3. Each **per-component release** renders the same chart against an artifact filtered down to
    that component, and emits its Flux Kustomization, plus the optional `-namespaces`,
    `-artifacts` and `-substitution-secrets` ones. They live in the component's own **control
-   namespace** `gen-<group>-<component>`, which the release also creates; see
+   namespace** `gen-<prefix>-<component>`, which the release also creates; see
    [Control namespaces and risky changes](#control-namespaces-and-risky-changes).
 4. The **ArtifactGenerator** packs the component's chart and each Kustomization's files out of
    the `flux-system` checkout into ExternalArtifacts. Their revision is a hash of their content,
@@ -141,7 +141,8 @@ In words:
 The split into one release per component is not cosmetic. Helm stores the whole chart in a
 1 MiB release Secret, and here the chart is the repository; see
 [docs/generator-chart-size.md](docs/generator-chart-size.md). A GitHub push webhook reconciles
-`flux-system` and `generators` immediately, so a push applies in seconds.
+the `flux-system` GitRepository immediately; every ExternalArtifact, and so every release and
+Kustomization, follows from it, so a push applies in seconds.
 
 ## Repository layout
 
@@ -154,7 +155,10 @@ kube-cluster/                  one cluster; the directory name is the cluster's
                                ingress, databases, shared operators
   apps/<component>/            applications, and operators that serve only one app
   rbac/<component>/            cluster-wide RBAC
+  external/<component>/        systems outside the cluster: scrape targets, routes to external
+                               backends
   k0s-upgrade/                 the in-cluster k0s upgrade wrapper
+  k0s-files/                   files k0sctl places on the nodes
 kube-test-cluster/             a second cluster: same shape, its own k0sctl.yaml and flux-system/
 shared/                        plain kustomize bases more than one cluster deploys
 scripts/                       validation, rendering, secret handling, the public-template build
@@ -170,7 +174,7 @@ only its own, in its own root release: see [Multiple clusters](#multiple-cluster
 
 ## Adding a component
 
-1. Create `kube-cluster/apps/<name>/` (or `infra/`, `rbac/`) with your manifests.
+1. Create `kube-cluster/apps/<name>/` (or `infra/`, `rbac/`, `external/`) with your manifests.
 2. Add a `kustomization.yaml` listing them. Generator settings go in its annotations:
 
    ```yaml
@@ -202,10 +206,34 @@ never reach the cluster.
 | `flux-component-generator/suspend` | `false` | `"true"` suspends the component's Kustomization; its `gen-` release stays live |
 | `flux-component-generator/bases` | none | comma-separated `shared/` directories the component's kustomization reaches through `../`; each is copied into its artifact. See [Multiple clusters](#multiple-clusters) |
 
+### Root values
+
+Set in the root release (`<cluster>/flux-system/generators.yaml`).
+
+| value | effect |
+| --- | --- |
+| `groups[].base`, `prefix` | a directory of components and the prefix of their Flux names |
+| `groups[].wait` | default `true`: the Kustomization waits for its objects to be Ready |
+| `groups[].interval` | the generated Kustomizations' interval, default `10m0s` |
+| `generate.pruneDisabled`, `keepGenerated`, `interval` | see [Control namespaces and risky changes](#control-namespaces-and-risky-changes); `interval` is the `gen-` releases', default `30m` |
+| `k0sUpgrade` | emits the `k0s-upgrade` Kustomization from `k0sctlPath` and `path` |
+| `alerts` | `providerRef` and `cluster`: one Alert for error events of every generated Kustomization ([ADR 0052](docs/adr/0052-flux-alerts-go-to-matrix.md)) |
+
+Every generated Kustomization health-checks CNPG `Cluster` (ready instances, primary settled) and
+`Grafana` (`GrafanaReady`), so Ready on a component that holds one means it is usable
+([ADR 0014](docs/adr/0014-one-shared-cloudnative-pg-cluster.md),
+[ADR 0058](docs/adr/0058-grafana-operator-manages-grafana-and-its-content.md)).
+
 ### Reserved subdirectories
 
 Each is opt-in by existing. None holds a `kustomization.yaml`: kustomize-controller
 synthesizes one.
+
+A reserved directory exists only for **apply ordering**: it is applied before the component
+(`namespaces/`, then `substitution-secrets/` and `artifacts/`). Anything without that need is a
+plain subdirectory that the component's `kustomization.yaml` lists in `resources:`, and the
+generator does not know about it. The Grafana Operator objects are one, see
+[Grafana objects](#grafana-objects).
 
 - **`namespaces/`** holds the component's Namespace and what must exist in it first, such as a
   LimitRange. It gets its own Kustomization, and both the component and `artifacts/` wait for it.
@@ -226,6 +254,27 @@ synthesizes one.
   substitutes as `${VAR}`.
   See [`infra/oci-composer`](kube-cluster/infra/oci-composer/README.md).
 
+### Grafana objects
+
+A component's dashboards, alert rule groups and folders (`GrafanaDashboard`,
+`GrafanaAlertRuleGroup`, `GrafanaFolder`, all in namespace `grafana`) are in the component itself:
+a `grafana.yaml` in its `resources:`, and the dashboard JSON in a `dashboards/` folder (no
+`kustomization.yaml`) that a `configMapGenerator` in the component's `kustomization.yaml` reads
+([ADR 0060](docs/adr/0060-grafana-objects-in-the-component.md)). Three things go with it:
+
+- `kustomize.toolkit.fluxcd.io/substitute: disabled` in the `metadata.annotations` of every CR and in
+  the `configMapGenerator`'s `options.annotations`: dashboard JSON and rule templates are full of `${...}`,
+  which the component's `postBuild` would otherwise substitute. Not `commonAnnotations`, which
+  would hit the whole component. Its `options` also set `disableNameSuffixHash: true` and the
+  label `app.kubernetes.io/managed-by: grafana-operator`, so the name is stable and the operator's
+  informer sees it.
+- No `dependsOn` on `infra-grafana-operator`: until the CRDs exist (fresh cluster only) the
+  component's apply fails and Flux retries; a `dependsOn` would instead hold back the component's
+  deploys whenever the operator is not Ready.
+- An apply error in `grafana.yaml` fails the component's Kustomization.
+
+`scripts/check-grafana.py` enforces the object rules.
+
 ### Substitution caveats
 
 `substitution-secrets/` or `artifacts/` turns on envsubst for the **whole component build**, not just the file you
@@ -239,6 +288,13 @@ kustomize build kube-cluster/apps/<app> | grep -E '\$\{|\$\$'
 Every hit has to become a substitution source, be escaped as `$${VAR}`, or sit in an object
 annotated `kustomize.toolkit.fluxcd.io/substitute: disabled`. Shell scripts and regex
 replacements are the usual casualties. A bare `$var` is left alone.
+
+Strict substitution only applies once the Kustomization has `postBuild`. A component's first
+`artifacts/` or `substitution-secrets/` therefore goes in its own PR, before any `${VAR}` reference:
+in one commit the content can reach kustomize-controller first, and the literal `${VAR}` is applied.
+Two safeguards limit the damage: [`infra/admission-policies`](kube-cluster/infra/admission-policies/README.md)
+rejects a `$` in any image reference, and the `CancelHealthCheckOnNewRevision` gate lets a stuck
+health wait yield to the fix instead of blocking until its timeout.
 
 ### Substituted config files: `as-secret`
 
@@ -311,6 +367,11 @@ Renovate's `kubernetes` manager only sees `image: <string>`, not an image volume
 an explicit `# renovate:` comment, so moving a reference into an image volume needs that
 comment or the auto-bump stops silently.
 
+### Probe timeouts
+
+A `timeoutSeconds` of 1 is raised to 5 on Pod CREATE by `infra/admission-policies`
+([ADR 0057](docs/adr/0057-probe-timeout-default.md)). Set 2 or more for a deliberately short one.
+
 ### Reconciliation intervals
 
 The GitHub webhook drives reconciliation, so `interval` is only the fallback and drift
@@ -321,7 +382,8 @@ correction.
 | sources: `GitRepository`, `HelmRepository`, `OCIRepository`, a HelmRelease's `chart.spec` | `1h` | git is pushed by the webhook; upstream charts and images are pinned exactly, so polling re-fetches the same artifact. Shorten only for a floating tag. |
 | reconcilers: `Kustomization`, `HelmRelease` | `10m` | re-apply desired state and undo manual drift |
 
-The generated Kustomizations already default to `10m`.
+The generated Kustomizations already default to `10m` (`groups[].interval`). The per-component
+`gen-` HelmReleases default to `30m` (`generate.interval`).
 
 ## Secrets
 
@@ -358,13 +420,24 @@ encrypted file needs the cluster's key. Requires `sops` and tkinter (`python3-tk
 - `yamllint`;
 - the `kustomize build` + strict `kubeconform` sweep over every component of every cluster
   (any `*/flux-system/kustomization.yaml`) and the rendered generator output;
-- the release-size, substitution, source-pin and SOPS checks, and the offline test of the
-  migration gate;
+- the release-size, substitution, source-pin, fetch-digest and SOPS checks, the offline test of
+  the migration gate, and `scripts/check-coverage.py` (a snapshot class per CSI StorageClass, a
+  backup per CNPG `Cluster`);
+- `scripts/check-arc-dockerfile.py` and the synapse-pymods version check, the two app-specific
+  checks;
 - `scripts/check-clusters.py`: each cluster reads only its own directory, and `shared/` holds
   only plain bases;
+- `scripts/check-grafana.py`: Grafana Operator objects opt out of substitution, use fixed folder and dashboard/rule uids that no other owner has (a dashboard
+  uid never equals a folder uid), and select the one instance; `tests/check-grafana.py` runs its
+  rules over `tests/fixtures-grafana/` and breaks each one on purpose;
+- `scripts/check-redirects.py`: a route with only redirect middlewares uses `noop@internal`, and a
+  `redirectRegex` matches any host ([ADR 0061](docs/adr/0061-redirect-routes-answer-from-noop.md));
+  `tests/check-redirects.py` breaks each rule on purpose;
 - `scripts/check-artifacts.py`: every component builds from exactly what its ExternalArtifact
   holds, which catches a `../` out of the component;
 - the per-component tests (see [kube-cluster/README.md](kube-cluster/README.md)).
+
+The checks run concurrently and print in a fixed order as each finishes; any failure fails the run.
 
 It also renders the generator against `tests/fixtures/` and diffs the result against
 `tests/golden/fixtures.yaml`. The fixtures cover what the live tree does not: a component with no
@@ -391,7 +464,7 @@ the ArtifactGenerator copying `Chart.yaml`), whatever the file names. `kube-clus
 | --- | --- |
 | `flux-system/gotk-sync.yaml` | syncs `./<cluster>/flux-system`; it is how a cluster knows which directory is its own |
 | `flux-system/generators-artifact.yaml` | the root chart's copy rules name `<cluster>/` paths only, never `*/`, or every root release would carry every cluster's files |
-| `flux-system/generators.yaml` | groups `<cluster>/{apps,infra,rbac}`, with the same prefixes everywhere, and `k0sUpgrade` |
+| `flux-system/generators.yaml` | groups `<cluster>/{apps,infra,rbac,external}`, with the same prefixes everywhere, and `k0sUpgrade` |
 | `flux-system/gotk-components.yaml`, `kustomization.yaml` | Flux and its controller tuning, sized per cluster |
 | `k0sctl.yaml`, `k0s-upgrade/` | the cluster itself |
 | an age key and a `.sops.yaml` rule | a cluster must not be able to decrypt another's secrets |
@@ -401,7 +474,7 @@ the ArtifactGenerator copying `Chart.yaml`), whatever the file names. `kube-clus
 
 ### Shared bases
 
-`shared/infra/<name>/`, `shared/components/<name>/` and `shared/k0s-upgrade/` are plain
+Directories under `shared/` (today `shared/infra/<name>/` and `shared/k0s-upgrade/`) are plain
 kustomize bases: no generator annotations, no reserved directories and no SOPS files, since a
 base reaches every cluster and each cluster decrypts only its own secrets. A cluster deploys one
 from an overlay, its own component directory:
@@ -445,8 +518,7 @@ and every component stops deploying. Instead, for `<cluster>`:
 2. `kubectl apply --server-side -f <cluster>/flux-system/gotk-components.yaml`, so the CRDs
    exist before anything uses them.
 3. The git credential `gotk-sync.yaml` names: `flux create secret git flux-system
-   --url=https://github.com/example/k0s-flux.git --username=<user> --password=<token>`, or a deploy
-   key.
+   --url=https://github.com/example/k0s-flux.git --username=<user> --password=<token>`.
 4. The cluster's age key, from where you stored it, as `flux-system/sops-age` with key
    `age.agekey`, and the Reflector annotations from
    [infra/reflector](shared/infra/reflector/README.md#sops-age-in-control-namespaces).
@@ -481,22 +553,30 @@ it, so the failure is loud. Override per component with
 
 The Flux Kustomization is named after the directory, so moving `apps/example-db/` to
 `infra/example-db/` deletes `app-example-db` and creates `infra-example-db`. **Deleting a
-Kustomization prunes everything it manages.** For a stateless component that is harmless. For a
-stateful one it deletes the PVCs, and the workload starts empty.
+Kustomization prunes everything it manages.** For a stateless component that only means a short
+outage until the new one has applied, so a plain `git mv` in one PR will do. For a stateful one it
+deletes the PVCs, and the workload starts empty.
 
-Adopt in place instead:
+Adopt a stateful one in place instead, one PR per step, gated by `scripts/check-migration.py` as in
+[Control namespaces and risky changes](#control-namespaces-and-risky-changes):
 
 1. Add `kustomize.toolkit.fluxcd.io/prune: disabled` to every resource of the component (for
-   example via `commonAnnotations:`), push, and let it reconcile.
-2. `git mv` the directory to the new group and push. The old Kustomization goes, but the
-   objects are kept, and the new one adopts them.
-3. Remove the annotation again and push.
+   example via `commonAnnotations:`) and its old name to `generate.pruneDisabled`. Before:
+   `snapshot <old>`; after: `verify-prune-disabled <old>`.
+2. `git mv` the directory to the new group, and swap the name in `pruneDisabled` for the new one
+   (it refuses a name that is no longer generated). The old Kustomization goes, but the objects
+   are kept, and the new one adopts them. After: `verify-moved <new> --renamed-from <old>`.
+3. Remove the annotation and the `pruneDisabled` entry. After: `verify-done <new> --renamed-from <old>`.
 
-Check that the workload never restarted.
+The Namespace in `namespaces/` already carries the annotation. Objects in the old control
+namespace (`substitution-secrets/`) are recreated, not adopted; the gate refuses to compare them.
+
+Either way the old ArtifactGenerator rebuilds once from the new revision before its release is
+uninstalled, and its `BuildFailed` ("source … does not exist") raises one Flux alert. It is harmless.
 
 ### Control namespaces and risky changes
 
-The generator puts every component's Kustomizations in Namespace `gen-<group>-<component>`,
+The generator puts every component's Kustomizations in Namespace `gen-<prefix>-<component>`,
 created by its `gen-` release. Flux reads `substituteFrom` and `sops-age` only from the
 Kustomization's own namespace, so the component's `substitution-secrets/` objects and
 `writeRefTo` ConfigMaps go there too; the template and `scripts/check-substitution.py` refuse
@@ -525,19 +605,23 @@ through prune, everything they applied. Around it, set `generate.keepGenerated: 
 root's ArtifactGenerators and `gen-` HelmReleases get `helm.sh/resource-policy: keep`, so Helm
 leaves them in place. Not permanently: it also stops Helm from deleting a removed component's.
 
-1. PR: `pruneDisabled: ["*"]` and `keepGenerated: true`. After deploy: every `gen-` HelmRelease
-   and ArtifactGenerator carries the annotation, and `verify-prune-disabled` passes.
+The gate takes explicit names; list every generated one (`<prefix>-<directory>` for each
+directory in `scripts/clusters.py components kube-cluster`).
+
+1. `snapshot <every name> --out <file outside the repo>`. PR: `pruneDisabled: ["*"]` and
+   `keepGenerated: true`. After deploy: every `gen-` HelmRelease and ArtifactGenerator carries
+   the annotation, and `verify-prune-disabled <every name>` passes.
 2. PR: the root change. After deploy: the root release upgraded in place (same UID, history
-   +1), and `verify-moved` passes.
-3. PR: remove both values. After deploy: `verify-done`.
+   +1), and `verify-moved <every name> --snapshot <file>` passes.
+3. PR: remove both values. After deploy: `verify-done <every name> --snapshot <file>`.
 
 ### ExternalArtifacts
 
-For each component, the root release emits an ArtifactGenerator `gen-<group>-<component>`
+For each component, the root release emits an ArtifactGenerator `gen-<prefix>-<component>`
 (source-watcher) over the `flux-system` GitRepository, with one ExternalArtifact per consumer,
 all in `flux-system`:
 
-- `gen-<group>-<component>`: `Chart.yaml`, `templates/`, the component's `kustomization.yaml`
+- `gen-<prefix>-<component>`: `Chart.yaml`, `templates/`, the component's `kustomization.yaml`
   and its reserved directories' `*.yaml`, under `generators/`, since Helm refuses a chart at the
   archive root. Its `gen-` HelmRelease reads it through `chartRef`.
 - `<name>`, plus `<name>-namespaces`, `-artifacts` and `-substitution-secrets` where those
@@ -564,6 +648,10 @@ deploying. Use `scripts/gen-flux.sh`.
 - [docs/operations.md](docs/operations.md): checking a deploy landed, node maintenance.
 - [docs/generator-chart-size.md](docs/generator-chart-size.md): why there is one release per
   component.
+- [docs/migrating-swarm-to-kubernetes.md](docs/migrating-swarm-to-kubernetes.md): moving a
+  service off the Swarm host.
+- [docs/observability-exporter-lag.md](docs/observability-exporter-lag.md): measuring the Kafka
+  to VictoriaMetrics exporter lag.
 - [docs/adr/](docs/adr/README.md): the architecture decisions and their history. A change
   that decides something about the cluster or the repo's structure adds one.
 - Each component's own `README.md`, next to its manifests.

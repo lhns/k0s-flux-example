@@ -47,7 +47,7 @@ metadata:
   namespace: kasmvnc
 spec:
   redirectRegex:
-    regex: "^https://kasmvnc.kube.example.com/(.*)"
+    regex: "^https?://[^/]+/(.*)"
     replacement: "https://kasmvnc.example.com/${1}"
     permanent: true
 ---
@@ -62,8 +62,8 @@ spec:
     - kind: Rule
       match: Host(`kasmvnc.kube.example.com`)
       services:
-        - name: kasmvnc
-          port: 8080
+        - name: noop@internal
+          kind: TraefikService
       middlewares:
         - name: kasmvnc-kube-redirect
   tls: {}

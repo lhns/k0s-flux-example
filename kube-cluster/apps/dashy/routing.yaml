@@ -9,8 +9,8 @@ metadata:
   namespace: dashy
 spec:
   redirectRegex:
-    regex: '^https://(dashy\.kube|apps)\.example\.com/(.*)'
-    replacement: "https://dashy.example.com/${2}"
+    regex: '^https?://[^/]+/(.*)'
+    replacement: "https://dashy.example.com/${1}"
     permanent: true
 ---
 apiVersion: traefik.io/v1alpha1
@@ -24,8 +24,8 @@ spec:
     - kind: Rule
       match: Host(`dashy.kube.example.com`) || Host(`apps.example.com`)
       services:
-        - name: dashy
-          port: 8080
+        - name: noop@internal
+          kind: TraefikService
       middlewares:
         - name: dashy-redirect
   tls: {}

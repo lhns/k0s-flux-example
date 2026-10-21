@@ -9,3 +9,20 @@ metadata:
 resources:
 - manifest.yaml
 - vnet.yaml
+patches:
+- target:
+    kind: Deployment
+    name: barman-cloud
+  patch: |
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: barman-cloud
+    spec:
+      template:
+        spec:
+          containers:
+          - name: barman-cloud
+            resources:
+              limits:
+                memory: 128Mi

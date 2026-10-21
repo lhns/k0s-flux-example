@@ -3,7 +3,7 @@
 [Navidrome](https://www.navidrome.org/) music server at **`navidrome.example.com`**,
 ported from a Docker Swarm stack.
 
-- `resources.yaml` — namespace, volumes, Deployment, Service.
+- `resources.yaml` — volumes, Deployment, Service.
 - `routing.yaml` — the Traefik IngressRoutes + subsonic middlewares (routing needs a
   query match that native Ingress can't express, so it's CRDs, not an Ingress).
 
@@ -33,10 +33,9 @@ isolation means nothing but Traefik can reach `:4533`). Two routers:
   strips the `Authorization` header before navidrome sees it. Web-app subsonic calls
   (`c=NavidromeUI`) fall through to the session-cookie router.
 
-Both IngressRoutes reference the Authelia middlewares in the `authelia` namespace,
-which requires `providers.kubernetesCRD.allowCrossNamespace: true` and the
-`subsonic-basicauth` plugin (`github.com/crazygolem/traefik-subsonic-basicauth`),
-both configured in `infra/traefik`.
+Both IngressRoutes use the Authelia middlewares reflected into this namespace (ADR 0022) and the
+`subsonic-basicauth` plugin (`github.com/crazygolem/traefik-subsonic-basicauth`), configured in
+`infra/traefik`.
 
 `dependsOn: app-authelia` (Traefik CRDs + plugin, and the Authelia middlewares).
 Runs as root (`user: root` in Swarm) so both volumes are accessible.

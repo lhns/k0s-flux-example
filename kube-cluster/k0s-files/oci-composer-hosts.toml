@@ -26,20 +26,20 @@
 # updating these lists and re-running `k0sctl apply`; nothing in Flux notices if that is missed,
 # and it shows up as ImagePullBackOff on the affected node only.
 
-[host."http://10.20.2.72:30020"]
+[host."http://10.20.176.37:30020"]
   capabilities = ["pull", "resolve"]
 
-[host."http://10.20.2.73:30020"]
+[host."http://10.20.176.162:30020"]
   capabilities = ["pull", "resolve"]
 
-[host."http://10.20.2.74:30020"]
+[host."http://10.20.176.189:30020"]
   capabilities = ["pull", "resolve"]
 
-[host."http://10.20.2.72:30500"]
+[host."http://10.20.176.37:30500"]
   capabilities = ["pull", "resolve"]
 
-[host."http://10.20.2.73:30500"]
+[host."http://10.20.176.162:30500"]
   capabilities = ["pull", "resolve"]
 
-[host."http://10.20.2.74:30500"]
+[host."http://10.20.176.189:30500"]
   capabilities = ["pull", "resolve"]

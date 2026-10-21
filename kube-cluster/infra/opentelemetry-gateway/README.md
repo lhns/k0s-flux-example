@@ -7,7 +7,7 @@ monitoring collectors — sends here, and everything lands in Kafka. The *consum
 
 ```
 senders ──► gateway (x2)  ──►  Kafka (3 dual-role KRaft nodes)  ──►  Victoria exporters
-            10.20.2.14              tiered storage ──► s3.example.com/otel/kube/
+            10.20.176.58              tiered storage ──► s3.example.com/otel/kube/
 ```
 
 | Piece | What it is |
@@ -23,7 +23,7 @@ senders ──► gateway (x2)  ──►  Kafka (3 dual-role KRaft nodes)  ─�
 
 ## Reaching it
 
-- **From outside the cluster** — `10.20.2.14`, a MetalLB VIP. `externalTrafficPolicy: Local`
+- **From outside the cluster** — `10.20.176.58`, a MetalLB VIP. `externalTrafficPolicy: Local`
   preserves the client source IP, which syslog and carbon use to identify the sender.
 - **From inside** — `opentelemetry-gateway.opentelemetry-gateway.svc.cluster.local`, plus
   the sender's namespace in the `otel-gateway` vnet and a matching egress label on its pod.
@@ -36,9 +36,7 @@ TCP, 6831/6832 jaeger UDP, 54526 syslog on **both** TCP and UDP. 8888 (own metri
 
 `kafkametrics` is a *cluster-wide* scraper: running it in both gateway replicas would
 double-count every broker, topic and consumer metric it emits. It is therefore a separate
-singleton Deployment, and it tags its output `cluster_name: otel-kafka-kube` — deliberately
-distinct from the Swarm broker's `otel-kafka`, so the two do not silently merge in the
-queries in `docs/observability-exporter-lag.md`.
+singleton Deployment, and it tags its output `cluster_name: otel-kafka-kube`.
 
 The gateway itself runs 2 replicas. MetalLB L2 elects one node for the VIP and ETP-Local
 means only the pod on that node serves external traffic, so this is hot standby rather than
@@ -74,7 +72,7 @@ absence explicitly.
 - **Validate before you push.** `otelcol-contrib validate --config=...` in a throwaway pod
   catches all of the above in seconds:
   ```
-  kubectl run otelval --rm -i --restart=Never --image=otel/opentelemetry-collector-contrib:0.157.0 \
+  kubectl run otelval --rm -i --restart=Never --image=<collector image from resources.yaml> \
     --command -- /otelcol-contrib validate --feature-gates=transform.flatten.logs --config=/dev/stdin \
     < opentelemetry-gateway.yaml
   ```
@@ -123,35 +121,24 @@ pod, so kube-vnet and cluster DNS are not involved (the node's containerd resolv
 [`infra/oci-composer`](../oci-composer/README.md#how-a-workload-names-an-artifact)). A new digest
 makes Strimzi roll the brokers one at a time.
 
-## Migration state
+## Senders
 
-**The drain is finished.** Repointing the Swarm gateway at this one froze the Swarm broker
-mid-flight while the guaranteed metrics consumer groups still held millions of un-exported
-records, so each Victoria exporter temporarily consumed **both** clusters — its live receiver
-on the in-cluster bootstrap plus a `kafka/*_swarm_drain` twin on `10.20.2.10:9092`. Nothing was
-ingested twice: the old topics are frozen as of the switch and the new ones begin there.
+Nothing consumes the Swarm broker any more. This gateway is a **ClusterIP**, which kube-vnet
+isolates (the old Swarm collector was external, which it leaves alone): a sender needs the
+`kube-vnet/net.opentelemetry-gateway.otel-gateway: egress` label, or a `VirtualNetworkBinding`
+where the pods are operator-managed (`infra/opentelemetry-monitoring/vnet.yaml`). Without it
+the telemetry is blocked, not redirected, and self-monitoring failures stay invisible.
 
-Every group reached lag 0 (`otlp_logs`, `otlp_metrics`, `otlp_meta_metrics`, `otlp_spans` —
-`CURRENT-OFFSET == LOG-END-OFFSET` on all of them), so the drain receivers and their pipeline
-entries have been removed. **Nothing in this cluster consumes the Swarm broker any more**, and
-the Kafka side of that stack can be retired.
+## Alerts
 
-Verify with, and this remains a read-only command against the Swarm host:
+`grafana.yaml`: rule group `infra-opentelemetry-gateway`, folder *Cluster*; backtested over 7 days before it was added.
 
-```sh
-kubectl -n opentelemetry-gateway exec otel-kafka-0 -c kafka -- \
-  bin/kafka-consumer-groups.sh --bootstrap-server 10.20.2.10:9092 --describe --all-groups
-```
+| Rule | Fires when | For | Severity |
+| --- | --- | --- | --- |
+| `kafka-consumer-lag` | consumer group more than 100k messages behind | 30m | warning |
 
-**Nothing points at Swarm any more.** The exporters' `otlp/feedback` self-monitoring, the
-`opentelemetry-kube-stack` daemon/cluster collectors, `mosquitto` and `mqtt-monitoring` have
-all been repointed from `10.20.2.10:4317` to this gateway.
+Backtest over 7 days:
 
-The trap in each of those was the same and is worth remembering for any future sender: the
-Swarm collector was an **external** address, which kube-vnet leaves alone, while this gateway
-is a **ClusterIP**, which is isolated. Repointing the endpoint without also granting vnet
-membership blocks the telemetry instead of redirecting it — and because self-monitoring is not
-the data path, that failure is invisible in Grafana until you go looking for the collector's
-own metrics. Membership is a `kube-vnet/net.opentelemetry-gateway.otel-gateway: egress` label,
-or a `VirtualNetworkBinding` where the pods are operator-managed
-(`infra/opentelemetry-monitoring/vnet.yaml`).
+| Rule | Result | Decision |
+| --- | --- | --- |
+| `kafka-consumer-lag` | nothing | as specified |

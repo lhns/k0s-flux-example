@@ -1,0 +1,284 @@
+# /opt/data: config, .env, state.db (SQLite/WAL), the Matrix crypto store, claude CLI and its login.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hermes-data
+  namespace: hermes
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 10Gi
+---
+# The Paperclip LLM Wiki, re-mounted read-only through its own subvolume path (paperclip-wiki in
+# apps/paperclip). Deleting this static PV is safe: pv-reaper ignores static PVs (ADR 0020).
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  name: hermes-wiki
+spec:
+  accessModes: [ReadOnlyMany]
+  capacity:
+    storage: 1Gi # ignored for static cephfs, required by the API
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: hermes-wiki
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: fastdata
+      staticVolume: "true"
+      rootPath: /volumes/kube/csi-vol-00000000-0000-4000-8000-000000000003/00000000-0000-4000-8000-000000000004
+    readOnly: true
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: hermes-wiki
+  namespace: hermes
+spec:
+  accessModes: [ReadOnlyMany]
+  storageClassName: ""
+  volumeName: hermes-wiki
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes
+  namespace: hermes
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  # Singleton: one process owns state.db and the Matrix device.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hermes
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hermes
+        app.kubernetes.io/instance: hermes
+        kube-vnet/net.traefik.traefik: ingress
+        # Hermes -> Paperclip :3100 (the vnet in apps/paperclip), for the task-bridge skill.
+        kube-vnet/net.paperclip.paperclip: egress
+    spec:
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      # Pins matrix.example.com to Traefik's VIP (its public address would hairpin through the router).
+      hostAliases:
+        # One entry per IP: duplicate ips fail the server-side apply. auth.example.com is the
+        # dashboard's OIDC discovery and token exchange.
+        - ip: "10.20.176.210"
+          hostnames:
+            - matrix.example.com
+            - auth.example.com
+      # Not PID 1 in the pod, so the image skips s6 (which needs root) and runs its hook directly.
+      shareProcessNamespace: true
+      securityContext:
+        # 10000 is the only non-root UID the image accepts.
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+        fsGroup: 10000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # Hermes writes config.yaml at runtime and the image hook migrates it; a ConfigMap mount
+        # (subPath too) is read-only. Git stays the source of truth: the copy is reset each start.
+        - name: seed-config
+          image: nousresearch/hermes-agent:v0.22.2@sha256:36099926da316742423544e055d4734777105ffe6341873af5459b957d0c2919
+          resources:
+            requests:
+              memory: 16Mi
+            limits:
+              memory: 128Mi
+          command: [cp, /etc/hermes-profile/config.yaml, /etc/hermes-profile/SOUL.md, /opt/data/]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: data, mountPath: /opt/data}
+            - {name: profile-owner, mountPath: /etc/hermes-profile, readOnly: true}
+      containers:
+        - name: hermes
+          image: nousresearch/hermes-agent:v0.22.2@sha256:36099926da316742423544e055d4734777105ffe6341873af5459b957d0c2919
+          args: [gateway, run]
+          env:
+            - {name: HERMES_MANAGED_DIR, value: /etc/hermes-managed}
+            # No s6 supervisor (see shareProcessNamespace); upgrades skip its root-only migrations.
+            - {name: HERMES_GATEWAY_NO_SUPERVISE, value: "1"}
+            # The image hook would write this under /run/s6, which a non-root user cannot create.
+            # Value: /etc/hermes/agent-browser-executable-path in the image; re-check on upgrade.
+            - {name: AGENT_BROWSER_EXECUTABLE_PATH, value: /opt/hermes/tools/chromium-1208/chrome-linux64/chrome}
+            - {name: API_SERVER_ENABLED, value: "true"}
+            - {name: API_SERVER_HOST, value: 0.0.0.0}
+            - {name: API_SERVER_PORT, value: "8642"}
+            - {name: MATRIX_HOMESERVER, value: "https://matrix.example.com"}
+            - {name: MATRIX_E2EE_MODE, value: required}
+            - {name: MATRIX_DEVICE_ID, value: HERMESBOT}
+            - {name: MATRIX_ALLOWED_USERS, value: "@admin:example.com"}
+            - {name: MATRIX_REQUIRE_MENTION, value: "true"}
+            # Bridge puppets (apps/matrix/registrations); the bridges' bot users too.
+            - {name: MATRIX_IGNORE_USER_PATTERNS, value: '^@(discord|instagram|signal|sip|telegram|whatsapp)(bot|_.+):example\.com$'}
+            - {name: OBSIDIAN_VAULT_PATH, value: /wiki}
+            # The bundled llm-wiki skill looks here (default ~/wiki).
+            - {name: WIKI_PATH, value: /wiki}
+            - {name: CLAUDE_CONFIG_DIR, value: /opt/data/claude}
+            # The mount is read-only and pinned by git: the CLI must not try to update itself.
+            - {name: DISABLE_AUTOUPDATER, value: "1"}
+            - {name: DISABLE_UPDATES, value: "1"}
+            # The image's PATH with the CLI first (an env PATH replaces it; $(PATH) cannot extend it).
+            - {name: PATH, value: /opt/claude-cli/bin:/opt/hermes/bin:/opt/hermes/.venv/bin:/opt/data/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}
+            # paperclip-task-bridge skill; the key is created per the README.
+            - {name: PAPERCLIP_API_URL, value: "http://paperclip.paperclip.svc:3100/api"}
+            - name: PAPERCLIP_BRIDGE_API_KEY
+              valueFrom:
+                secretKeyRef: {name: hermes-paperclip-bridge, key: PAPERCLIP_BRIDGE_API_KEY, optional: true}
+          envFrom:
+            - secretRef:
+                name: hermes-anthropic
+            - secretRef:
+                name: hermes-matrix
+            - secretRef:
+                name: hermes-owner-api
+            # MATRIX_RECOVERY_KEY: verifies the device's cross-signing on every start.
+            - secretRef:
+                name: hermes-matrix-recovery
+            # VOICE_TOOLS_OPENAI_KEY: OpenAI Whisper for voice messages (stt in the owner config).
+            - secretRef:
+                name: hermes-openai-voice
+          ports:
+            - {name: api, containerPort: 8642}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: data, mountPath: /opt/data}
+            - {name: wiki, mountPath: /wiki, readOnly: true}
+            - {name: managed, mountPath: /etc/hermes-managed, readOnly: true}
+            - {name: run, mountPath: /run}
+            - {name: claude-cli, mountPath: /opt/claude-cli, subPath: claude, readOnly: true}
+            - {name: task-bridge, mountPath: /etc/hermes-skills/paperclip-task-bridge, readOnly: true}
+          # First boot refreshes dependencies and syncs skills before the API server listens.
+          startupProbe:
+            timeoutSeconds: 5
+            tcpSocket:
+              port: api
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            timeoutSeconds: 5
+            httpGet:
+              path: /health
+              port: api
+            periodSeconds: 10
+          # TCP only: a restart would drop the Matrix session and running approvals.
+          livenessProbe:
+            timeoutSeconds: 5
+            tcpSocket:
+              port: api
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            requests: {cpu: 250m, memory: 1Gi}
+            limits: {memory: 3Gi}
+        # Web dashboard (README, "Dashboard"). Calls hermes directly, skipping the image hook (config
+        # migration, skill sync), which belongs to the gateway container and must not race it.
+        - name: dashboard
+          image: nousresearch/hermes-agent:v0.22.2@sha256:36099926da316742423544e055d4734777105ffe6341873af5459b957d0c2919
+          command: [hermes]
+          args: [dashboard, --host, 0.0.0.0, --port, "9119", --no-open, --skip-build]
+          env:
+            - {name: HOME, value: /opt/data}
+            - {name: HERMES_MANAGED_DIR, value: /etc/hermes-managed}
+            - {name: HERMES_DASHBOARD_PUBLIC_URL, value: "https://hermes.example.com"}
+            - {name: HERMES_DASHBOARD_OIDC_ISSUER, value: "https://auth.example.com"}
+            - {name: HERMES_DASHBOARD_OIDC_CLIENT_ID, value: hermes-dashboard}
+            - {name: HERMES_DASHBOARD_OIDC_SCOPES, value: "openid profile email groups"}
+          # Chat tab: the TUI runs the agent in this container.
+          envFrom:
+            - secretRef:
+                name: hermes-anthropic
+          ports:
+            - {name: dashboard, containerPort: 9119}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: data, mountPath: /opt/data}
+            - {name: managed, mountPath: /etc/hermes-managed, readOnly: true}
+          # TCP only: the dashboard's Host check may reject kubelet's pod-IP Host header.
+          startupProbe:
+            timeoutSeconds: 5
+            tcpSocket:
+              port: dashboard
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            timeoutSeconds: 5
+            tcpSocket:
+              port: dashboard
+            periodSeconds: 10
+          livenessProbe:
+            timeoutSeconds: 5
+            tcpSocket:
+              port: dashboard
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            requests: {cpu: 50m, memory: 256Mi}
+            limits: {memory: 1Gi}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: hermes-data
+        - name: wiki
+          persistentVolumeClaim:
+            claimName: hermes-wiki
+            readOnly: true
+        - name: managed
+          configMap:
+            name: hermes-managed
+        - name: profile-owner
+          configMap:
+            name: hermes-profile-owner
+        - name: run
+          emptyDir: {}
+        - name: claude-cli
+          image:
+            reference: ${CLAUDE_CLI_REF}
+            pullPolicy: IfNotPresent
+        # The task-bridge skill composed from the Paperclip image (artifacts/task-bridge.yaml).
+        - name: task-bridge
+          image:
+            reference: ${TASK_BRIDGE_REF}
+            pullPolicy: IfNotPresent
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes
+  namespace: hermes
+spec:
+  selector:
+    app.kubernetes.io/name: hermes
+  ports:
+    - {name: api, port: 8642, targetPort: api}
+    - {name: dashboard, port: 9119, targetPort: dashboard}

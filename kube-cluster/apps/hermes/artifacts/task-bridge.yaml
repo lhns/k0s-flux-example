@@ -1,0 +1,28 @@
+# The Paperclip task-bridge skill alone, so a node move pulls kilobytes instead of unpacking the
+# 2.6 GB server image. Same ref as apps/paperclip; Renovate moves both (renovate.json).
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageComposition
+metadata:
+  name: task-bridge
+  namespace: hermes
+spec:
+  interval: 1h
+  # The ref is a multi-arch index (it must match apps/paperclip for Renovate); oci-composer >= 0.6.3
+  # selects the matching child for an image layer.
+  platforms: [linux/amd64]
+  layers:
+    - name: skill
+      image:
+        # renovate: datasource=docker
+        ref: ghcr.io/paperclipai/paperclip:2026.1012.0@sha256:1661b3dd3fdf7a9b59542d1ced464c3faf9dc8309798b4d15a9923ed32795307
+        subpath: /app/packages/adapters/hermes/skills/paperclip-task-bridge
+      # The mount path supplies the skill directory, so the content goes at the root.
+      to: /
+      # hermes reads it as uid 10000 off a read-only mount.
+      mode: {dir: "0755", file: "0644"}
+  push:
+    history: 10
+    writeRefTo:
+      namespace: gen-app-hermes
+      keys:
+        ref: TASK_BRIDGE_REF

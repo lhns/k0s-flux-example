@@ -1,0 +1,14 @@
+# The pod label selects nothing without this VirtualNetwork. A client pod also needs the label
+# `kube-vnet/net.litellm.litellm: egress` (net.<namespace>.<name>).
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: litellm
+  namespace: litellm
+spec:
+  description: "LLM gateway clients -> litellm (:4000)."
+  allowedNamespaces:
+    names:
+      - hermes
+      - paperclip
+      - matrix

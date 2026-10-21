@@ -1,6 +1,6 @@
 # coturn
 
-Shared STUN/TURN server on MetalLB VIP **`10.20.2.80`** (`turn.example.com`). Relays audio/video
+Shared STUN/TURN server on MetalLB VIP **`10.20.176.75`** (`turn.example.com`). Relays audio/video
 media for clients that cannot reach each other directly — which is most of them, since
 symmetric NAT defeats plain hole-punching.
 
@@ -51,7 +51,7 @@ looks like "calls just don't connect" rather than a configuration error.
 
 ## Router
 
-Forward to `10.20.2.80`, the same mechanism already used for LiveKit's range:
+Forward to `10.20.176.75`, the same mechanism already used for LiveKit's range:
 
 | port | protocol |
 | --- | --- |

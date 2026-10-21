@@ -84,6 +84,9 @@ spec:
     - apiVersion: postgresql.cnpg.io/v1
       kind: Cluster
       current: has(status.readyInstances) && status.readyInstances == spec.instances && has(status.currentPrimary) && status.currentPrimary == status.targetPrimary
+    - apiVersion: grafana.integreatly.org/v1beta1
+      kind: Grafana
+      current: has(status.conditions) && status.conditions.exists(c, c.type == 'GrafanaReady' && c.status == 'True' && c.observedGeneration == metadata.generation)
   commonMetadata:
     labels:
       app.kubernetes.io/instance: "renamed-instance"
@@ -137,6 +140,9 @@ spec:
     - apiVersion: postgresql.cnpg.io/v1
       kind: Cluster
       current: has(status.readyInstances) && status.readyInstances == spec.instances && has(status.currentPrimary) && status.currentPrimary == status.targetPrimary
+    - apiVersion: grafana.integreatly.org/v1beta1
+      kind: Grafana
+      current: has(status.conditions) && status.conditions.exists(c, c.type == 'GrafanaReady' && c.status == 'True' && c.observedGeneration == metadata.generation)
   commonMetadata:
     labels:
       app.kubernetes.io/instance: "based"
@@ -256,6 +262,9 @@ spec:
     - apiVersion: postgresql.cnpg.io/v1
       kind: Cluster
       current: has(status.readyInstances) && status.readyInstances == spec.instances && has(status.currentPrimary) && status.currentPrimary == status.targetPrimary
+    - apiVersion: grafana.integreatly.org/v1beta1
+      kind: Grafana
+      current: has(status.conditions) && status.conditions.exists(c, c.type == 'GrafanaReady' && c.status == 'True' && c.observedGeneration == metadata.generation)
   commonMetadata:
     labels:
       app.kubernetes.io/instance: "controlled"
@@ -318,6 +327,9 @@ spec:
     - apiVersion: postgresql.cnpg.io/v1
       kind: Cluster
       current: has(status.readyInstances) && status.readyInstances == spec.instances && has(status.currentPrimary) && status.currentPrimary == status.targetPrimary
+    - apiVersion: grafana.integreatly.org/v1beta1
+      kind: Grafana
+      current: has(status.conditions) && status.conditions.exists(c, c.type == 'GrafanaReady' && c.status == 'True' && c.observedGeneration == metadata.generation)
   commonMetadata:
     labels:
       app.kubernetes.io/instance: "dependent"
@@ -419,6 +431,9 @@ spec:
     - apiVersion: postgresql.cnpg.io/v1
       kind: Cluster
       current: has(status.readyInstances) && status.readyInstances == spec.instances && has(status.currentPrimary) && status.currentPrimary == status.targetPrimary
+    - apiVersion: grafana.integreatly.org/v1beta1
+      kind: Grafana
+      current: has(status.conditions) && status.conditions.exists(c, c.type == 'GrafanaReady' && c.status == 'True' && c.observedGeneration == metadata.generation)
   commonMetadata:
     labels:
       app.kubernetes.io/instance: "exported"
@@ -528,6 +543,9 @@ spec:
     - apiVersion: postgresql.cnpg.io/v1
       kind: Cluster
       current: has(status.readyInstances) && status.readyInstances == spec.instances && has(status.currentPrimary) && status.currentPrimary == status.targetPrimary
+    - apiVersion: grafana.integreatly.org/v1beta1
+      kind: Grafana
+      current: has(status.conditions) && status.conditions.exists(c, c.type == 'GrafanaReady' && c.status == 'True' && c.observedGeneration == metadata.generation)
   commonMetadata:
     labels:
       app.kubernetes.io/instance: "external"
@@ -631,6 +649,9 @@ spec:
     - apiVersion: postgresql.cnpg.io/v1
       kind: Cluster
       current: has(status.readyInstances) && status.readyInstances == spec.instances && has(status.currentPrimary) && status.currentPrimary == status.targetPrimary
+    - apiVersion: grafana.integreatly.org/v1beta1
+      kind: Grafana
+      current: has(status.conditions) && status.conditions.exists(c, c.type == 'GrafanaReady' && c.status == 'True' && c.observedGeneration == metadata.generation)
   commonMetadata:
     labels:
       app.kubernetes.io/instance: "namespaced"
@@ -689,6 +710,9 @@ spec:
     - apiVersion: postgresql.cnpg.io/v1
       kind: Cluster
       current: has(status.readyInstances) && status.readyInstances == spec.instances && has(status.currentPrimary) && status.currentPrimary == status.targetPrimary
+    - apiVersion: grafana.integreatly.org/v1beta1
+      kind: Grafana
+      current: has(status.conditions) && status.conditions.exists(c, c.type == 'GrafanaReady' && c.status == 'True' && c.observedGeneration == metadata.generation)
   commonMetadata:
     labels:
       app.kubernetes.io/instance: "plain"
@@ -738,6 +762,9 @@ spec:
     - apiVersion: postgresql.cnpg.io/v1
       kind: Cluster
       current: has(status.readyInstances) && status.readyInstances == spec.instances && has(status.currentPrimary) && status.currentPrimary == status.targetPrimary
+    - apiVersion: grafana.integreatly.org/v1beta1
+      kind: Grafana
+      current: has(status.conditions) && status.conditions.exists(c, c.type == 'GrafanaReady' && c.status == 'True' && c.observedGeneration == metadata.generation)
   commonMetadata:
     labels:
       app.kubernetes.io/instance: "suspended"
@@ -810,6 +837,9 @@ spec:
     - apiVersion: postgresql.cnpg.io/v1
       kind: Cluster
       current: has(status.readyInstances) && status.readyInstances == spec.instances && has(status.currentPrimary) && status.currentPrimary == status.targetPrimary
+    - apiVersion: grafana.integreatly.org/v1beta1
+      kind: Grafana
+      current: has(status.conditions) && status.conditions.exists(c, c.type == 'GrafanaReady' && c.status == 'True' && c.observedGeneration == metadata.generation)
   commonMetadata:
     labels:
       app.kubernetes.io/instance: "with-secrets"

@@ -1,0 +1,34 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    flux-component-generator/dependsOn: infra-ceph-csi-rbd,infra-ceph-csi-cephfs,infra-oci-composer,infra-traefik,infra-reflector,app-anubis,app-authelia
+resources:
+- resources.yaml
+- worker.yaml
+- vnet.yaml
+- networkpolicy.yaml
+- routing.yaml
+- secret-anthropic.yaml
+- secret-matrix.yaml
+- secret-matrix-recovery.yaml
+- secret-openai-voice.yaml
+- secret-owner-api.yaml
+- secret-paperclip-bridge.yaml
+- secret-worker-api.yaml
+- secret-worker-paperclip.yaml
+configMapGenerator:
+# The comments in these files are shipped config; editing them restarts the pod.
+- name: hermes-managed
+  namespace: hermes
+  files:
+  - config.yaml=managed/config.yaml
+- name: hermes-profile-owner
+  namespace: hermes
+  files:
+  - config.yaml=profiles/owner/config.yaml
+  - SOUL.md=profiles/owner/SOUL.md
+- name: hermes-profile-worker
+  namespace: hermes
+  files:
+  - config.yaml=profiles/worker/config.yaml

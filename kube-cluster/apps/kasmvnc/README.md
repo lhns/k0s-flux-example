@@ -1,11 +1,10 @@
 # kasmvnc
 
 A Linux session in a browser tab (`kasmweb/core-ubuntu-noble`, powered by **KasmVNC**). The core
-image carries no desktop and no browser — see *Notes*. Public at `kasmvnc.example.com`, gated by **Authelia forwardAuth**;
+image carries a bare XFCE desktop and no applications — see *Notes*. Public at `kasmvnc.example.com`, gated by **Authelia forwardAuth**;
 `kasmvnc.kube.example.com` redirects here.
 
 Deployed alongside [`../webtop`](../webtop/README.md) to compare the two remote-desktop stacks.
-**One of the two gets deleted afterwards.**
 
 ## Read this first: standalone kasm images are deliberately degraded
 
@@ -90,8 +89,8 @@ never going to have here.
   ```
 
   The fix at the time was an `authelia-session` middleware on a `forward-auth-session` endpoint
-  restricted to `CookieSession`. That middleware is still defined and unused; anything deployed
-  later with its own basic auth wants it.
+  restricted to `CookieSession`. `routing.yaml` still uses it; anything deployed later with its
+  own basic auth wants it.
 
 ## Security
 
@@ -99,21 +98,11 @@ Same as webtop: **a root-capable shell on the cluster network behind a single me
 gate.** Deliberate for an admin jump box; keep the vnet closed and open targets one at a time.
 
 ## One-time setup
-1. Point `kasmvnc.example.com` DNS at the Traefik LB `10.20.2.15`. The Authelia `access_control` rule
+1. Point `kasmvnc.example.com` DNS at the Traefik LB `10.20.176.210`. The Authelia `access_control` rule
    ships with this change.
-2. Log in through Authelia. **That is the only login** — Kasm's own prompt is disabled.
-
-   Should it ever need to be re-enabled (drop `VNCOPTIONS`), the web account is **`kasm_user`**
-   with an underscore — the OS account `kasm-user` with a hyphen is *not* the web login, and
-   there is also a read-only `kasm_viewer`. Read the password from the decrypted in-cluster
-   Secret:
-   ```
-   kubectl -n kasmvnc get secret kasmvnc -o jsonpath='{.data.VNC_PW}' | base64 -d
-   ```
-   or from the encrypted file:
-   ```
-   ssh admin@10.20.5.15 "sops --decrypt --input-type yaml --output-type yaml /dev/stdin"      < kube-cluster/apps/kasmvnc/secret.yaml
-   ```
+2. Log in through Authelia. **That is the only login** — the `proxy` sidecar answers Kasm's own
+   prompt. The web account behind it is **`kasm_user`** with an underscore (the OS account
+   `kasm-user` with a hyphen is *not* the web login; there is also a read-only `kasm_viewer`).
 
 `VNC_PW` is a 32-character random value, generated and SOPS-encrypted on the jumphost per the
 workflow in `docs/migrating-swarm-to-kubernetes.md` §7.1 — piped over stdin, so the plaintext never

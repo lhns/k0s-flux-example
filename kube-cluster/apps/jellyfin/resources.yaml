@@ -1,12 +1,12 @@
 # ---------------------------------------------------------------------------
-# Storage. The old Swarm host paths /mnt/{appdata,fastappdata,archive} are all
-# CephFS filesystems on the same ceph-cluster (fs names appdata/fastappdata/
+# Storage. The old Swarm host paths /mnt/{appdata,fastdata,archive} are all
+# CephFS filesystems on the same ceph-cluster (fs names appdata/fastdata/
 # archive). We reproduce the compose's volume layout as:
-#   - /config  : a NEW ceph-rbd (block, RWO) volume; the small fastappdata
+#   - /config  : a NEW ceph-rbd (block, RWO) volume; the small fastdata
 #                config subtree (3.3G) is copied into it once. Writable base so
 #                Jellyfin can write cache/loose files.
-#   - RO overlays from the big appdata fs (metadata) and the pre-existing
-#     read-only appdata dirs (trickplay, subbuzz) mounted read-only for now.
+#   - /config/metadata mounted RW in place off the big appdata fs; trickplay and
+#     subbuzz are pre-existing appdata dirs mounted read-only.
 #   - /media   : the archive fs media library, read-only.
 # Static CephFS PVs follow the navidrome-music pattern (storageClassName: "",
 # staticVolume, per-fs fsName + rootPath, bound by volumeName).
@@ -168,7 +168,7 @@ spec:
     requests:
       storage: 1Gi
 ---
-# Jellyfin's own config/state (block, ceph-rbd, RWO). The small fastappdata
+# Jellyfin's own config/state (block, ceph-rbd, RWO). The small fastdata
 # config subtree (config/data/log/plugins/root) is copied into this once; the
 # writable base also holds cache. Single-writer -> Recreate on the Deployment.
 apiVersion: v1
@@ -186,7 +186,7 @@ spec:
 # Shared transcode temp dir for remote GPU transcoding. CephFS RWX so the GPU
 # Swarm worker can mount the SAME subtree at the SAME path (/cache/transcodes) and
 # see ffmpeg's segments. Only this ephemeral dir is shared; the rest of /cache stays
-# node-local. rootPath already exists on the fastappdata fs.
+# node-local. rootPath already exists on the fastdata fs.
 apiVersion: v1
 kind: PersistentVolume
 metadata:
@@ -207,7 +207,7 @@ spec:
     volumeHandle: jellyfin-transcodes
     volumeAttributes:
       clusterID: ceph-cluster
-      fsName: fastappdata
+      fsName: fastdata
       staticVolume: "true"
       rootPath: /eph-docker/jellyfin/cache/transcodes
 ---
@@ -299,7 +299,7 @@ spec:
             - name: TMPDIR
               value: /cache/transcodes/tmp
             - name: FFMPEG_SSH_WORKER
-              value: "10.20.2.10:1522"
+              value: "10.20.176.187:1522"
             - name: FFMPEG_SSH_USER
               value: root
             # Straight from the Secret mount. Jellyfin runs as root here and the volume is
@@ -406,7 +406,7 @@ spec:
         - name: ssh-img
           image:
             # renovate: datasource=docker
-            reference: buildpack-deps:trixie-scm
+            reference: buildpack-deps:trixie-scm@sha256:6e8ba98ab91672906401f95bda24888b4c791fff806fc3da979a227cd72a7dbf
             pullPolicy: IfNotPresent
         - name: ssh-ffmpeg-wrapper
           configMap:

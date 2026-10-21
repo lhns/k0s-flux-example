@@ -4,6 +4,20 @@ metadata:
   name: postgres
   namespace: postgres
 spec:
+  # The only way to annotate instance pods (no pod template); the operator patches them in place,
+  # no restart. Also lands on the PVCs, Services and Secrets, harmlessly.
+  inheritedMetadata:
+    annotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "9187"
+      prometheus.io/path: /metrics
+  # The default queries stay first: a later ConfigMap's key silently replaces an earlier one's.
+  monitoring:
+    customQueriesConfigMap:
+      - name: cnpg-default-monitoring
+        key: queries
+      - name: postgres-monitoring
+        key: queries
   # 3 instances = 1 primary + 2 hot standbys. CNPG failover is operator/API driven
   # (no quorum), so 2 would be enough for automatic HA -- the third exists for the
   # SYNCHRONOUS setting below, not for failover.
@@ -37,17 +51,20 @@ spec:
     parameters:
       max_connections: "500"
       shared_buffers: "512MB"   # ~25% of the 2Gi limit below
+      # Per-block I/O timing for pg_stat_database / pg_stat_io. Reload-only, unlike the two above.
+      track_io_timing: "on"
+      track_wal_io_timing: "on"
+      # Any pg_stat_statements.* makes CNPG preload the library (restart) and create the extension
+      # in every database. track_utility off: driver SET/DISCARD would crowd out real queries.
+      pg_stat_statements.max: "5000"
+      pg_stat_statements.track: top
+      pg_stat_statements.track_utility: "off"
     # Synchronous replication: a commit is not acknowledged until a standby has the WAL.
     # RPO=0.
     #
-    # This cluster promotes a lot (timeline 28 by 2026-08-21, driven by Ceph instability
-    # under ceph-rbd) and every ASYNC promotion silently discards commits the new primary
-    # had not received. That cost real data: four Synapse sequences moved BACKWARDS and
-    # the rollback took device_inbox rows with it -- the table holding Megolm session
-    # keys -- so messages the senders were told had been delivered could not be decrypted.
-    #
-    # Sequences below a client's recorded position also follow primary moves without any
-    # lost commit (WAL log-ahead on standbys); apps/matrix guards against it, see its README.
+    # Every ASYNC promotion silently discards commits the new primary had not received,
+    # and this cluster promotes often. Sequences can also lag a client's recorded position
+    # without any lost commit (WAL log-ahead on standbys): apps/matrix/README.md.
     #
     # number: 1, not 2 -- both give RPO=0, but 2 blocks writes whenever any single
     # standby is away, which a rolling update makes routine. method: any, so either

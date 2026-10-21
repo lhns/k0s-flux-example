@@ -18,7 +18,7 @@ spec:
       labels:
         app.kubernetes.io/name: msmtpd
         app.kubernetes.io/instance: msmtpd
-        # accept relay from members of the msmtpd vnet (authelia). Egress to Gmail
+        # accept relay from members of the msmtpd vnet (see vnet.yaml). Egress to Gmail
         # is external (unrestricted under the ingress-only baseline).
         kube-vnet/net.msmtpd: ingress
     spec:
@@ -63,10 +63,13 @@ spec:
             - name: smtp
               containerPort: 2500
           readinessProbe:
+            timeoutSeconds: 5
             tcpSocket:
               port: smtp
             initialDelaySeconds: 5
             periodSeconds: 10
+          resources:
+            limits: {memory: 128Mi}
 ---
 apiVersion: v1
 kind: Service

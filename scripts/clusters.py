@@ -13,12 +13,23 @@ copy() mirrors source-watcher's internal/builder for the forms this repo uses:
   and, without a "/", the bare file name.
 The source is the git tree (`git ls-files`), as source-controller checks it out.
 """
-import fnmatch, pathlib, posixpath, re, subprocess
+import fnmatch, functools, pathlib, posixpath, re, subprocess
 
 import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 GLOB = re.compile(r"[*?\[\]]")
+# libyaml when present: ~10x faster than pure Python, and the same documents for every file in
+# this repo. The pure loader parses gotk-components.yaml alone in about a second.
+Loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
+
+def load(text):
+    return yaml.load(text, Loader=Loader)
+
+
+def load_all(text):
+    return yaml.load_all(text, Loader=Loader)
 
 
 def clusters():
@@ -33,8 +44,10 @@ def components(cluster):
     return out
 
 
+@functools.cache
 def docs(path):
-    return [d for d in yaml.safe_load_all((ROOT / path).read_text(encoding="utf-8")) if d]
+    """Parsed once per process: root_release() and root_artifact() come back to the same files."""
+    return [d for d in load_all((ROOT / path).read_text(encoding="utf-8")) if d]
 
 
 def _flux_docs(cluster, kind):

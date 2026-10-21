@@ -1,7 +1,7 @@
 ---
-# Shared STUN/TURN. Two consumers today: snikket (Jingle A/V for XMPP) and
-# synapse (Matrix 1:1 VoIP via turn_uris). Both use coturn's REST-API credential
-# scheme against one shared secret, which is why a single instance can serve them.
+# Shared STUN/TURN for snikket (Jingle A/V for XMPP), synapse (Matrix 1:1 VoIP via
+# turn_uris) and jetkvm. All use coturn's REST-API credential scheme against one
+# shared secret, which is why a single instance can serve them.
 #
 # Snikket ships its own coturn; it is disabled there (SNIKKET_TWEAK_TURNSERVER=0)
 # in favour of this one, so there is exactly one UDP relay range to punch through
@@ -42,6 +42,11 @@ spec:
         # would be readable via ps to anyone on the node).
         - name: render-config
           image: busybox:1.38.0
+          resources:
+            requests:
+              memory: 16Mi
+            limits:
+              memory: 64Mi
           command:
             - /bin/sh
             - -c
@@ -124,7 +129,7 @@ metadata:
   name: coturn-lb
   namespace: coturn
   annotations:
-    metallb.io/loadBalancerIPs: 10.20.2.80
+    metallb.io/loadBalancerIPs: 10.20.176.75
 spec:
   type: LoadBalancer
   externalTrafficPolicy: Local

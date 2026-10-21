@@ -7,3 +7,4 @@ resources:
 - ../../../shared/infra/reloader
 patches:
 - path: version.yaml
+- path: resources.yaml

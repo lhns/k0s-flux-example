@@ -12,7 +12,8 @@ standbys) on the `ceph-rbd` (Ceph RBD block) StorageClass. Requires the operator
   **Connections & pooling** below.
 - `pooler.yaml` — a CNPG `Pooler` (pgbouncer, transaction mode) — see **Connections & pooling**.
 - `objectstore.yaml` / `scheduledbackup.yaml` / `s3-secret.yaml` — see **Backups** below.
-- `vnet.yaml` — three kube-vnet channels:
+- `monitoring-queries.yaml` — custom exporter queries; see **Monitoring** below.
+- `vnet.yaml` — three kube-vnet channels, plus the scrape binding (**Monitoring**):
   - **`postgres-internal`** — CNPG's own traffic (instance↔instance replication +
     operator→instance), scoped to the cluster + `cnpg-system`. Not for clients.
   - **`postgres`** — the direct client channel (like the `traefik` vnet): any namespace
@@ -69,6 +70,83 @@ kubectl -n postgres get backup --sort-by=.metadata.creationTimestamp | tail -3
 Trade-off: base backups and WAL now both live in RGW, so this survives losing the Postgres
 volumes and gives PITR — but the bucket is **on the same Ceph**, so it is not full-Ceph-loss
 DR. Off-cluster copies of that bucket are the missing piece, not another backup method.
+
+## Monitoring
+
+Each instance runs CNPG's exporter on `:9187` and each pooler pod pgbouncer's on `:9127`. The otel
+cluster collector scrapes both like any annotated pod (`infra/opentelemetry-monitoring`): the
+`prometheus.io/*` annotations come from `inheritedMetadata` on the `Cluster` and the pod template on
+the `Pooler`, `postgres` is in the collector's `namespaces.names`, and `postgres-scrape-ingress` in
+`vnet.yaml` admits it. Dashboards: [below](#dashboards).
+
+- `monitoring-queries.yaml` adds per-database sessions and busy time, the role that owns each
+  database, lock waits, statement age, `pg_stat_io` and each database's top 5 statements from
+  `pg_stat_statements` (primary only), on top of the operator's default queries.
+  Edits reload without a restart (`cnpg.io/reload`). Per-table statistics would need
+  `target_databases`, one connection per database per scrape; read them in psql instead.
+- `track_io_timing` and `track_wal_io_timing` are on (reload only) for the I/O times.
+- `pg_stat_statements` is loaded through its `pg_stat_statements.*` parameters (`track: top`, 5000
+  entries); CNPG creates the extension in every database. Removing the parameters unloads it, again
+  with a restart of every instance.
+- The collector blanks the pod labels `role` and `cnpg.io/instanceRole`, which flip on every
+  switchover; queries find the primary with `cnpg_pg_replication_in_recovery == 0`.
+- No `PodMonitor` (`enablePodMonitor`): nothing in this cluster reads them, and upstream deprecates
+  the field.
+- `cnpg_collector_last_available_backup_timestamp` and `first_recoverability_point` are not
+  maintained for plugin backups; `barman_cloud_cloudnative_pg_io_*` from the plugin sidecar are.
+
+### Dashboards
+
+Two Grafana Operator `GrafanaDashboard`s in folder *Postgres* (`grafana.yaml`, JSON in
+`dashboards/`), from the instance (:9187) and pooler (:9127) exporters plus
+kubeletstats.
+
+- **Postgres** (`/d/postgres`): the cluster. At a glance on top; rows for connections, performance
+  of the primary, I/O (`pg_stat_io` and the nodes' RBD devices), resources, storage, WAL and
+  archiving, replication, the pgbouncer pooler and the exporters themselves. Variables: instance,
+  pooler pod.
+- **Postgres databases** (`/d/postgres-database`): per app. Pick a role and its databases follow
+  (`matrix` selects its nine); the table on top has one row per database, sortable, and a click on a
+  name narrows everything below to it. *Top statements* lists each database's five heaviest
+  statements by `queryid`; an admin reads the text in psql on the primary, in that database:
+  `SELECT query FROM pg_stat_statements WHERE queryid = <id>;`. All panels read the primary.
+
+Panels find the primary by metric, never by pod name or role label
+(see [Monitoring](#monitoring)).
+
+#### Runbook
+
+| Symptom | Look at | Fix |
+| --- | --- | --- |
+| Writes hang cluster-wide | *Sync standbys* 0, *Instances up* | A standby is down and `dataDurability: required` pauses commits: bring it back |
+| An app is slow | *Postgres databases*: *Busy*, *Read wait*, *Cache hit*, *Lock waits*, *Idle in tx*, *Top statements* | Lock waits or long statements: the app's queries; read wait with low cache hit: memory; one statement dominating: its index or plan |
+| Cache hit ratio falling, major faults rising | *Cache hit ratio*, *Cache pressure*, *Memory* | Raise the memory limit in `cluster.yaml` (restarts the instances; batch it) |
+| *Connections used* high | *Backends by database*, *New sessions by database* | Shrink that app's pool, or move it to `postgres-pooler` |
+| Idle in transaction | *Transaction age by database* | The app holds transactions open; it also blocks vacuum (*Transaction ID age*) |
+| Requested checkpoints above timed | *Checkpoints*, *WAL generated* | Raise `max_wal_size` (reload only) |
+| Clients waiting at the pooler | *Pooler clients*, *Pooler server connections* | Pool pinned at `default_pool_size`: raise it; else the database is the bottleneck |
+| WAL waiting to archive rises | *WAL archive backlog*, *pg_wal* | Archiving to RGW fails: barman-cloud sidecar log, RGW, `serverName` ([above](#servername)) |
+| Backup failed | *Last failed backup* | `kubectl -n postgres get backup`, describe the failed one |
+| Standby behind or not streaming | *Standby lag*, *Standby health* | The standby's log; a slow disk or a network problem |
+| Primary moved | *Instance restarts and role changes* | Check Synapse (sequence guard, `apps/matrix/README.md`) |
+| pgdata filling | *pgdata used*, *Database size*, *Database growth per day* | Grow `storage.size`; never delete a PV ([AGENTS.md](../../../AGENTS.md)) |
+
+#### Limits of the data
+
+- No per-pod block I/O on k8s nodes: the *Node disk* panels show every RBD volume on the node.
+  `pg_stat_io` and the block read times are the Postgres-side view.
+- The cache hit ratio counts shared_buffers only; a miss may still come from the OS page cache.
+- `cnpg_collector_last_available_backup_timestamp` is not maintained for plugin backups; the
+  dashboards use the barman-cloud plugin's `barman_cloud_cloudnative_pg_io_*` instead.
+- No app connects through `postgres-pooler` yet, so the pooler panels show nothing until one does.
+- Statement statistics exist on the primary only and start over after a switchover; the top 5 of a
+  database is ranked by cumulative time, so a new hot statement shows in *other* until it overtakes.
+
+### Decisions
+
+- **Query statistics carry `queryid`, never query text.** Every Authelia user is at least a Grafana
+  Viewer, and the text is every app's SQL. Resolve an id in psql:
+  `SELECT query FROM pg_stat_statements WHERE queryid = ...`.
 
 ## Connecting a client (from any namespace)
 **Pooled (default):** join the `postgres-pooler` vnet with **egress** and connect to

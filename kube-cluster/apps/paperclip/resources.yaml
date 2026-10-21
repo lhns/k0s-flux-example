@@ -1,0 +1,165 @@
+---
+# PAPERCLIP_HOME: agent workspaces, git checkouts, uploads, the agent CLIs' own state.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: paperclip-data
+  namespace: paperclip
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 20Gi
+---
+# LLM Wiki root, RWX so Hermes can mount the same subvolume later (static PV on its path).
+# Deleting this PV destroys the wiki (pv-reaper); delete only the PVC.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: paperclip-wiki
+  namespace: paperclip
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: cephfs
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paperclip
+  namespace: paperclip
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  # Singleton: agent runs are child processes of the server, and on boot it reaps runs it finds
+  # "running" as orphans, so an overlapping second pod would kill or retry the first one's runs.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: paperclip
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: paperclip
+        app.kubernetes.io/instance: paperclip
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.postgres.postgres: egress
+        kube-vnet/net.paperclip: ingress
+        kube-vnet/net.hermes.hermes: egress
+    spec:
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      # Matches upstream's compose stop_grace_period, so in-flight runs can wind down.
+      terminationGracePeriodSeconds: 90
+      securityContext:
+        # The entrypoint skips its chown/gosu step when not root; fsGroup makes the volume writable.
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: paperclip
+          image: ghcr.io/paperclipai/paperclip:2026.1012.0@sha256:1661b3dd3fdf7a9b59542d1ced464c3faf9dc8309798b4d15a9923ed32795307
+          env:
+            - {name: PAPERCLIP_DEPLOYMENT_MODE, value: authenticated}
+            # `private`, not `public`: public disables the browser first-admin claim and
+            # in-container stdio MCP. Authelia is the internet-facing gate.
+            - {name: PAPERCLIP_DEPLOYMENT_EXPOSURE, value: private}
+            - {name: PAPERCLIP_PUBLIC_URL, value: "https://paperclip.example.com"}
+            # Without this, agents call the public URL and get stopped by Anubis/Authelia.
+            # 127.0.0.1, not localhost: the server listens on IPv4 only.
+            - {name: PAPERCLIP_API_URL, value: "http://127.0.0.1:3100"}
+            - {name: TRUST_PROXY, value: "1"}
+            # Lets Hermes call the API in-cluster; exposure `private` 403s any other Host.
+            - {name: PAPERCLIP_ALLOWED_HOSTNAMES, value: paperclip.paperclip.svc}
+            - name: PAPERCLIP_DB_PASSWORD
+              valueFrom: {secretKeyRef: {name: paperclip-db, key: password}}
+            - name: DATABASE_URL
+              value: postgresql://paperclip:$(PAPERCLIP_DB_PASSWORD)@postgres-rw.postgres.svc.cluster.local:5432/paperclip?sslmode=disable
+            # The app's own pg_dump backups; CNPG's barman backs this database up already.
+            - {name: PAPERCLIP_DB_BACKUP_ENABLED, value: "false"}
+            # better-auth refuses every email sign-up, invited ones too; unset briefly to add a user.
+            - {name: PAPERCLIP_AUTH_DISABLE_SIGN_UP, value: "true"}
+          envFrom:
+            - secretRef:
+                name: paperclip-secrets
+            # Provider key for the claude CLI; absent until added (see README).
+            - secretRef:
+                name: paperclip-anthropic
+                optional: true
+          ports:
+            - {name: http, containerPort: 3100}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - {name: data, mountPath: /paperclip}
+            - {name: wiki, mountPath: /paperclip/wiki}
+          # The private-hostname guard rejects the pod IP as Host, hence the header.
+          startupProbe:
+            timeoutSeconds: 5
+            httpGet:
+              path: /api/health
+              port: http
+              httpHeaders: [{name: Host, value: localhost}]
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            timeoutSeconds: 5
+            httpGet:
+              path: /api/health
+              port: http
+              httpHeaders: [{name: Host, value: localhost}]
+            periodSeconds: 10
+          # TCP, not /api/health: that returns 503 while Postgres fails over, and a restart
+          # would kill running agents.
+          livenessProbe:
+            timeoutSeconds: 5
+            tcpSocket:
+              port: http
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            requests: {cpu: 250m, memory: 1Gi}
+            limits: {memory: 4Gi}
+        # Loopback forwarder to the Hermes worker: the hermes_gateway adapter refuses plain HTTP to
+        # any non-loopback host and its UI cannot set the override, so apiBaseUrl is
+        # http://127.0.0.1:8642. The traffic stays in-cluster, fenced by kube-vnet.
+        - name: hermes-forward
+          image: alpine/socat:1.8.1.3@sha256:22d77becaeeea8ef56b8c4bb2312323acafe85354be6a85714ff5050e3537842
+          args: ["TCP-LISTEN:8642,bind=127.0.0.1,fork,reuseaddr", "TCP:hermes-worker.hermes.svc.cluster.local:8642"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests: {cpu: 5m, memory: 16Mi}
+            limits: {memory: 64Mi}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: paperclip-data
+        - name: wiki
+          persistentVolumeClaim:
+            claimName: paperclip-wiki
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: paperclip
+  namespace: paperclip
+spec:
+  selector:
+    app.kubernetes.io/name: paperclip
+  ports:
+    - {name: http, port: 3100, targetPort: http}

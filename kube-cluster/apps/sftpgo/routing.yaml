@@ -41,7 +41,7 @@ metadata:
   namespace: sftpgo
 spec:
   redirectRegex:
-    regex: "^https://sftpgo.kube.example.com/(.*)"
+    regex: "^https?://[^/]+/(.*)"
     replacement: "https://sftpgo.example.com/${1}"
     permanent: true
 ---
@@ -56,8 +56,8 @@ spec:
     - kind: Rule
       match: Host(`sftpgo.kube.example.com`)
       services:
-        - name: sftpgo
-          port: 8080
+        - name: noop@internal
+          kind: TraefikService
       middlewares:
         - name: sftpgo-kube-redirect
   tls: {}
@@ -70,7 +70,7 @@ metadata:
   namespace: sftpgo
 spec:
   redirectRegex:
-    regex: "^https://webdav.kube.example.com/(.*)"
+    regex: "^https?://[^/]+/(.*)"
     replacement: "https://webdav.example.com/${1}"
     permanent: true
 ---
@@ -85,8 +85,8 @@ spec:
     - kind: Rule
       match: Host(`webdav.kube.example.com`)
       services:
-        - name: sftpgo
-          port: 10080
+        - name: noop@internal
+          kind: TraefikService
       middlewares:
         - name: webdav-kube-redirect
   tls: {}

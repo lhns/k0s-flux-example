@@ -8,22 +8,23 @@ renders the root release (render.sh real-generate) and the per-component release
 copies what each ArtifactGenerator copies (scripts/clusters.py mirrors source-watcher), and
 runs `kustomize build` at each Kustomization's spec.path in that copy. A reserved directory
 has no kustomization.yaml (kustomize-controller synthesizes one) and only has to be there.
+It also checks that the root ArtifactGenerator copies every file the templates read from a
+component: the root release renders from that artifact, not from the checkout.
 """
 import concurrent.futures, os, pathlib, shutil, subprocess, sys, tempfile
-
-import yaml
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import clusters
 
 ROOT = clusters.ROOT
+RESERVED = ("namespaces", "artifacts", "substitution-secrets")
 
 
 def render(mode, cluster):
     r = subprocess.run(["bash", "scripts/render.sh", mode, cluster], cwd=ROOT, capture_output=True, text=True)
     if r.returncode:
         sys.exit(f"{cluster}: render.sh {mode} failed:\n{r.stderr[-2000:]}")
-    return [d for d in yaml.safe_load_all(r.stdout) if d]
+    return [d for d in clusters.load_all(r.stdout) if d]
 
 
 def check(cluster, ks, artifacts, tmp):
@@ -33,7 +34,7 @@ def check(cluster, ks, artifacts, tmp):
         return f"{cluster}: Kustomization {name}: no ArtifactGenerator emits {ks['spec']['sourceRef']['name']}"
     if isinstance(files, str):
         return f"{cluster}: Kustomization {name}: {files}"
-    dest = pathlib.Path(tmp, name)
+    dest = pathlib.Path(tmp, cluster, name)  # per cluster: shared names would mask a missing bases entry
     for to, src in files.items():
         (dest / to).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / src, dest / to)
@@ -48,11 +49,42 @@ def check(cluster, ks, artifacts, tmp):
     return None
 
 
+def root_sees(cluster, tracked):
+    """Files the generator reads from a component that the root ArtifactGenerator does not copy.
+
+    The root release renders from its own artifact, not the checkout, so a file the templates
+    read (kustomization.yaml, namespaces/, artifacts/, substitution-secrets/) that no copy
+    carries changes the in-cluster render while CI, rendering the checkout, stays green.
+    """
+    _, gen = clusters.root_artifact(cluster)
+    if gen is None:
+        return [f"{cluster}: no root ArtifactGenerator"]
+    seen = set()
+    for spec in gen["spec"]["artifacts"]:
+        try:
+            seen |= set(clusters.artifact(spec, tracked).values())
+        except ValueError as e:
+            return [f"{cluster}: root ArtifactGenerator: source-watcher would fail: {e}"]
+    missing = set()
+    for comp, _ in clusters.components(cluster):
+        for f in tracked:
+            rel = f.removeprefix(comp + "/")
+            if f.startswith(comp + "/") and f.endswith((".yaml", ".yml")) and (
+                    rel == "kustomization.yaml"
+                    or (rel.count("/") == 1 and rel.split("/")[0] in RESERVED)):
+                if f not in seen:
+                    missing.add(f)
+    return [f"{cluster}: the root ArtifactGenerator does not copy {f}, which the generator reads "
+            f"(add a glob to its copy list)" for f in sorted(missing)]
+
+
 def main():
     tracked = clusters.tracked()
     failures, n = [], 0
+    for cluster in clusters.clusters():
+        failures += ["  " + e for e in root_sees(cluster, tracked)]
     with tempfile.TemporaryDirectory() as tmp, \
-            concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as pool:
+            concurrent.futures.ThreadPoolExecutor(max_workers=int(os.environ.get("JOBS") or 0) or os.cpu_count() or 4) as pool:
         jobs = []
         for cluster in clusters.clusters():
             artifacts = {}

@@ -21,10 +21,8 @@ spec:
 # of the estate. To re-route later (kafka exporter, direct-to-Victoria, ...) change
 # the `otlp_grpc` exporter in BOTH collectors below — it's the one knob.
 #
-# It used to be the Swarm collector at 10.20.2.10:4317. That was an EXTERNAL address,
-# so it needed no vnet membership; a ClusterIP does. These pods are created by the
-# OpenTelemetry operator and carry no hand-set labels, so that membership comes from
-# a VirtualNetworkBinding in vnet.yaml rather than a pod label.
+# The gateway is a ClusterIP, so the collectors need vnet membership. The operator
+# creates their pods, so it comes from a VirtualNetworkBinding in vnet.yaml, not a label.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -35,7 +33,7 @@ spec:
   chart:
     spec:
       chart: opentelemetry-kube-stack
-      version: "0.24.3"
+      version: "0.25.1"
       interval: 1h0m0s
       sourceRef:
         kind: HelmRepository
@@ -51,6 +49,10 @@ spec:
 
     opentelemetry-operator:
       enabled: true
+      manager:
+        resources:
+          limits:
+            memory: 192Mi
       crds:
         create: false
       admissionWebhooks:
@@ -82,10 +84,13 @@ spec:
         image:
           repository: otel/opentelemetry-collector-contrib
           # renovate: datasource=docker depName=otel/opentelemetry-collector-contrib
-          tag: "0.162.0"
+          tag: "0.163.1"
         # Unset the chart-default node/kubelet scrape file so it doesn't clash with
         # our config (we don't use the packaged prometheus scrape presets here).
         scrape_configs_file: ""
+        resources:
+          limits:
+            memory: 768Mi
         presets:
           logsCollection:
             enabled: true
@@ -174,6 +179,11 @@ spec:
         suffix: cluster
         mode: deployment
         replicas: 1
+        resources:
+          requests:
+            memory: 256Mi
+          limits:
+            memory: 768Mi
         # Without an explicit image the operator injects its own collector version, so
         # an operator bump silently moves this collector — and k8s_cluster/k8sobjects
         # metric renames fail quietly. The k8s distro carries every receiver used here;
@@ -181,7 +191,7 @@ spec:
         image:
           repository: otel/opentelemetry-collector-k8s
           # renovate: datasource=docker depName=otel/opentelemetry-collector-k8s
-          tag: "0.162.0"
+          tag: "0.163.1"
         presets:
           clusterMetrics:
             enabled: true
@@ -191,6 +201,11 @@ spec:
             enabled: true
         config:
           receivers:
+            # Labels k8s.container.* with e.g. OOMKilled; the Grafana container-oom-killed alert needs it.
+            k8s_cluster:
+              resource_attributes:
+                k8s.container.status.last_terminated_reason:
+                  enabled: true
             # Annotation-based Prometheus scraping (classic kubernetes-pods job):
             # keep only pods with prometheus.io/scrape=true, honour
             # prometheus.io/path + prometheus.io/port. kube-vnet requires each
@@ -208,7 +223,7 @@ spec:
                         # scrape-fail noise. To scrape another namespace: add it here
                         # AND add an ingress binding for its pods in vnet.yaml.
                         namespaces:
-                          names: [flux-system, matrix, nats, arc-system, remote-docker-ci]
+                          names: [flux-system, matrix, nats, arc-system, remote-docker-ci, anubis, rdpgw, postgres, grafana-operator]
                     relabel_configs:
                       - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
                         action: keep
@@ -228,6 +243,16 @@ spec:
                         target_label: namespace
                       - source_labels: [__meta_kubernetes_pod_name]
                         target_label: pod
+                      # CNPG flips these pod labels on every switchover, which would split each
+                      # Postgres series in two; dashboards find the primary by metric instead.
+                      - source_labels: [__meta_kubernetes_namespace]
+                        regex: postgres
+                        target_label: role
+                        replacement: ""
+                      - source_labels: [__meta_kubernetes_namespace]
+                        regex: postgres
+                        target_label: cnpg_io_instanceRole
+                        replacement: ""
           processors:
             batch: {}
           exporters:

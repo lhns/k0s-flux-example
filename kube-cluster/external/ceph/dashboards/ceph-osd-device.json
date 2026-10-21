@@ -1,0 +1,797 @@
+{
+  "uid": "ceph-osd-device",
+  "title": "Ceph OSD device",
+  "description": "One OSD: op latency, IOPS, throughput, and the backing device's I/O from the host metrics. Derived from ceph-mixin v20.2.4; provisioned from git (kube-cluster/apps/grafana/dashboards/ceph).",
+  "tags": [
+    "ceph"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "1m",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "links": [
+    {
+      "type": "link",
+      "title": "Ceph cluster",
+      "icon": "dashboard",
+      "url": "/d/ceph-cluster/ceph-cluster",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "Health, capacity, throughput and PGs",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph OSDs",
+      "icon": "dashboard",
+      "url": "/d/ceph-osds/ceph-osds",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "All OSDs",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph pools",
+      "icon": "dashboard",
+      "url": "/d/ceph-pools/ceph-pools",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "All pools",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph pool",
+      "icon": "dashboard",
+      "url": "/d/ceph-pool/ceph-pool",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "One pool",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph CephFS",
+      "icon": "dashboard",
+      "url": "/d/ceph-cephfs/ceph-cephfs",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "Metadata servers",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph RGW",
+      "icon": "dashboard",
+      "url": "/d/ceph-rgw/ceph-rgw",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "S3 gateways",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph RGW instance",
+      "icon": "dashboard",
+      "url": "/d/ceph-rgw-detail/ceph-rgw-detail",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "One S3 gateway",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Servers",
+      "icon": "dashboard",
+      "url": "/d/servers/servers",
+      "includeVars": false,
+      "keepTime": true,
+      "tooltip": "Host metrics of the Ceph nodes (CPU, memory, disks, network)",
+      "targetBlank": false
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "ds",
+        "label": "Datasource",
+        "type": "datasource",
+        "query": "victoriametrics-metrics-datasource",
+        "refresh": 1,
+        "current": {},
+        "hide": 0
+      },
+      {
+        "name": "cluster",
+        "label": "Cluster",
+        "type": "query",
+        "datasource": {
+          "type": "victoriametrics-metrics-datasource",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "label_values(ceph_health_status, cluster)",
+          "refId": "cluster"
+        },
+        "definition": "label_values(ceph_health_status, cluster)",
+        "regex": "",
+        "refresh": 2,
+        "sort": 1,
+        "multi": false,
+        "includeAll": false,
+        "hide": 0,
+        "current": {}
+      },
+      {
+        "name": "osd",
+        "label": "OSD",
+        "type": "query",
+        "datasource": {
+          "type": "victoriametrics-metrics-datasource",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "label_values(ceph_osd_metadata{cluster=~\"$cluster|\"}, ceph_daemon)",
+          "refId": "osd"
+        },
+        "definition": "label_values(ceph_osd_metadata{cluster=~\"$cluster|\"}, ceph_daemon)",
+        "regex": "",
+        "refresh": 2,
+        "sort": 3,
+        "multi": false,
+        "includeAll": false,
+        "hide": 0,
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "collapse": false,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "repeat": null,
+      "repeatIteration": null,
+      "repeatRowId": null,
+      "showTitle": true,
+      "title": "OSD Performance",
+      "titleSize": "h6",
+      "type": "row",
+      "panels": []
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Read (-) / Write (+)",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 0,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": []
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(ceph_osd_op_r_latency_sum{ceph_daemon=~\"$osd\", cluster=~\"$cluster|\", }[$__rate_interval]) /\n  on (ceph_daemon) rate(ceph_osd_op_r_latency_count{cluster=~\"$cluster|\", }[$__rate_interval])\n",
+          "legendFormat": "read",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        },
+        {
+          "expr": "rate(ceph_osd_op_w_latency_sum{ceph_daemon=~\"$osd\", cluster=~\"$cluster|\", }[$__rate_interval]) /\n  on (ceph_daemon) rate(ceph_osd_op_w_latency_count{cluster=~\"$cluster|\", }[$__rate_interval])\n",
+          "legendFormat": "write",
+          "refId": "B",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "title": "$osd Latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Read (-) / Write (+)",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 0,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": []
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
+      "id": 3,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(ceph_osd_op_r{ceph_daemon=~\"$osd\", cluster=~\"$cluster|\", }[$__rate_interval])",
+          "legendFormat": "Reads",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        },
+        {
+          "expr": "rate(ceph_osd_op_w{ceph_daemon=~\"$osd\", cluster=~\"$cluster|\", }[$__rate_interval])",
+          "legendFormat": "Writes",
+          "refId": "B",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "title": "$osd R/W IOPS",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Read (-) / Write (+)",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 0,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": []
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
+      "id": 4,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(ceph_osd_op_r_out_bytes{ceph_daemon=~\"$osd\", cluster=~\"$cluster|\", }[$__rate_interval])",
+          "legendFormat": "Read Bytes",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        },
+        {
+          "expr": "rate(ceph_osd_op_w_in_bytes{ceph_daemon=~\"$osd\", cluster=~\"$cluster|\", }[$__rate_interval])",
+          "legendFormat": "Write Bytes",
+          "refId": "B",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "title": "$osd R/W Bytes",
+      "type": "timeseries"
+    },
+    {
+      "collapse": false,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 10
+      },
+      "id": 5,
+      "repeat": null,
+      "repeatIteration": null,
+      "repeatRowId": null,
+      "showTitle": true,
+      "title": "Physical Device Performance",
+      "titleSize": "h6",
+      "type": "row",
+      "panels": []
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "Average service time of the device behind the OSD, from the host metrics (the OSD's LVM device `dm-N`). Compare with the OSD op latency above: a gap points at the OSD, not the disk.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Read (-) / Write (+)",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 0,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": []
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 6,
+        "x": 0,
+        "y": 11
+      },
+      "id": 6,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "label_move(rate({__name__=\"system.disk.operation_time\", direction=\"read\"}[$__rate_interval]) / rate({__name__=\"system.disk.operations\", direction=\"read\"}[$__rate_interval]), \"host.name\", \"host\") and on (host, device) label_move(label_replace(ceph_disk_occupation_human{ceph_daemon=~\"$osd\", cluster=~\"$cluster|\"}, \"device\", \"$1\", \"device\", \"/dev/(.*)\"), \"exported_instance\", \"host\")",
+          "legendFormat": "{{host}}/{{device}} Reads",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        },
+        {
+          "expr": "label_move(rate({__name__=\"system.disk.operation_time\", direction=\"write\"}[$__rate_interval]) / rate({__name__=\"system.disk.operations\", direction=\"write\"}[$__rate_interval]), \"host.name\", \"host\") and on (host, device) label_move(label_replace(ceph_disk_occupation_human{ceph_daemon=~\"$osd\", cluster=~\"$cluster|\"}, \"device\", \"$1\", \"device\", \"/dev/(.*)\"), \"exported_instance\", \"host\")",
+          "legendFormat": "{{host}}/{{device}} Writes",
+          "refId": "B",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "title": "Physical Device Latency for $osd",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Read (-) / Write (+)",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 0,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": []
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 6,
+        "x": 6,
+        "y": 11
+      },
+      "id": 7,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "label_move(rate({__name__=\"system.disk.operations\", direction=\"write\"}[$__rate_interval]), \"host.name\", \"host\") and on (host, device) label_move(label_replace(ceph_disk_occupation_human{ceph_daemon=~\"$osd\", cluster=~\"$cluster|\"}, \"device\", \"$1\", \"device\", \"/dev/(.*)\"), \"exported_instance\", \"host\")",
+          "legendFormat": "{{device}} on {{host}} Writes",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        },
+        {
+          "expr": "label_move(rate({__name__=\"system.disk.operations\", direction=\"read\"}[$__rate_interval]), \"host.name\", \"host\") and on (host, device) label_move(label_replace(ceph_disk_occupation_human{ceph_daemon=~\"$osd\", cluster=~\"$cluster|\"}, \"device\", \"$1\", \"device\", \"/dev/(.*)\"), \"exported_instance\", \"host\")",
+          "legendFormat": "{{device}} on {{host}} Reads",
+          "refId": "B",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "title": "Physical Device R/W IOPS for $osd",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Read (-) / Write (+)",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 0,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": []
+          },
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 6,
+        "x": 12,
+        "y": 11
+      },
+      "id": 8,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "label_move(rate({__name__=\"system.disk.io\", direction=\"read\"}[$__rate_interval]), \"host.name\", \"host\") and on (host, device) label_move(label_replace(ceph_disk_occupation_human{ceph_daemon=~\"$osd\", cluster=~\"$cluster|\"}, \"device\", \"$1\", \"device\", \"/dev/(.*)\"), \"exported_instance\", \"host\")",
+          "legendFormat": "{{host}} {{device}} Reads",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        },
+        {
+          "expr": "label_move(rate({__name__=\"system.disk.io\", direction=\"write\"}[$__rate_interval]), \"host.name\", \"host\") and on (host, device) label_move(label_replace(ceph_disk_occupation_human{ceph_daemon=~\"$osd\", cluster=~\"$cluster|\"}, \"device\", \"$1\", \"device\", \"/dev/(.*)\"), \"exported_instance\", \"host\")",
+          "legendFormat": "{{host}} {{device}} Writes",
+          "refId": "B",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "title": "Physical Device R/W Bytes for $osd",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "Share of time the device had I/O in flight. **Bad:** pinned near 100%: the disk is the bottleneck. **Fix:** spread the load (PG balance) or add OSDs.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 0,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": []
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 6,
+        "x": 18,
+        "y": 11
+      },
+      "id": 9,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "label_move(rate({__name__=\"system.disk.io_time\"}[$__rate_interval]), \"host.name\", \"host\") and on (host, device) label_move(label_replace(ceph_disk_occupation_human{ceph_daemon=~\"$osd\", cluster=~\"$cluster|\"}, \"device\", \"$1\", \"device\", \"/dev/(.*)\"), \"exported_instance\", \"host\")",
+          "legendFormat": "{{device}} on {{host}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "title": "Physical Device Util% for $osd",
+      "type": "timeseries"
+    }
+  ]
+}

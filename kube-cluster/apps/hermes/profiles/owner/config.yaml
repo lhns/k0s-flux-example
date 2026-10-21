@@ -1,0 +1,29 @@
+model:
+  default: claude-sonnet-5-5
+approvals:
+  mode: smart
+  # Same window as MATRIX_APPROVAL_TIMEOUT_SECONDS (default 300).
+  timeout: 300
+  smart_policy: >-
+    Escalate anything that writes outside /opt/data, pushes to a git remote, or
+    changes credentials or network settings.
+auxiliary:
+  approval:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+stt:
+  # Voice messages are transcribed by OpenAI Whisper (key: hermes-openai-voice); "" = auto-detect
+  # the language. Anthropic has no speech-to-text.
+  provider: openai
+  language: ""
+  openai:
+    model: whisper-1
+skills:
+  # Read-only image volume (resources.yaml): the Paperclip image's own task-bridge skill.
+  external_dirs:
+    - /etc/hermes-skills
+dashboard:
+  # Traefik is a DaemonSet in the pod network and its pod IPs change; kube-vnet lets only Traefik
+  # (and Paperclip) reach the pod. Hermes rejects /0.
+  trusted_proxies:
+    - 172.18.0.0/16

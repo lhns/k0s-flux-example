@@ -28,3 +28,7 @@ Flux failures were invisible: no alerting existed.
 - A one-off admission-webhook `EOF` is excluded (it clears on the next retry); refused or
   timed-out webhook calls still alert. If an EOF ever persists, only the stuck Kustomization's
   `Ready` shows it.
+
+## References
+
+- `6eb4f62d`, `8a904c07`.

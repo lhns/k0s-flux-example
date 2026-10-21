@@ -1,0 +1,774 @@
+{
+  "uid": "ceph-rgw",
+  "title": "Ceph RGW",
+  "description": "RADOS gateways (S3): latency, requests, bandwidth per instance. Derived from ceph-mixin v20.2.4; provisioned from git (kube-cluster/apps/grafana/dashboards/ceph).",
+  "tags": [
+    "ceph"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "1m",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "links": [
+    {
+      "type": "link",
+      "title": "Ceph cluster",
+      "icon": "dashboard",
+      "url": "/d/ceph-cluster/ceph-cluster",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "Health, capacity, throughput and PGs",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph OSDs",
+      "icon": "dashboard",
+      "url": "/d/ceph-osds/ceph-osds",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "All OSDs",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph OSD device",
+      "icon": "dashboard",
+      "url": "/d/ceph-osd-device/ceph-osd-device",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "One OSD and its device",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph pools",
+      "icon": "dashboard",
+      "url": "/d/ceph-pools/ceph-pools",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "All pools",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph pool",
+      "icon": "dashboard",
+      "url": "/d/ceph-pool/ceph-pool",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "One pool",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph CephFS",
+      "icon": "dashboard",
+      "url": "/d/ceph-cephfs/ceph-cephfs",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "Metadata servers",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph RGW instance",
+      "icon": "dashboard",
+      "url": "/d/ceph-rgw-detail/ceph-rgw-detail",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "One S3 gateway",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Servers",
+      "icon": "dashboard",
+      "url": "/d/servers/servers",
+      "includeVars": false,
+      "keepTime": true,
+      "tooltip": "Host metrics of the Ceph nodes (CPU, memory, disks, network)",
+      "targetBlank": false
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "ds",
+        "label": "Datasource",
+        "type": "datasource",
+        "query": "victoriametrics-metrics-datasource",
+        "refresh": 1,
+        "current": {},
+        "hide": 0
+      },
+      {
+        "name": "cluster",
+        "label": "Cluster",
+        "type": "query",
+        "datasource": {
+          "type": "victoriametrics-metrics-datasource",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "label_values(ceph_health_status, cluster)",
+          "refId": "cluster"
+        },
+        "definition": "label_values(ceph_health_status, cluster)",
+        "regex": "",
+        "refresh": 2,
+        "sort": 1,
+        "multi": false,
+        "includeAll": false,
+        "hide": 0,
+        "current": {}
+      },
+      {
+        "name": "rgw_servers",
+        "label": "RGW",
+        "type": "query",
+        "datasource": {
+          "type": "victoriametrics-metrics-datasource",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "label_values(ceph_rgw_metadata{cluster=~\"$cluster|\"}, ceph_daemon)",
+          "refId": "rgw_servers"
+        },
+        "definition": "label_values(ceph_rgw_metadata{cluster=~\"$cluster|\"}, ceph_daemon)",
+        "regex": "",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "hide": 0,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "collapse": false,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "repeat": null,
+      "repeatIteration": null,
+      "repeatRowId": null,
+      "showTitle": true,
+      "title": "RGW Overview - All Gateways",
+      "titleSize": "h6",
+      "type": "row",
+      "panels": []
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 8,
+            "showPoints": "never"
+          },
+          "unit": "s"
+        }
+      },
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 1
+      },
+      "id": 2,
+      "legend": {
+        "alignAsTable": false,
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "rightSide": false,
+        "show": true,
+        "sideWidth": null,
+        "total": false,
+        "values": false
+      },
+      "lines": true,
+      "linewidth": 1,
+      "nullPointMode": "null as zero",
+      "percentage": false,
+      "pointradius": 5,
+      "points": false,
+      "renderer": "flot",
+      "repeat": null,
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "label_replace(\n  rate(ceph_rgw_op_get_obj_lat_sum{cluster=~\"$cluster|\", }[$__rate_interval]) /\n    rate(ceph_rgw_op_get_obj_lat_count{cluster=~\"$cluster|\", }[$__rate_interval]) *\n    on (instance_id) group_left (ceph_daemon) ceph_rgw_metadata{ceph_daemon=~\"$rgw_servers\", cluster=~\"$cluster|\", },\n  \"rgw_host\", \"$1\", \"ceph_daemon\", \"rgw.(.*)\"\n)\n",
+          "legendFormat": "GET {{rgw_host}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        },
+        {
+          "expr": "label_replace(\n  rate(ceph_rgw_op_put_obj_lat_sum{cluster=~\"$cluster|\", }[$__rate_interval]) /\n    rate(ceph_rgw_op_put_obj_lat_count{cluster=~\"$cluster|\", }[$__rate_interval]) *\n    on (instance_id) group_left (ceph_daemon) ceph_rgw_metadata{ceph_daemon=~\"$rgw_servers\", cluster=~\"$cluster|\", },\n  \"rgw_host\", \"$1\", \"ceph_daemon\", \"rgw.(.*)\"\n)\n",
+          "legendFormat": "PUT {{rgw_host}}",
+          "refId": "B",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeShift": null,
+      "title": "Average GET/PUT Latencies by RGW Instance",
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      },
+      "type": "timeseries",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yaxes": [
+        {
+          "format": "s",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        }
+      ]
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 8,
+            "showPoints": "never"
+          },
+          "unit": "none"
+        }
+      },
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 7,
+        "w": 7,
+        "x": 8,
+        "y": 1
+      },
+      "id": 3,
+      "legend": {
+        "alignAsTable": false,
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "rightSide": false,
+        "show": true,
+        "sideWidth": null,
+        "total": false,
+        "values": false
+      },
+      "lines": true,
+      "linewidth": 1,
+      "nullPointMode": "null as zero",
+      "percentage": false,
+      "pointradius": 5,
+      "points": false,
+      "renderer": "flot",
+      "repeat": null,
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "sum by (rgw_host) (\n  label_replace(\n    rate(ceph_rgw_req{cluster=~\"$cluster|\", }[$__rate_interval]) *\n      on (instance_id) group_left (ceph_daemon) ceph_rgw_metadata{ceph_daemon=~\"$rgw_servers\", cluster=~\"$cluster|\", },\n    \"rgw_host\", \"$1\", \"ceph_daemon\", \"rgw.(.*)\"\n  )\n)\n",
+          "legendFormat": "{{rgw_host}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeShift": null,
+      "title": "Total Requests/sec by RGW Instance",
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      },
+      "type": "timeseries",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yaxes": [
+        {
+          "format": "none",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        }
+      ]
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "Latencies are shown stacked, without a yaxis to provide a visual indication of GET latency imbalance across RGW hosts",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 8,
+            "showPoints": "never"
+          },
+          "unit": "s"
+        }
+      },
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 15,
+        "y": 1
+      },
+      "id": 4,
+      "legend": {
+        "alignAsTable": false,
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "rightSide": false,
+        "show": true,
+        "sideWidth": null,
+        "total": false,
+        "values": false
+      },
+      "lines": true,
+      "linewidth": 1,
+      "nullPointMode": "null as zero",
+      "percentage": false,
+      "pointradius": 5,
+      "points": false,
+      "renderer": "flot",
+      "repeat": null,
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "label_replace(\n  rate(ceph_rgw_op_get_obj_lat_sum{cluster=~\"$cluster|\", }[$__rate_interval]) /\n    rate(ceph_rgw_op_get_obj_lat_count{cluster=~\"$cluster|\", }[$__rate_interval]) *\n    on (instance_id) group_left (ceph_daemon) ceph_rgw_metadata{ceph_daemon=~\"$rgw_servers\", cluster=~\"$cluster|\", },\n  \"rgw_host\", \"$1\", \"ceph_daemon\", \"rgw.(.*)\"\n)\n",
+          "legendFormat": "{{rgw_host}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeShift": null,
+      "title": "GET Latencies by RGW Instance",
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      },
+      "type": "timeseries",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yaxes": [
+        {
+          "format": "s",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        }
+      ]
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "Total bytes transferred in/out of all radosgw instances within the cluster",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 8,
+            "showPoints": "never"
+          },
+          "unit": "bytes"
+        }
+      },
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 6,
+        "w": 8,
+        "x": 0,
+        "y": 8
+      },
+      "id": 5,
+      "legend": {
+        "alignAsTable": false,
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "rightSide": false,
+        "show": true,
+        "sideWidth": null,
+        "total": false,
+        "values": false
+      },
+      "lines": true,
+      "linewidth": 1,
+      "nullPointMode": "null as zero",
+      "percentage": false,
+      "pointradius": 5,
+      "points": false,
+      "renderer": "flot",
+      "repeat": null,
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "sum(rate(ceph_rgw_op_get_obj_bytes{cluster=~\"$cluster|\", }[$__rate_interval]))",
+          "legendFormat": "GETs",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        },
+        {
+          "expr": "sum(rate(ceph_rgw_op_put_obj_bytes{cluster=~\"$cluster|\", }[$__rate_interval]))",
+          "legendFormat": "PUTs",
+          "refId": "B",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeShift": null,
+      "title": "Bandwidth Consumed by Type",
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      },
+      "type": "timeseries",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yaxes": [
+        {
+          "format": "bytes",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        }
+      ]
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "Total bytes transferred in/out through get/put operations, by radosgw instance",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 8,
+            "showPoints": "never"
+          },
+          "unit": "bytes"
+        }
+      },
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 6,
+        "w": 7,
+        "x": 8,
+        "y": 8
+      },
+      "id": 6,
+      "legend": {
+        "alignAsTable": false,
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "rightSide": false,
+        "show": true,
+        "sideWidth": null,
+        "total": false,
+        "values": false
+      },
+      "lines": true,
+      "linewidth": 1,
+      "nullPointMode": "null as zero",
+      "percentage": false,
+      "pointradius": 5,
+      "points": false,
+      "renderer": "flot",
+      "repeat": null,
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "label_replace(sum by (instance_id) (\n  rate(ceph_rgw_op_get_obj_bytes{cluster=~\"$cluster|\", }[$__rate_interval]) +\n    rate(ceph_rgw_op_put_obj_bytes{cluster=~\"$cluster|\", }[$__rate_interval])) *\n    on (instance_id) group_left (ceph_daemon) ceph_rgw_metadata{ceph_daemon=~\"$rgw_servers\", cluster=~\"$cluster|\", },\n  \"rgw_host\", \"$1\", \"ceph_daemon\", \"rgw.(.*)\"\n)\n",
+          "legendFormat": "{{rgw_host}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeShift": null,
+      "title": "Bandwidth by RGW Instance",
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      },
+      "type": "timeseries",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yaxes": [
+        {
+          "format": "bytes",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        }
+      ]
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "Latencies are shown stacked, without a yaxis to provide a visual indication of PUT latency imbalance across RGW hosts",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 8,
+            "showPoints": "never"
+          },
+          "unit": "s"
+        }
+      },
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 15,
+        "y": 8
+      },
+      "id": 7,
+      "legend": {
+        "alignAsTable": false,
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "rightSide": false,
+        "show": true,
+        "sideWidth": null,
+        "total": false,
+        "values": false
+      },
+      "lines": true,
+      "linewidth": 1,
+      "nullPointMode": "null as zero",
+      "percentage": false,
+      "pointradius": 5,
+      "points": false,
+      "renderer": "flot",
+      "repeat": null,
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "label_replace(\n  rate(ceph_rgw_op_put_obj_lat_sum{cluster=~\"$cluster|\", }[$__rate_interval]) /\n    rate(ceph_rgw_op_put_obj_lat_count{cluster=~\"$cluster|\", }[$__rate_interval]) *\n    on (instance_id) group_left (ceph_daemon) ceph_rgw_metadata{ceph_daemon=~\"$rgw_servers\", cluster=~\"$cluster|\", },\n  \"rgw_host\", \"$1\", \"ceph_daemon\", \"rgw.(.*)\"\n)\n",
+          "legendFormat": "{{rgw_host}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeShift": null,
+      "title": "PUT Latencies by RGW Instance",
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      },
+      "type": "timeseries",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yaxes": [
+        {
+          "format": "s",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        }
+      ]
+    }
+  ]
+}

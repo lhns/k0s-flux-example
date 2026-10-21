@@ -5,7 +5,7 @@
 from a peer instead of re-pulling upstream.
 
 - `release.yaml` — `HelmRepository{type: oci}` (`oci://ghcr.io/spegel-org/helm-charts`)
-  + `HelmRelease` `spegel` (chart `0.7.4`). `containerdRegistryConfigPath` **must
+  + `HelmRelease` `spegel`. `containerdRegistryConfigPath` **must
   match the second root** of the containerd drop-in's `config_path`.
 - `vnet.yaml` — kube-vnet allowance so spegel pods can reach each other's libp2p
   router (`:5001`, pod-to-pod). Without it the cluster-isolation baseline denies

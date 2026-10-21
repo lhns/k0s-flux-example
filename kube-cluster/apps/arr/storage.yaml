@@ -150,7 +150,7 @@ spec:
     volumeHandle: arr-fast
     volumeAttributes:
       clusterID: ceph-cluster
-      fsName: fastappdata
+      fsName: fastdata
       staticVolume: "true"
       rootPath: /docker/arr
 ---

@@ -45,7 +45,7 @@ spec:
     spec:
       containers:
         - name: mealie
-          image: ghcr.io/mealie-recipes/mealie:v3.28.0
+          image: ghcr.io/mealie-recipes/mealie:v3.29.0
           env:
             - name: TZ
               value: Europe/Berlin
@@ -110,6 +110,7 @@ spec:
             - name: data
               mountPath: /app/data
           readinessProbe:
+            timeoutSeconds: 5
             httpGet:
               path: /api/app/about
               port: http

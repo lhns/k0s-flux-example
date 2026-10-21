@@ -8,16 +8,17 @@ resources:
 patches:
 # Without the gate, postBuild substitutes an undefined ${VAR} as an empty string and applies
 # it; with it, the reconcile fails instead. scripts/check-substitution.py checks the same offline.
+# CancelHealthCheckOnNewRevision: a reconcile stuck in its health wait yields to a new revision,
+# spec or reconcile request instead of blocking until the timeout.
 - target:
     kind: Deployment
     name: kustomize-controller
   patch: |
     - op: add
       path: /spec/template/spec/containers/0/args/-
-      value: --feature-gates=StrictPostBuildSubstitutions=true
-# Every commit reconciles all ~190 Kustomizations (one shared source), each waiting for its
-# dependsOn to reach the new revision. At the default --concurrent=4 that took ~5 min.
-# CPU limits sized from measured peaks: every controller here sat at its old limit.
+      value: --feature-gates=StrictPostBuildSubstitutions=true,CancelHealthCheckOnNewRevision=true
+# A push can wake many Kustomizations at once, each requeueing on its dependsOn; concurrency
+# and CPU limits are sized from measured peaks.
 - target:
     kind: Deployment
     name: kustomize-controller

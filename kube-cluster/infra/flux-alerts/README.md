@@ -10,4 +10,18 @@ Flux error events go to a Matrix room, posted by `@flux:example.com`.
 The room must stay unencrypted: Flux cannot do E2EE.
 
 Rotate the token in the `mas` pod, piped straight into sops on the jumphost, never displayed:
-`mas-cli -c /config/config.yaml manage issue-compatibility-token flux FLUXNOTIFY`.
+`mas-cli manage issue-compatibility-token flux FLUXNOTIFY` (`MAS_CONFIG` supplies the config).
+
+## Alerts
+
+`grafana.yaml`: rule group `infra-flux-alerts`, folder *Cluster*; backtested over 7 days before it was added.
+
+| Rule | Fires when | For | Severity |
+| --- | --- | --- | --- |
+| `flux-never-reconciling` | no reconcile of an object in 25h | 1h | info |
+
+Backtest over 7 days:
+
+| Rule | Result | Decision |
+| --- | --- | --- |
+| `flux-never-reconciling` | only the deliberately suspended `app-gitea`, `app-gitea-runner` | as specified; no suspend metric exists to exclude them, so they alert at `info` |

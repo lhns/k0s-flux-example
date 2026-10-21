@@ -51,7 +51,7 @@ metadata:
   name: victoriatraces
   namespace: victoriatraces
 spec:
-  replicas: 1 # live (Swarm VT stack stopped; data + Kafka group freed)
+  replicas: 1
   strategy:
     type: Recreate
   selector:
@@ -73,7 +73,7 @@ spec:
       containers:
         - name: victoriatraces
           image: victoriametrics/victoria-traces:v0.12.0
-          # Memory only, per apps/webtop/README.md -- a CPU limit would throttle, not protect.
+          # Memory only, per ADR 0028 -- a CPU limit would throttle, not protect.
           # VictoriaTraces sizes its caches from the LIMIT (-memory.allowedPercent, 60% by
           # default), so the limit is the working budget, not a ceiling it rarely touches.
           # At 2Gi it OOMKilled roughly every 36 hours, and twice in 90 minutes while
@@ -92,6 +92,7 @@ spec:
             - name: http
               containerPort: 10428
           readinessProbe:
+            timeoutSeconds: 5
             httpGet:
               path: /health
               port: http
@@ -130,7 +131,7 @@ metadata:
   name: victoriatraces-exporter
   namespace: victoriatraces
 spec:
-  replicas: 1 # live (Swarm VT stack stopped; data + Kafka group freed)
+  replicas: 1
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -149,16 +150,14 @@ spec:
         kube-vnet/net.victoriatraces: egress
         # consumes the in-cluster Kafka (otel-kafka-bootstrap.opentelemetry-gateway).
         kube-vnet/net.opentelemetry-gateway.kafka: egress
-        # sends its OWN self-monitoring metrics (otlp/feedback) to the gateway's
-        # ClusterIP. Needed because that is an in-cluster Service: it used to be the
-        # Swarm collector at 10.20.2.10:4317, which was external egress and needed no
-        # label. Drop this label and the feedback pipeline silently stops.
+        # sends its OWN self-monitoring metrics (otlp/feedback) to the gateway ClusterIP.
+        # Drop this label and the feedback pipeline silently stops.
         kube-vnet/net.opentelemetry-gateway.otel-gateway: egress
     spec:
       enableServiceLinks: false
       containers:
         - name: otelcol
-          image: otel/opentelemetry-collector-contrib:0.162.0
+          image: otel/opentelemetry-collector-contrib:0.163.1
           resources:
             requests:
               memory: 128Mi
@@ -170,6 +169,7 @@ spec:
             - name: health
               containerPort: 13133
           readinessProbe:
+            timeoutSeconds: 5
             httpGet:
               path: /
               port: health

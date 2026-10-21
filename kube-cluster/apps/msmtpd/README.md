@@ -2,13 +2,13 @@
 
 Outbound SMTP relay (`crazymax/msmtpd`) in its own namespace. In-cluster senders speak plaintext SMTP
 to `msmtpd:2500`; msmtpd relays to **Gmail** over STARTTLS. This keeps the Gmail app-password in one
-Secret (`msmtpd-secrets`) so app configs — Authelia today, others later — carry **no SMTP secret**.
+Secret (`msmtpd-secrets`) so app configs carry **no SMTP secret**.
 
 ## Shape
 - Deployment `crazymax/msmtpd` listening on `:2500`. Upstream Gmail settings are inline env; only
   `SMTP_PASSWORD` (the Gmail app password) is a SOPS secret (`secret.yaml`).
-- **kube-vnet**: a `msmtpd` VirtualNetwork (`vnet.yaml`) that sender namespaces join (Authelia adds
-  `kube-vnet/net.msmtpd.msmtpd: egress`). Egress to Gmail is external, unrestricted. Nothing is exposed
+- **kube-vnet**: a `msmtpd` VirtualNetwork (`vnet.yaml`, which lists the allowed senders) that sender
+  namespaces join with `kube-vnet/net.msmtpd.msmtpd: egress`. Egress to Gmail is external, unrestricted. Nothing is exposed
   externally.
 - No persistence.
 

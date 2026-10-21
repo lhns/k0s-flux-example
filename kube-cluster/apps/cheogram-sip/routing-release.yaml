@@ -4,10 +4,27 @@
 # arrangement that gets that check for free. A .Files.Get of the same YAML would render
 # unvalidated.
 #
-# chart: a path in this repo against the flux-system GitRepository, the same arrangement as
-# flux-system/generators.yaml. reconcileStrategy: Revision for the same reason as well --
-# editing routing/values.yaml bumps no chart version, so a Version strategy would never
-# re-render it.
+# The chart comes from its own ExternalArtifact, like the generator charts (ADR 0047): its
+# revision is a hash of routing/, so the release upgrades only when the table changes, not on
+# every commit to the repo. Helm wants the chart under a top-level directory, hence routing/.
+apiVersion: source.extensions.fluxcd.io/v1beta1
+kind: ArtifactGenerator
+metadata:
+  name: cheogram-sip-routing
+  namespace: cheogram-sip
+spec:
+  sources:
+    - alias: repo
+      kind: GitRepository
+      name: flux-system
+      namespace: flux-system
+  artifacts:
+    - name: cheogram-sip-routing
+      originRevision: "@repo"
+      copy:
+        - from: "@repo/kube-cluster/apps/cheogram-sip/routing"
+          to: "@artifact/"
+---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -15,11 +32,7 @@ metadata:
   namespace: cheogram-sip
 spec:
   interval: 10m0s
-  chart:
-    spec:
-      chart: kube-cluster/apps/cheogram-sip/routing
-      reconcileStrategy: Revision
-      sourceRef:
-        kind: GitRepository
-        name: flux-system
-        namespace: flux-system
+  chartRef:
+    kind: ExternalArtifact
+    name: cheogram-sip-routing
+    namespace: cheogram-sip

@@ -1,0 +1,128 @@
+# Grafana Operator objects of this component (README.md, "Grafana objects"). Each opts out of Flux
+# substitution: rule templates and dashboard JSON are full of ${...}.
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: app-anubis-anubis
+  namespace: grafana
+spec:
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: ag1airdsjen7kc # Cluster
+  configMapRef:
+    name: app-anubis-dashboards
+    key: anubis.json
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaAlertRuleGroup
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: app-anubis
+  namespace: grafana
+spec:
+  name: app-anubis
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: ag1airdsjen7kc # Cluster
+  interval: 1m
+  rules:
+    # Every public app's forwardAuth goes through Anubis, so a silent Anubis is an outage.
+    - uid: anubis-metrics-stalled
+      title: No metrics from Anubis
+      condition: C
+      for: 5m
+      noDataState: Alerting
+      execErrState: Error
+      data:
+        - refId: A
+          relativeTimeRange: {from: 86400, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              time() - max(tlast_over_time(anubis_policy_results[1d]))
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [600]}
+      labels:
+        severity: critical
+      annotations:
+        summary: 'No Anubis metrics'
+        description: 'The newest policy counter is {{ with $values.A }}{{ humanizeDuration .Value }}{{ end }} old: Anubis is down or no longer scraped, and the apps behind its forwardAuth may be unreachable.'
+      notificationSettings:
+        receiver: matrix
+    # CHALLENGE results count every request from a browser that already holds a pass cookie, so
+    # normal browsing looks like a spike; challenges actually issued are counted instead.
+    # A DENY rule must be over 2h old, else a new rule's first requests would look like a spike.
+    - uid: anubis-rule-spike
+      title: Anubis rule blocking unusually much
+      condition: C
+      for: 5m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 86400, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              (sum by (rule) (increase(anubis_policy_results{action="DENY"}[15m])) > 10 * avg_over_time(sum by (rule) (increase(anubis_policy_results{action="DENY"}[15m]))[1d:15m]) and on(rule) (time() - min by (rule) (tfirst_over_time(anubis_policy_results{action="DENY"}[1d]))) > 7200) or label_replace(sum(increase(anubis_challenges_issued[15m])) > 10 * avg_over_time(sum(increase(anubis_challenges_issued[15m]))[1d:15m]), "rule", "challenges issued", "", "")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [200]}
+      labels:
+        severity: warning
+      annotations:
+        summary: 'Anubis {{ $labels.rule }}: {{ with $values.A }}{{ humanize .Value }}{{ end }} in 15m'
+        description: 'Denials by one rule, or challenges issued, over 200 in 15m and over 10x their 15m average of the last day: a scraper wave, or a rule that now matches real users.'
+      notificationSettings:
+        receiver: matrix
+    # Rejected solutions, not unsolved challenges: scrapers never solve, so a low solve ratio is normal.
+    - uid: anubis-solutions-rejected
+      title: Anubis rejecting solved challenges
+      condition: C
+      for: 30m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 3600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              sum(increase(anubis_failed_validations[1h])) / (sum(increase(anubis_failed_validations[1h])) + (sum(increase(anubis_challenges_validated[1h])) or vector(0))) and sum(increase(anubis_failed_validations[1h])) > 10
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0.5]}
+      labels:
+        severity: warning
+      annotations:
+        summary: 'Anubis rejects {{ with $values.A }}{{ humanizePercentage .Value }}{{ end }} of submitted solutions'
+        description: 'Over 10 failed validations in 1h and most submissions rejected for 30m: the challenge flow is broken for real users (signing key, store, clock).'
+      notificationSettings:
+        receiver: matrix

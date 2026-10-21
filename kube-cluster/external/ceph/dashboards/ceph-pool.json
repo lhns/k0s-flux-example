@@ -1,0 +1,629 @@
+{
+  "uid": "ceph-pool",
+  "title": "Ceph pool",
+  "description": "One pool: usage, time to full, client IOPS and throughput. Derived from ceph-mixin v20.2.4; provisioned from git (kube-cluster/apps/grafana/dashboards/ceph).",
+  "tags": [
+    "ceph"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "1m",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "links": [
+    {
+      "type": "link",
+      "title": "Ceph cluster",
+      "icon": "dashboard",
+      "url": "/d/ceph-cluster/ceph-cluster",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "Health, capacity, throughput and PGs",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph OSDs",
+      "icon": "dashboard",
+      "url": "/d/ceph-osds/ceph-osds",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "All OSDs",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph OSD device",
+      "icon": "dashboard",
+      "url": "/d/ceph-osd-device/ceph-osd-device",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "One OSD and its device",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph pools",
+      "icon": "dashboard",
+      "url": "/d/ceph-pools/ceph-pools",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "All pools",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph CephFS",
+      "icon": "dashboard",
+      "url": "/d/ceph-cephfs/ceph-cephfs",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "Metadata servers",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph RGW",
+      "icon": "dashboard",
+      "url": "/d/ceph-rgw/ceph-rgw",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "S3 gateways",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph RGW instance",
+      "icon": "dashboard",
+      "url": "/d/ceph-rgw-detail/ceph-rgw-detail",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "One S3 gateway",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Servers",
+      "icon": "dashboard",
+      "url": "/d/servers/servers",
+      "includeVars": false,
+      "keepTime": true,
+      "tooltip": "Host metrics of the Ceph nodes (CPU, memory, disks, network)",
+      "targetBlank": false
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "ds",
+        "label": "Datasource",
+        "type": "datasource",
+        "query": "victoriametrics-metrics-datasource",
+        "refresh": 1,
+        "current": {},
+        "hide": 0
+      },
+      {
+        "name": "cluster",
+        "label": "Cluster",
+        "type": "query",
+        "datasource": {
+          "type": "victoriametrics-metrics-datasource",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "label_values(ceph_health_status, cluster)",
+          "refId": "cluster"
+        },
+        "definition": "label_values(ceph_health_status, cluster)",
+        "regex": "",
+        "refresh": 2,
+        "sort": 1,
+        "multi": false,
+        "includeAll": false,
+        "hide": 0,
+        "current": {}
+      },
+      {
+        "name": "pool_name",
+        "label": "Pool",
+        "type": "query",
+        "datasource": {
+          "type": "victoriametrics-metrics-datasource",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "label_values(ceph_pool_metadata{cluster=~\"$cluster|\"}, name)",
+          "refId": "pool_name"
+        },
+        "definition": "label_values(ceph_pool_metadata{cluster=~\"$cluster|\"}, name)",
+        "regex": "",
+        "refresh": 2,
+        "sort": 1,
+        "multi": false,
+        "includeAll": false,
+        "hide": 0,
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "gauge",
+      "title": "Capacity used",
+      "description": "Stored / (stored + max available). **Bad:** above 80%. **Fix:** free data, or add OSDs of the pool's device class.",
+      "gridPos": {
+        "h": 7,
+        "w": 7,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "targets": [
+        {
+          "expr": "(ceph_pool_stored{cluster=~\"$cluster|\", } / (ceph_pool_stored{cluster=~\"$cluster|\", } + ceph_pool_max_avail{cluster=~\"$cluster|\", })) *\n  on(pool_id) group_left(name) ceph_pool_metadata{name=~\"$pool_name\", cluster=~\"$cluster|\", }\n",
+          "legendFormat": "",
+          "refId": "A",
+          "range": true,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.8
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "N/A",
+                  "index": 0
+                }
+              }
+            }
+          ],
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Time till full",
+      "description": "Free space divided by the 6h growth. Empty when the pool is not growing.",
+      "gridPos": {
+        "h": 7,
+        "w": 5,
+        "x": 7,
+        "y": 0
+      },
+      "id": 2,
+      "targets": [
+        {
+          "expr": "(ceph_pool_max_avail{cluster=~\"$cluster|\", } / deriv(ceph_pool_stored{cluster=~\"$cluster|\", }[6h])) *\n  on(pool_id) group_left(name) ceph_pool_metadata{name=~\"$pool_name\", cluster=~\"$cluster|\", } > 0\n",
+          "legendFormat": "",
+          "refId": "A",
+          "range": true,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "not filling",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      }
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Objects out(-) / in(+)",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 0,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": []
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 3,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "deriv(ceph_pool_objects{cluster=~\"$cluster|\", }[1m]) *\n  on(pool_id) group_left(name) ceph_pool_metadata{name=~\"$pool_name\", cluster=~\"$cluster|\", }\n",
+          "legendFormat": "Objects per second",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "title": "$pool_name Object Ingress/Egress",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Read (-) / Write (+)",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 0,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": []
+          },
+          "unit": "iops"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 7
+      },
+      "id": 4,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(ceph_pool_rd{cluster=~\"$cluster|\", }[$__rate_interval]) *\n  on(pool_id) group_left(name) ceph_pool_metadata{name=~\"$pool_name\", cluster=~\"$cluster|\", }\n",
+          "legendFormat": "reads",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        },
+        {
+          "expr": "rate(ceph_pool_wr{cluster=~\"$cluster|\", }[$__rate_interval]) *\n  on(pool_id) group_left(name) ceph_pool_metadata{name=~\"$pool_name\", cluster=~\"$cluster|\", }\n",
+          "legendFormat": "writes",
+          "refId": "B",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "title": "$pool_name Client IOPS",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Read (-) / Write (+)",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 0,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": []
+          },
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 7
+      },
+      "id": 5,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "rate(ceph_pool_rd_bytes{cluster=~\"$cluster|\", }[$__rate_interval]) +\n  on(pool_id) group_left(name) ceph_pool_metadata{name=~\"$pool_name\", cluster=~\"$cluster|\", }\n",
+          "legendFormat": "reads",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        },
+        {
+          "expr": "rate(ceph_pool_wr_bytes{cluster=~\"$cluster|\", }[$__rate_interval]) +\n  on(pool_id) group_left(name) ceph_pool_metadata{name=~\"$pool_name\", cluster=~\"$cluster|\", }\n",
+          "legendFormat": "writes",
+          "refId": "B",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "title": "$pool_name Client Throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Objects",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 0,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": []
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "id": 6,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "ceph_pool_objects{cluster=~\"$cluster|\", } *\n  on(pool_id) group_left(name) ceph_pool_metadata{name=~\"$pool_name\", cluster=~\"$cluster|\", }\n",
+          "legendFormat": "Number of Objects",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "title": "$pool_name Objects",
+      "type": "timeseries"
+    }
+  ]
+}

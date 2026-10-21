@@ -56,7 +56,7 @@ spec:
             value: "0"
       containers:
         - name: flip7
-          image: php:8.5.11-apache@sha256:974e3a920309308e1690ed607e6cc3061d6906f90cc8d30fe519daa48bccf101
+          image: php:8.5.12-apache@sha256:e25ab14ef2cfec3bab9dd66c6cf871691146f428fbd72241b1a2c38fcacf92f5
           env:
             - name: TZ
               value: Europe/Berlin
@@ -71,6 +71,8 @@ spec:
             requests:
               cpu: 25m
               memory: 64Mi
+            limits:
+              memory: 128Mi
           volumeMounts:
             - name: app
               mountPath: /var/www/html
@@ -80,6 +82,7 @@ spec:
             - name: data
               mountPath: /var/www/html/data
           readinessProbe:
+            timeoutSeconds: 5
             httpGet:
               path: /index.html
               port: http

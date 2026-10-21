@@ -1,0 +1,47 @@
+# Grafana Operator objects of this component (README.md, "Grafana objects"). Each opts out of Flux
+# substitution: rule templates and dashboard JSON are full of ${...}.
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaAlertRuleGroup
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: infra-opentelemetry-gateway
+  namespace: grafana
+spec:
+  name: infra-opentelemetry-gateway
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: ag1airdsjen7kc # Cluster
+  interval: 1m
+  rules:
+    - uid: kafka-consumer-lag
+      title: Telemetry consumer group lagging
+      condition: C
+      for: 30m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              max by (group) ({__name__="kafka.consumer_group.lag_sum"})
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [100000]}
+      labels:
+        severity: warning
+      annotations:
+        summary: 'Kafka consumer group {{ $labels.group }} is {{ with $values.A }}{{ humanize .Value }}{{ end }} messages behind'
+        description: 'The exporter cannot keep up or is stuck, so data reaches the stores late. docs/observability-exporter-lag.md.'
+      notificationSettings:
+        receiver: matrix

@@ -1,11 +1,14 @@
 # 0005 — Three groups: `infra`, `apps`, `rbac`
 
 - Status: Accepted
-- Date: 2026-07-07, amended 2026-07-21 and 2026-09-16; sharpened by PR #652
+- Date: 2026-07-07, amended 2026-07-21 and 2026-09-16; sharpened by PR #652; extended by
+  [0056](0056-external-group-for-systems-outside-the-cluster.md)
 - Current answer: `infra/` is what the cluster and other components need to function: storage,
   ingress, databases, shared operators. `apps/` is applications, including an operator that
   serves only one app. `rbac/` is cluster-wide RBAC that no single app owns. The group decides
   the Kustomization's prefix (`infra-`, `app-`, `rbac-`) and nothing else.
+- **Amended 2026-10-20:** a fourth group, `external/` (prefix `ext-`), holds components that only
+  describe systems outside the cluster ([0056](0056-external-group-for-systems-outside-the-cluster.md)).
 
 ## Context
 
@@ -38,7 +41,7 @@ one chart.
 - The group is not a dependency mechanism; ordering is `dependsOn`
   ([0011](0011-generator-settings-are-annotations.md)).
 - The group carries no permission difference yet. It is expected to once components get
-  per-tenant service accounts ([0044](0044-control-namespaces-opt-in.md)).
+  per-tenant service accounts ([0046](0046-control-namespaces-always-on.md)).
 
 ## References
 

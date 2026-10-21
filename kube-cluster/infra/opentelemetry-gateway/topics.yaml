@@ -1,18 +1,8 @@
-# The four OTLP topics. auto.create.topics.enable is false (parity with Swarm), so
-# these MUST exist before the gateway's Kafka exporters can write.
+# The four OTLP topics. auto.create.topics.enable is false, so these MUST exist before
+# the gateway's Kafka exporters can write.
 #
-# Values are taken from the LIVE Swarm broker (kafka-configs.sh --describe), not from
-# the repo's historical kafka-create-topics.sh — that script predates tiered storage
-# and would have given infinite retention with NO tiering at all:
-#
-#                        historical script      live (used here)
-#   retention.ms         -1 (forever)           864000000  (10 days)
-#   retention.bytes      20GB / 5GB             -1         (unbounded)
-#   remote.storage.enable  absent               true
-#   local.retention.bytes  absent               2000000000 (2 GB hot)
-#
-# i.e. the real policy is TIME-based with a small local window and everything older in
-# S3. All four topics share identical settings on the live broker.
+# The policy is TIME-based (10 days) with a 2 GB local window and the rest tiered to S3;
+# retention.bytes stays unbounded.
 #
 # metadata.name must be RFC1123 (no underscores), so the real Kafka name is carried in
 # spec.topicName. The strimzi.io/cluster label is what makes the Topic Operator claim it.

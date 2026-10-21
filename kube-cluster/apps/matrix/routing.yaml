@@ -47,7 +47,29 @@ spec:
       services:
         - name: mas
           port: 8080
+    # Everything MAS serves under /api/ is the admin API resource: in-cluster only.
+    # Denied by the middleware; the noop backend means a middleware slip still never
+    # reaches MAS.
+    - kind: Rule
+      priority: 1100
+      match: Host(`mas.example.com`) && PathPrefix(`/api/`)
+      middlewares:
+        - name: mas-admin-deny
+      services:
+        - name: noop@internal
+          kind: TraefikService
   tls: {}
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: mas-admin-deny
+  namespace: matrix
+spec:
+  # 403 for everyone: TEST-NET-1 never matches (same idiom as apps/spliit).
+  ipAllowList:
+    sourceRange:
+      - 192.0.2.1/32
 ---
 # Element Call RTC: lk-jwt token service + LiveKit signaling, both under
 # matrix-rtc.example.com. The Swarm stripped the first two path segments

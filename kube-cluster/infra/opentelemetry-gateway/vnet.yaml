@@ -1,5 +1,5 @@
 ---
-# (a) EXTERNAL senders -> the MetalLB VIP 10.20.2.14 need NOTHING here: kube-vnet
+# (a) EXTERNAL senders -> the MetalLB VIP 10.20.176.58 need NOTHING here: kube-vnet
 # auto-allows LoadBalancer ingress (ext.svc). Stated explicitly so nobody "adds a rule
 # to be safe" — a vnet would not make that path any more permitted than it already is.
 #
@@ -17,10 +17,7 @@ spec:
     names:
       # The Strimzi cluster operator lives here and must reach every broker.
       - strimzi
-      # The Victoria exporters. This is now their only Kafka: they briefly consumed the
-      # Swarm broker as well, to drain the backlog their guaranteed groups still held
-      # when the Swarm gateway was repointed here. That reached lag 0 and the
-      # *_swarm_drain receivers are gone.
+      # The Victoria exporters.
       - victorialogs
       - victoriametrics-cluster
       - victoriatraces
@@ -37,8 +34,7 @@ spec:
   description: "In-cluster senders -> opentelemetry-gateway OTLP/protocol ports via ClusterIP."
   allowedNamespaces:
     names:
-      # All of these have been repointed off the Swarm collector (10.20.2.10:4317) onto
-      # this gateway. Membership alone permits nothing — the sender must ALSO be a
+      # Membership alone permits nothing — the sender must ALSO be a
       # member, by carrying `kube-vnet/net.opentelemetry-gateway.otel-gateway: egress`
       # or via a VirtualNetworkBinding.
       #

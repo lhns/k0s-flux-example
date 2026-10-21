@@ -1,0 +1,137 @@
+# Grafana Operator objects of this component (README.md, "Grafana objects"). Each opts out of Flux
+# substitution: rule templates and dashboard JSON are full of ${...}.
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaAlertRuleGroup
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: infra-traefik
+  namespace: grafana
+spec:
+  name: infra-traefik
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: ag1airdsjen7kc # Cluster
+  interval: 1m
+  rules:
+    - uid: traefik-cert-expiry-21d
+      title: Edge certificate expires within 21 days
+      condition: C
+      for: 1h
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              min by (cn, sans) (traefik_tls_certs_not_after) - time()
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: within_range, params: [604800, 1814400]}
+      labels:
+        severity: warning
+      annotations:
+        summary: 'Certificate {{ $labels.cn }} ({{ $labels.sans }}) expires in {{ with $values.A }}{{ humanizeDuration .Value }}{{ end }}'
+        description: 'Renewal should have happened by now. A superseded certificate still loaded by Traefik trips this too.'
+      notificationSettings:
+        receiver: matrix
+    - uid: traefik-cert-expiry-7d
+      title: Edge certificate expires within 7 days
+      condition: C
+      for: 1h
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              min by (cn, sans) (traefik_tls_certs_not_after) - time()
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: lt, params: [604800]}
+      labels:
+        severity: critical
+      annotations:
+        summary: 'Certificate {{ $labels.cn }} ({{ $labels.sans }}) expires in {{ with $values.A }}{{ humanizeDuration .Value }}{{ end }}'
+        description: 'Renew it now; browsers reject it at expiry.'
+      notificationSettings:
+        receiver: matrix
+    - uid: traefik-5xx
+      title: Edge service returns 5xx
+      condition: C
+      for: 15m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 900, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              sum by (service) (rate(traefik_service_requests_total{code=~"5.."}[15m])) / sum by (service) (rate(traefik_service_requests_total[15m])) and sum by (service) (rate(traefik_service_requests_total[15m])) > 0.2
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0.1]}
+      labels:
+        severity: warning
+      annotations:
+        summary: '{{ $labels.service }}: {{ with $values.A }}{{ humanizePercentage .Value }}{{ end }} of requests fail with 5xx'
+        description: 'Over 10% of requests for 15m, at more than 0.2 requests/s (a trickle of traffic would flap). The backend is down or erroring.'
+      notificationSettings:
+        receiver: matrix
+    - uid: traefik-metrics-stalled
+      title: No metrics from the edge Traefik
+      condition: C
+      for: 5m
+      noDataState: Alerting
+      execErrState: Error
+      data:
+        - refId: A
+          relativeTimeRange: {from: 86400, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              time() - max(tlast_over_time(traefik_entrypoint_requests_total[1d]))
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [600]}
+      labels:
+        severity: warning
+      annotations:
+        summary: 'No edge Traefik metrics'
+        description: 'The newest request counter is {{ with $values.A }}{{ humanizeDuration .Value }}{{ end }} old: Traefik is down or its OTLP export is stuck.'
+      notificationSettings:
+        receiver: matrix

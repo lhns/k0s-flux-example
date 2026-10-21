@@ -10,7 +10,7 @@ spec:
   ref:
     # Pinned release; bump to roll a new version. validate.sh derives the CRD schema kubeconform
     # checks against from this string.
-    tag: "0.6.2"
+    tag: "0.6.3"
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -89,9 +89,8 @@ spec:
         allowedNamespaces: []
 
       persistence:
-        # This one IS a system of record, unlike the old serving store. A rebuild may not
-        # reproduce a digest bit-for-bit, so losing this volume loses images that pods still
-        # reference by digest. cephfs (fastappdata): 138 GiB available at the time of writing.
+        # A system of record: a rebuild may not reproduce a digest bit-for-bit, so losing
+        # this volume loses images that pods still reference by digest.
         enabled: true
         storageClass: cephfs
         size: 20Gi
@@ -100,7 +99,7 @@ spec:
     # Exact names only, no pattern: a moved component's gen-<name> goes here, rolled out before
     # its writeRefTo points there, or the controller stalls the object (check-substitution.py).
     refExport:
-      namespaces: [flux-system, gen-app-freshrss, gen-app-github-runner, gen-app-jetkvm, gen-app-matrix, gen-app-snikket, gen-infra-opentelemetry-gateway]
+      namespaces: [flux-system, gen-app-freshrss, gen-app-github-runner, gen-app-hermes, gen-app-jetkvm, gen-app-matrix, gen-app-snikket, gen-infra-opentelemetry-gateway]
       labels: reconcile.fluxcd.io/watch=Enabled
 
     defaultRegistry:

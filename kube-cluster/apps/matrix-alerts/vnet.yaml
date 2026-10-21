@@ -1,0 +1,11 @@
+# The pod labels select nothing without this VirtualNetwork; only Grafana may post alerts.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: matrix-alerts
+  namespace: matrix-alerts
+spec:
+  description: "grafana -> matrix-alerts relay (:8080)."
+  allowedNamespaces:
+    names:
+      - grafana

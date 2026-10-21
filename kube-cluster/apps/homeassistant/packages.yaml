@@ -15,7 +15,7 @@
 http:
   # Bind the web server to the POD address only — deliberately NOT 0.0.0.0.
   #
-  # This pod has a second interface (net1, 10.20.3.9) directly on the LAN, attached so that
+  # This pod has a second interface (net1, 10.20.37.236) directly on the LAN, attached so that
   # mDNS/SSDP multicast can reach it. Left at the default, Home Assistant would also serve
   # its full UI and API on that address, unauthenticated at the network layer and invisible
   # to kube-vnet, which does not police secondary interfaces.
@@ -60,7 +60,7 @@ recorder:
 #     mosquitto.mosquitto.svc.cluster.local : 1883, user mqtt_homeassistant
 # The password is in secret.yaml. Rotating it is a UI action, not a redeploy.
 # Devices arrive through zigbee2mqtt's discovery topics — do NOT point HA at the Zigbee
-# coordinator (tcp://10.20.1.50:6638) directly, it accepts one client at a time and z2m
+# coordinator (tcp://10.20.62.170:6638) directly, it accepts one client at a time and z2m
 # owns it.
 
 auth_oidc:

@@ -16,8 +16,7 @@ spec:
     name: spliit-db
   databaseRoleReclaimPolicy: retain
 ---
-# The spliit database, owned by that role. A pg_dump of the old Swarm Postgres
-# (10.20.2.10:5436) is restored into it once (same major, PG 18 -> PG 18).
+# The spliit database, owned by that role.
 apiVersion: postgresql.cnpg.io/v1
 kind: Database
 metadata:

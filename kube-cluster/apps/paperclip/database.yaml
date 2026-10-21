@@ -1,0 +1,29 @@
+---
+# Password from secret/paperclip-db (postgres ns), reflected into the app ns.
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: paperclip
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: paperclip
+  ensure: present
+  login: true
+  passwordSecret:
+    name: paperclip-db
+  databaseRoleReclaimPolicy: retain
+---
+# Migrations create pg_trgm and fuzzystrmatch; both are trusted extensions, so the owner may.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: paperclip
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: paperclip
+  owner: paperclip
+  databaseReclaimPolicy: retain

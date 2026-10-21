@@ -1,0 +1,6 @@
+model:
+  default: claude-sonnet-5-5
+approvals:
+  # Off: nobody can answer an approval card, and smart escalations parked runs until they timed
+  # out. The boundary is the worker's isolation; the managed deny list still applies.
+  mode: "off"

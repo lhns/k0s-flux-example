@@ -24,10 +24,9 @@ spec:
     replacement: "${1}/user/oauth2/authelia${2}"
     permanent: false
 ---
-# Forgejo owns its own auth — an OIDC login source for humans, plus tokens for
-# the API, the Actions runner and git-over-HTTPS. So NO `authelia` forwardAuth
-# middleware here: it would break every git client and the runner, which cannot
-# complete an interactive SSO flow.
+# Forgejo owns its own auth, so no `authelia` forwardAuth. Anubis guards the browser paths; the
+# second route keeps git smart-HTTP/LFS, API, Actions runner, packages (/v2/) and OAuth token
+# endpoints off it, since those clients cannot solve a challenge.
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
@@ -43,6 +42,15 @@ spec:
           port: 3000
       middlewares:
         - name: forgejo-login-redirect
+        - name: anubis
+    - kind: Rule
+      priority: 100
+      match: >-
+        Host(`forgejo.example.com`) && (PathRegexp(`^/[^/]+/[^/]+/(info/refs|git-upload-pack|git-receive-pack|info/lfs/)`)
+        || PathPrefix(`/api/`) || PathPrefix(`/v2/`) || PathPrefix(`/login/oauth/`))
+      services:
+        - name: forgejo
+          port: 3000
   tls: {}
 ---
 # forgejo.kube.example.com 301-redirects to the canonical forgejo.example.com, matching
@@ -62,7 +70,7 @@ metadata:
   namespace: forgejo
 spec:
   redirectRegex:
-    regex: "^https://forgejo.kube.example.com/(.*)"
+    regex: "^https?://[^/]+/(.*)"
     replacement: "https://forgejo.example.com/${1}"
     permanent: true
 ---
@@ -77,8 +85,8 @@ spec:
     - kind: Rule
       match: Host(`forgejo.kube.example.com`)
       services:
-        - name: forgejo
-          port: 3000
+        - name: noop@internal
+          kind: TraefikService
       middlewares:
         - name: forgejo-kube-redirect
   tls: {}
@@ -92,8 +100,8 @@ metadata:
   namespace: forgejo
 spec:
   redirectRegex:
-    regex: '^https://(git|gitea|gitea\.kube)\.example\.com/(.*)'
-    replacement: "https://forgejo.example.com/${2}"
+    regex: '^https?://[^/]+/(.*)'
+    replacement: "https://forgejo.example.com/${1}"
     permanent: true
 ---
 apiVersion: traefik.io/v1alpha1
@@ -107,8 +115,8 @@ spec:
     - kind: Rule
       match: Host(`git.example.com`) || Host(`gitea.example.com`) || Host(`gitea.kube.example.com`)
       services:
-        - name: forgejo
-          port: 3000
+        - name: noop@internal
+          kind: TraefikService
       middlewares:
         - name: gitea-redirect
   tls: {}

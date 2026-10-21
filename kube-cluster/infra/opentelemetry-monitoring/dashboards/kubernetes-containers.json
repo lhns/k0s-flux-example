@@ -1,0 +1,3909 @@
+{
+  "uid": "k8s-containers",
+  "title": "Kubernetes Containers",
+  "description": "Pod and container performance from kubeletstats and k8s_cluster (container.*, k8s.*). Provisioned from git (kube-cluster/apps/grafana/dashboards/cluster); README there has the runbook.",
+  "tags": [
+    "cluster",
+    "kubernetes"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "1m",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "links": [
+    {
+      "type": "link",
+      "title": "Servers",
+      "icon": "dashboard",
+      "url": "/d/servers/servers",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "Host metrics of the selected nodes"
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "ds",
+        "label": "Datasource",
+        "type": "datasource",
+        "query": "victoriametrics-metrics-datasource",
+        "refresh": 1,
+        "current": {},
+        "hide": 0
+      },
+      {
+        "name": "server",
+        "label": "Node",
+        "type": "query",
+        "datasource": {
+          "type": "victoriametrics-metrics-datasource",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "label_values({__name__=\"k8s.node.condition_ready\"}, k8s.node.name)",
+          "refId": "server"
+        },
+        "definition": "label_values({__name__=\"k8s.node.condition_ready\"}, k8s.node.name)",
+        "regex": "",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "hide": 0
+      },
+      {
+        "name": "namespace",
+        "label": "Namespace",
+        "type": "query",
+        "datasource": {
+          "type": "victoriametrics-metrics-datasource",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "label_values({__name__=\"k8s.pod.phase\", k8s.node.name=~\"$server\"}, k8s.namespace.name)",
+          "refId": "namespace"
+        },
+        "definition": "label_values({__name__=\"k8s.pod.phase\", k8s.node.name=~\"$server\"}, k8s.namespace.name)",
+        "regex": "",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "hide": 0
+      },
+      {
+        "name": "workload",
+        "label": "Workload",
+        "type": "query",
+        "datasource": {
+          "type": "victoriametrics-metrics-datasource",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "query_result(count by (workload) (label_copy(label_replace(last_over_time({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\"}[$__range]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\")))",
+          "refId": "workload"
+        },
+        "definition": "query_result(count by (workload) (label_copy(label_replace(last_over_time({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\"}[$__range]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\")))",
+        "regex": "/workload=\"([^\"]+)\"/",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "hide": 0
+      },
+      {
+        "name": "pod",
+        "label": "Pod",
+        "type": "query",
+        "datasource": {
+          "type": "victoriametrics-metrics-datasource",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "query_result(count by (\"k8s.pod.name\") (label_match(label_copy(label_replace(last_over_time({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\"}[$__range]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))",
+          "refId": "pod"
+        },
+        "definition": "query_result(count by (\"k8s.pod.name\") (label_match(label_copy(label_replace(last_over_time({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\"}[$__range]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))",
+        "regex": "/k8s\\.pod\\.name=\"([^\"]+)\"/",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 46,
+      "type": "stat",
+      "title": "Running pods",
+      "description": "Pods in phase Running.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "count(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.pod.uid\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 2) or vector(0)",
+          "legendFormat": "",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 3,
+        "h": 4
+      }
+    },
+    {
+      "id": 47,
+      "type": "stat",
+      "title": "Pending pods",
+      "description": "Pods not yet scheduled or still pulling images. **Bad:** > 0 for minutes: no node fits the requests (see *Node capacity*), a PVC cannot bind, or an image cannot be pulled. `kubectl describe pod` shows the event.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "count(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.pod.uid\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 1) or vector(0)",
+          "legendFormat": "",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 3,
+        "y": 0,
+        "w": 3,
+        "h": 4
+      }
+    },
+    {
+      "id": 48,
+      "type": "stat",
+      "title": "Not ready containers",
+      "description": "Containers of running pods failing their readiness probe, not counting restart loops (own alert).",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "count((max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.ready\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 0) and on (\"k8s.namespace.name\", \"k8s.pod.name\") (max by (\"k8s.namespace.name\", \"k8s.pod.name\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 2) unless on (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (count by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (count_over_time({__name__=\"k8s.container.ready\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}[30m])) > 1)) or vector(0)",
+          "legendFormat": "",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 3,
+        "h": 4
+      }
+    },
+    {
+      "id": 49,
+      "type": "stat",
+      "title": "Restarts",
+      "description": "Container restarts in the selected time range (each restart is a new container instance).",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "orange",
+                "value": 10
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(count by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace(count_over_time({__name__=\"k8s.container.ready\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}[$__range]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) - 1) or vector(0)",
+          "legendFormat": "",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 9,
+        "y": 0,
+        "w": 3,
+        "h": 4
+      }
+    },
+    {
+      "id": 50,
+      "type": "stat",
+      "title": "Last killed by OOM",
+      "description": "Containers whose last termination was OOMKilled, seen in the time range. **Fix:** raise the memory limit or fix the leak; *Memory* shows RSS against the limit.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "count(count by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace(count_over_time({__name__=\"k8s.container.ready\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", k8s.container.status.last_terminated_reason=\"OOMKilled\"}[$__range]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\"))) or vector(0)",
+          "legendFormat": "",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 3,
+        "h": 4
+      }
+    },
+    {
+      "id": 51,
+      "type": "stat",
+      "title": "Unavailable workloads",
+      "description": "Deployments, StatefulSets and DaemonSets with fewer ready replicas than desired.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "count(label_set(label_match(label_move(max by (\"k8s.namespace.name\", \"k8s.deployment.name\") ({__name__=\"k8s.deployment.desired\", k8s.namespace.name=~\"$namespace\"}) - max by (\"k8s.namespace.name\", \"k8s.deployment.name\") ({__name__=\"k8s.deployment.available\", k8s.namespace.name=~\"$namespace\"}) > 0, \"k8s.namespace.name\", \"namespace\", \"k8s.deployment.name\", \"name\"), \"name\", \"$workload\"), \"kind\", \"Deployment\") or label_set(label_match(label_move(max by (\"k8s.namespace.name\", \"k8s.statefulset.name\") ({__name__=\"k8s.statefulset.desired_pods\", k8s.namespace.name=~\"$namespace\"}) - max by (\"k8s.namespace.name\", \"k8s.statefulset.name\") ({__name__=\"k8s.statefulset.ready_pods\", k8s.namespace.name=~\"$namespace\"}) > 0, \"k8s.namespace.name\", \"namespace\", \"k8s.statefulset.name\", \"name\"), \"name\", \"$workload\"), \"kind\", \"StatefulSet\") or label_set(label_match(label_move(max by (\"k8s.namespace.name\", \"k8s.daemonset.name\") ({__name__=\"k8s.daemonset.desired_scheduled_nodes\", k8s.namespace.name=~\"$namespace\"}) - max by (\"k8s.namespace.name\", \"k8s.daemonset.name\") ({__name__=\"k8s.daemonset.ready_nodes\", k8s.namespace.name=~\"$namespace\"}) > 0, \"k8s.namespace.name\", \"namespace\", \"k8s.daemonset.name\", \"name\"), \"name\", \"$workload\"), \"kind\", \"DaemonSet\")) or vector(0)",
+          "legendFormat": "",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 15,
+        "y": 0,
+        "w": 3,
+        "h": 4
+      }
+    },
+    {
+      "id": 52,
+      "type": "stat",
+      "title": "PVCs full within 7 days",
+      "description": "PVCs whose free space runs out within 7 days on the 6h trend, or ≥ 97% full. See *Storage*.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "count(((max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"}) / -deriv(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"})[6h:5m]) and deriv(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"})[6h:5m]) < 0) or ((1 - max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"}) / max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.capacity\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"})) > 0.97) * 0) < 604800) or vector(0)",
+          "legendFormat": "",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 3,
+        "h": 4
+      }
+    },
+    {
+      "id": 53,
+      "type": "alertlist",
+      "title": "Firing alerts",
+      "description": "Grafana alerts currently firing or pending (all folders).",
+      "options": {
+        "viewMode": "list",
+        "groupMode": "default",
+        "groupBy": [],
+        "maxItems": 20,
+        "sortOrder": 1,
+        "dashboardAlerts": false,
+        "alertName": "",
+        "alertInstanceLabelFilter": "",
+        "showInstances": true,
+        "stateFilter": {
+          "firing": true,
+          "pending": true,
+          "noData": false,
+          "normal": false,
+          "error": true
+        }
+      },
+      "gridPos": {
+        "x": 21,
+        "y": 0,
+        "w": 3,
+        "h": 4
+      }
+    },
+    {
+      "id": 54,
+      "type": "table",
+      "title": "Node capacity",
+      "description": "Per node: what the scheduler has promised (**requests**) and what is really used, against allocatable.\n\n- **Requested ≈ 100%**: new pods stay Pending even if the node is idle. Lower over-sized requests (*Right-sizing*) or add a node.\n- **Used ≫ requested**: pods rely on unrequested capacity and starve each other under load; raise their requests.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "CPU allocatable"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "CPU requested"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.85
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.95
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #C"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "CPU used"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": null
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #D"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Memory allocatable"
+              },
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #E"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Memory requested"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.85
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.95
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #F"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Memory used"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": null
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #G"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Pods"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "server"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Node on the Servers dashboard",
+                    "url": "/d/servers/servers?var-server=${__value.raw}&${__url_time_range}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        },
+        "sortBy": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max by (\"k8s.node.name\") ({__name__=\"k8s.node.allocatable_cpu\", k8s.node.name=~\"$server\"}), \"k8s.node.name\", \"server\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(sum by (\"k8s.node.name\") (max by (\"k8s.node.name\", \"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") ({__name__=\"k8s.container.cpu_request\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}) and on (\"k8s.namespace.name\", \"k8s.pod.name\") (max by (\"k8s.namespace.name\", \"k8s.pod.name\") ({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}) == 2)) / max by (\"k8s.node.name\") ({__name__=\"k8s.node.allocatable_cpu\", k8s.node.name=~\"$server\"}), \"k8s.node.name\", \"server\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(sum by (\"k8s.node.name\") (rate({__name__=\"container.cpu.time\", k8s.node.name=~\"$server\"}[5m])) / max by (\"k8s.node.name\") ({__name__=\"k8s.node.allocatable_cpu\", k8s.node.name=~\"$server\"}), \"k8s.node.name\", \"server\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max by (\"k8s.node.name\") ({__name__=\"k8s.node.allocatable_memory\", k8s.node.name=~\"$server\"}), \"k8s.node.name\", \"server\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(sum by (\"k8s.node.name\") (max by (\"k8s.node.name\", \"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") ({__name__=\"k8s.container.memory_request\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}) and on (\"k8s.namespace.name\", \"k8s.pod.name\") (max by (\"k8s.namespace.name\", \"k8s.pod.name\") ({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}) == 2)) / max by (\"k8s.node.name\") ({__name__=\"k8s.node.allocatable_memory\", k8s.node.name=~\"$server\"}), \"k8s.node.name\", \"server\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(sum by (\"k8s.node.name\") ({__name__=\"container.memory.working_set\", k8s.node.name=~\"$server\"}) / max by (\"k8s.node.name\") ({__name__=\"k8s.node.allocatable_memory\", k8s.node.name=~\"$server\"}), \"k8s.node.name\", \"server\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "F"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(count by (\"k8s.node.name\") (max by (\"k8s.node.name\", \"k8s.pod.uid\") ({__name__=\"k8s.pod.phase\", k8s.node.name=~\"$server\"}) == 2), \"k8s.node.name\", \"server\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "G"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            }
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 6
+      }
+    },
+    {
+      "id": 55,
+      "type": "table",
+      "title": "Pods needing attention",
+      "description": "Pending pods, failed pods and not-ready containers (restart loops excluded) right now. `kubectl -n <ns> describe pod <pod>` shows why; for not-ready containers read the log, the probe failure is in the events.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        },
+        "sortBy": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(label_set(max by (\"k8s.namespace.name\", \"k8s.pod.name\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 1, \"status\", \"Pending\") or label_set(max by (\"k8s.namespace.name\", \"k8s.pod.name\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 4, \"status\", \"Failed\"), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(label_set((max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.ready\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 0) and on (\"k8s.namespace.name\", \"k8s.pod.name\") (max by (\"k8s.namespace.name\", \"k8s.pod.name\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 2) unless on (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (count by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (count_over_time({__name__=\"k8s.container.ready\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}[30m])) > 1), \"status\", \"Not ready\"), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "B"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value #A": true,
+              "Value #B": true
+            }
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 6
+      }
+    },
+    {
+      "id": 74,
+      "type": "row",
+      "title": "Health",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 56,
+      "type": "table",
+      "title": "Unavailable workloads",
+      "description": "Ready replicas short of desired. **Fix:** see the pods in *Pods needing attention*; a rollout stuck on a failing new ReplicaSet shows here until rolled back.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Missing replicas"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "orange",
+                      "value": null
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        },
+        "sortBy": []
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_set(label_match(label_move(max by (\"k8s.namespace.name\", \"k8s.deployment.name\") ({__name__=\"k8s.deployment.desired\", k8s.namespace.name=~\"$namespace\"}) - max by (\"k8s.namespace.name\", \"k8s.deployment.name\") ({__name__=\"k8s.deployment.available\", k8s.namespace.name=~\"$namespace\"}) > 0, \"k8s.namespace.name\", \"namespace\", \"k8s.deployment.name\", \"name\"), \"name\", \"$workload\"), \"kind\", \"Deployment\") or label_set(label_match(label_move(max by (\"k8s.namespace.name\", \"k8s.statefulset.name\") ({__name__=\"k8s.statefulset.desired_pods\", k8s.namespace.name=~\"$namespace\"}) - max by (\"k8s.namespace.name\", \"k8s.statefulset.name\") ({__name__=\"k8s.statefulset.ready_pods\", k8s.namespace.name=~\"$namespace\"}) > 0, \"k8s.namespace.name\", \"namespace\", \"k8s.statefulset.name\", \"name\"), \"name\", \"$workload\"), \"kind\", \"StatefulSet\") or label_set(label_match(label_move(max by (\"k8s.namespace.name\", \"k8s.daemonset.name\") ({__name__=\"k8s.daemonset.desired_scheduled_nodes\", k8s.namespace.name=~\"$namespace\"}) - max by (\"k8s.namespace.name\", \"k8s.daemonset.name\") ({__name__=\"k8s.daemonset.ready_nodes\", k8s.namespace.name=~\"$namespace\"}) > 0, \"k8s.namespace.name\", \"namespace\", \"k8s.daemonset.name\", \"name\"), \"name\", \"$workload\"), \"kind\", \"DaemonSet\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            }
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 11,
+        "w": 12,
+        "h": 7
+      }
+    },
+    {
+      "id": 57,
+      "type": "timeseries",
+      "title": "Pods by phase",
+      "description": "Pod count per phase. Failed pods from Jobs stay until their Job is cleaned up.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 50,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Pending"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Running"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Succeeded"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Failed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "sortBy": "Mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "count(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.pod.uid\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 1)",
+          "legendFormat": "Pending",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "count(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.pod.uid\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 2)",
+          "legendFormat": "Running",
+          "range": true,
+          "instant": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "count(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.pod.uid\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 3)",
+          "legendFormat": "Succeeded",
+          "range": true,
+          "instant": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "count(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.pod.uid\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 4)",
+          "legendFormat": "Failed",
+          "range": true,
+          "instant": false,
+          "refId": "D"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 11,
+        "w": 6,
+        "h": 7
+      }
+    },
+    {
+      "id": 58,
+      "type": "timeseries",
+      "title": "Restarts per hour",
+      "description": "New container instances in the preceding hour, per pod (top 10). The *Container restart loop* alert fires at 3 within 15m.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "bars",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "min": 0,
+          "links": [
+            {
+              "title": "Show only this pod",
+              "url": "/d/k8s-containers/kubernetes-containers?var-namespace=${__field.labels.namespace}&var-pod=${__field.labels.pod}&${__url_time_range}"
+            },
+            {
+              "title": "Node on the Servers dashboard",
+              "url": "/d/servers/servers?var-server=${__field.labels.server}&${__url_time_range}"
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "max"
+          ],
+          "sortBy": "Mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "topk_max(10, label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.node.name\") (count by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\", \"k8s.node.name\") (label_match(label_copy(label_replace(count_over_time({__name__=\"k8s.container.ready\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}[1h]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) - 1), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.node.name\", \"server\") > 0)",
+          "legendFormat": "{{namespace}}/{{pod}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 18,
+        "y": 11,
+        "w": 6,
+        "h": 7
+      }
+    },
+    {
+      "id": 75,
+      "type": "row",
+      "title": "CPU",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 59,
+      "type": "timeseries",
+      "title": "CPU by pod (top 15)",
+      "description": "Cores used. Select a node to see its noisy neighbours.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "min": 0,
+          "links": [
+            {
+              "title": "Show only this pod",
+              "url": "/d/k8s-containers/kubernetes-containers?var-namespace=${__field.labels.namespace}&var-pod=${__field.labels.pod}&${__url_time_range}"
+            },
+            {
+              "title": "Node on the Servers dashboard",
+              "url": "/d/servers/servers?var-server=${__field.labels.server}&${__url_time_range}"
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "sortBy": "Mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "topk_max(15, label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.node.name\") (label_match(label_copy(label_replace(rate({__name__=\"container.cpu.time\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}[$__rate_interval]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.node.name\", \"server\"))",
+          "legendFormat": "{{namespace}}/{{pod}} ({{server}})",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 60,
+      "type": "timeseries",
+      "title": "CPU against limit",
+      "description": "Usage / limit for containers that have a CPU limit (most here have none). There is no CFS throttling counter in this pipeline, so **pinned at 1.0 = being throttled**.\n\n**Fix:** raise or drop the limit (keep the request), or make the app use fewer cores.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "min": 0,
+          "links": [
+            {
+              "title": "Show only this pod",
+              "url": "/d/k8s-containers/kubernetes-containers?var-namespace=${__field.labels.namespace}&var-pod=${__field.labels.pod}&${__url_time_range}"
+            },
+            {
+              "title": "Node on the Servers dashboard",
+              "url": "/d/servers/servers?var-server=${__field.labels.server}&${__url_time_range}"
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "min",
+            "max",
+            "mean",
+            "lastNotNull"
+          ],
+          "sortBy": "Mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace(rate({__name__=\"container.cpu.time\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}[$__rate_interval]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) / max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.cpu_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\")",
+          "legendFormat": "{{namespace}}/{{pod}}/{{container}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 19,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 61,
+      "type": "table",
+      "title": "CPU right-sizing",
+      "description": "Per workload container over the time range, busiest replica. **p95 / request**: blue < 0.25 = over-provisioned (the request blocks capacity others could schedule on); orange > 1 = uses more than it asked for (starves under contention); red > 2.\n\n**Fix:** set the request near p95 and leave the CPU limit off unless the app misbehaves.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Request"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "p95 used"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #C"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Max used"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #D"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Limit"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #E"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "p95 / request"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": null
+                    },
+                    {
+                      "color": "green",
+                      "value": 0.25
+                    },
+                    {
+                      "color": "orange",
+                      "value": 1
+                    },
+                    {
+                      "color": "red",
+                      "value": 2
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        },
+        "sortBy": [
+          {
+            "displayName": "p95 used",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.cpu_request\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(quantile_over_time(0.95, (max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace(rate({__name__=\"container.cpu.time\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}[5m]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[$__range:5m]), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max_over_time((max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace(rate({__name__=\"container.cpu.time\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}[5m]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[$__range:5m]), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.cpu_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(quantile_over_time(0.95, (max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace(rate({__name__=\"container.cpu.time\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}[5m]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[$__range:5m]) / max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.cpu_request\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "E"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            }
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 24,
+        "h": 9
+      }
+    },
+    {
+      "id": 76,
+      "type": "row",
+      "title": "Memory",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 62,
+      "type": "timeseries",
+      "title": "Memory by pod (top 15)",
+      "description": "Working set (what the kubelet counts for eviction and the OOM killer approximates). Select a node for its noisy neighbours.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "min": 0,
+          "links": [
+            {
+              "title": "Show only this pod",
+              "url": "/d/k8s-containers/kubernetes-containers?var-namespace=${__field.labels.namespace}&var-pod=${__field.labels.pod}&${__url_time_range}"
+            },
+            {
+              "title": "Node on the Servers dashboard",
+              "url": "/d/servers/servers?var-server=${__field.labels.server}&${__url_time_range}"
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "sortBy": "Mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "topk_max(15, label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.node.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.working_set\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.node.name\", \"server\"))",
+          "legendFormat": "{{namespace}}/{{pod}} ({{server}})",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 37,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 63,
+      "type": "timeseries",
+      "title": "RSS against limit",
+      "description": "Anonymous memory (cannot be reclaimed) / memory limit. The kernel OOM-kills the container when its memory hits the limit; page cache is dropped first, RSS is not.\n\n**Bad:** climbing towards 1. **Fix:** raise the limit or fix the leak.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "min": 0,
+          "links": [
+            {
+              "title": "Show only this pod",
+              "url": "/d/k8s-containers/kubernetes-containers?var-namespace=${__field.labels.namespace}&var-pod=${__field.labels.pod}&${__url_time_range}"
+            },
+            {
+              "title": "Node on the Servers dashboard",
+              "url": "/d/servers/servers?var-server=${__field.labels.server}&${__url_time_range}"
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "min",
+            "max",
+            "mean",
+            "lastNotNull"
+          ],
+          "sortBy": "Mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.rss\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) / max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\")",
+          "legendFormat": "{{namespace}}/{{pod}}/{{container}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 37,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 64,
+      "type": "table",
+      "title": "Memory time to limit",
+      "description": "Containers with a memory limit: time until RSS reaches the limit on its 1h trend (*not growing* when flat or falling). The OOM-risk alert fires below 1h once RSS is over 70% of the limit, or at 90%.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "RSS"
+              },
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Limit"
+              },
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #C"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "RSS / limit"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 0.7
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.9
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #D"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Time to limit"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 3600
+                    },
+                    {
+                      "color": "green",
+                      "value": 21600
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "range",
+                    "options": {
+                      "from": 1000000000.0,
+                      "to": 1000000000000.0,
+                      "result": {
+                        "text": "not growing",
+                        "color": "green",
+                        "index": 0
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        },
+        "sortBy": [
+          {
+            "displayName": "Time to limit",
+            "desc": false
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.rss\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) and max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.rss\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) / max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(((max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) - max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.rss\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\"))) / deriv((max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.rss\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[1h:1m]) and deriv((max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.rss\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[1h:1m]) > 0) or (max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) * 0 + 1e+10), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "D"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            }
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 45,
+        "w": 12,
+        "h": 9
+      }
+    },
+    {
+      "id": 65,
+      "type": "table",
+      "title": "Last terminated reason",
+      "description": "Containers that terminated before, with the reason of the last termination and restart count. **OOMKilled**: limit too low or a leak. **Error**: the process exited non-zero, read the previous log (`kubectl logs -p`).",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Restarts"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        },
+        "sortBy": [
+          {
+            "displayName": "Restarts",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\", \"k8s.container.status.last_terminated_reason\") (label_match(label_copy(label_replace({__name__=\"k8s.container.restarts\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", k8s.container.status.last_terminated_reason!=\"\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\", \"k8s.container.status.last_terminated_reason\", \"reason\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            }
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 45,
+        "w": 12,
+        "h": 9
+      }
+    },
+    {
+      "id": 66,
+      "type": "table",
+      "title": "Memory right-sizing",
+      "description": "Per workload container over the time range, busiest replica, working set. **p95 / request** colours as for CPU. **Max / limit** near 1 means it has come close to an OOM kill.\n\n**Fix:** request ≈ p95, limit with headroom over the max.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Request"
+              },
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "p95 used"
+              },
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #C"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Max used"
+              },
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #D"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Limit"
+              },
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #E"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "p95 / request"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": null
+                    },
+                    {
+                      "color": "green",
+                      "value": 0.25
+                    },
+                    {
+                      "color": "orange",
+                      "value": 1
+                    },
+                    {
+                      "color": "red",
+                      "value": 2
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #F"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Max / limit"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.8
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.95
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        },
+        "sortBy": [
+          {
+            "displayName": "p95 used",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_request\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(quantile_over_time(0.95, (max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.working_set\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[$__range:5m]), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max_over_time((max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.working_set\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[$__range:5m]), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(quantile_over_time(0.95, (max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.working_set\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[$__range:5m]) / max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_request\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max_over_time((max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.working_set\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[$__range:5m]) / max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "F"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            }
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 54,
+        "w": 24,
+        "h": 9
+      }
+    },
+    {
+      "id": 77,
+      "type": "row",
+      "title": "Network",
+      "collapsed": true,
+      "gridPos": {
+        "x": 0,
+        "y": 63,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [
+        {
+          "id": 67,
+          "type": "timeseries",
+          "title": "Network by pod (top 10)",
+          "description": "Received (up) / transmitted (down). hostNetwork pods are not included.",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "Bps",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": false,
+                "drawStyle": "line",
+                "axisSoftMin": 0,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "links": [
+                {
+                  "title": "Show only this pod",
+                  "url": "/d/k8s-containers/kubernetes-containers?var-namespace=${__field.labels.namespace}&var-pod=${__field.labels.pod}&${__url_time_range}"
+                },
+                {
+                  "title": "Node on the Servers dashboard",
+                  "url": "/d/servers/servers?var-server=${__field.labels.server}&${__url_time_range}"
+                }
+              ]
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".*transmit.*"
+                },
+                "properties": [
+                  {
+                    "id": "custom.transform",
+                    "value": "negative-Y"
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "mean",
+                "max"
+              ],
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "topk_max(10, label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.node.name\", direction) (label_match(label_copy(label_replace(rate({__name__=\"k8s.pod.network.io\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}[$__rate_interval]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.node.name\", \"server\"))",
+              "legendFormat": "{{namespace}}/{{pod}} {{direction}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "gridPos": {
+            "x": 0,
+            "y": 64,
+            "w": 12,
+            "h": 8
+          }
+        },
+        {
+          "id": 68,
+          "type": "timeseries",
+          "title": "Network errors by pod",
+          "description": "Interface errors per second. **Bad:** any sustained rate: MTU mismatch or a broken CNI path on that node.",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "pps",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": false,
+                "drawStyle": "line",
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "min": 0,
+              "links": [
+                {
+                  "title": "Show only this pod",
+                  "url": "/d/k8s-containers/kubernetes-containers?var-namespace=${__field.labels.namespace}&var-pod=${__field.labels.pod}&${__url_time_range}"
+                },
+                {
+                  "title": "Node on the Servers dashboard",
+                  "url": "/d/servers/servers?var-server=${__field.labels.server}&${__url_time_range}"
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ],
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\", direction) (label_match(label_copy(label_replace(rate({__name__=\"k8s.pod.network.errors\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}[$__rate_interval]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) > 0, \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\")",
+              "legendFormat": "{{namespace}}/{{pod}} {{direction}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "gridPos": {
+            "x": 12,
+            "y": 64,
+            "w": 12,
+            "h": 8
+          }
+        }
+      ]
+    },
+    {
+      "id": 78,
+      "type": "row",
+      "title": "Storage",
+      "collapsed": true,
+      "gridPos": {
+        "x": 0,
+        "y": 64,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [
+        {
+          "id": 69,
+          "type": "table",
+          "title": "PVCs",
+          "description": "Every mounted PVC (CephFS and RBD). **Time to full** from the 6h trend; *not filling* when flat. Alerts: < 24h warning, < 4h or ≥ 97% critical, only when over half full.\n\n**Fix:** prune the data or grow the PVC (`kubectl patch pvc` with a larger request; never delete the PV, see AGENTS.md).",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "filterable": true
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Value #A"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "Capacity"
+                  },
+                  {
+                    "id": "unit",
+                    "value": "bytes"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 1
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Value #B"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "Used"
+                  },
+                  {
+                    "id": "unit",
+                    "value": "percentunit"
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "blue",
+                          "value": null
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "thresholds"
+                    }
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "gauge",
+                      "mode": "basic",
+                      "valueDisplayMode": "text"
+                    }
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  },
+                  {
+                    "id": "min",
+                    "value": 0
+                  },
+                  {
+                    "id": "max",
+                    "value": 1
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Value #C"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "Free"
+                  },
+                  {
+                    "id": "unit",
+                    "value": "bytes"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 1
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Value #D"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "Growth/day"
+                  },
+                  {
+                    "id": "unit",
+                    "value": "bytes"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 1
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Value #E"
+                },
+                "properties": [
+                  {
+                    "id": "displayName",
+                    "value": "Time to full"
+                  },
+                  {
+                    "id": "unit",
+                    "value": "s"
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "red",
+                          "value": null
+                        },
+                        {
+                          "color": "orange",
+                          "value": 14400
+                        },
+                        {
+                          "color": "yellow",
+                          "value": 86400
+                        },
+                        {
+                          "color": "green",
+                          "value": 604800
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "thresholds"
+                    }
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background",
+                      "mode": "basic"
+                    }
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "range",
+                        "options": {
+                          "from": 1000000000.0,
+                          "to": 1000000000000.0,
+                          "result": {
+                            "text": "not filling",
+                            "color": "green",
+                            "index": 0
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 0
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm",
+            "footer": {
+              "show": false,
+              "reducer": [
+                "sum"
+              ],
+              "fields": ""
+            },
+            "sortBy": [
+              {
+                "displayName": "Time to full",
+                "desc": false
+              }
+            ]
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "label_move(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.capacity\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"}), \"k8s.namespace.name\", \"namespace\", \"k8s.persistentvolumeclaim.name\", \"pvc\")",
+              "legendFormat": "",
+              "instant": true,
+              "range": false,
+              "format": "table",
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "label_move((1 - max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"}) / max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.capacity\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"})), \"k8s.namespace.name\", \"namespace\", \"k8s.persistentvolumeclaim.name\", \"pvc\")",
+              "legendFormat": "",
+              "instant": true,
+              "range": false,
+              "format": "table",
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "label_move(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"}), \"k8s.namespace.name\", \"namespace\", \"k8s.persistentvolumeclaim.name\", \"pvc\")",
+              "legendFormat": "",
+              "instant": true,
+              "range": false,
+              "format": "table",
+              "refId": "C"
+            },
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "label_move(-deriv(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"})[6h:5m]) * 86400, \"k8s.namespace.name\", \"namespace\", \"k8s.persistentvolumeclaim.name\", \"pvc\")",
+              "legendFormat": "",
+              "instant": true,
+              "range": false,
+              "format": "table",
+              "refId": "D"
+            },
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "label_move(((max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"}) / -deriv(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"})[6h:5m]) and deriv(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"})[6h:5m]) < 0) or ((1 - max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"}) / max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.capacity\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"})) > 0.97) * 0) or (max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.capacity\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"}) * 0 + 1e+10), \"k8s.namespace.name\", \"namespace\", \"k8s.persistentvolumeclaim.name\", \"pvc\")",
+              "legendFormat": "",
+              "instant": true,
+              "range": false,
+              "format": "table",
+              "refId": "E"
+            }
+          ],
+          "transformations": [
+            {
+              "id": "merge",
+              "options": {}
+            },
+            {
+              "id": "organize",
+              "options": {
+                "excludeByName": {
+                  "Time": true
+                }
+              }
+            }
+          ],
+          "gridPos": {
+            "x": 0,
+            "y": 65,
+            "w": 12,
+            "h": 10
+          }
+        },
+        {
+          "id": 70,
+          "type": "timeseries",
+          "title": "PVC used (top 15)",
+          "description": "Used share of the fullest PVCs.",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "percentunit",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": false,
+                "drawStyle": "line",
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "min": 0,
+              "max": 1
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "right",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull"
+              ],
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "topk_max(15, label_move((1 - max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"}) / max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.capacity\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"})), \"k8s.namespace.name\", \"namespace\", \"k8s.persistentvolumeclaim.name\", \"pvc\"))",
+              "legendFormat": "{{namespace}}/{{pvc}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "gridPos": {
+            "x": 12,
+            "y": 65,
+            "w": 12,
+            "h": 10
+          }
+        },
+        {
+          "id": 71,
+          "type": "timeseries",
+          "title": "Disk I/O by pod (RBD PVCs, top 10)",
+          "description": "Read + write bytes/s of the RBD volumes each pod mounts, from the node's block devices. CephFS traffic is not attributable to pods.\n\n**Bad:** one pod dominating while others see high latency (*Disk I/O* on the Servers dashboard).",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "Bps",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": false,
+                "drawStyle": "line",
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "min": 0,
+              "links": [
+                {
+                  "title": "Show only this pod",
+                  "url": "/d/k8s-containers/kubernetes-containers?var-namespace=${__field.labels.namespace}&var-pod=${__field.labels.pod}&${__url_time_range}"
+                },
+                {
+                  "title": "Node on the Servers dashboard",
+                  "url": "/d/servers/servers?var-server=${__field.labels.server}&${__url_time_range}"
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "mean",
+                "max"
+              ],
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "topk_max(10, label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\") ((sum by (\"host.name\", device) (rate({__name__=\"system.disk.io\", host.name=~\"$server\", device=~\"rbd[0-9]+\"}[$__rate_interval])) * on (\"host.name\", device) group_right () (max by (\"host.name\", device, \"k8s.pod.uid\") (label_replace(label_replace({__name__=\"system.filesystem.utilization\", host.name=~\"$server\", mountpoint=~\"/var/lib/k0s/kubelet/pods/.*\"}, \"k8s.pod.uid\", \"$1\", \"mountpoint\", \"/var/lib/k0s/kubelet/pods/([^/]+)/.*\"), \"device\", \"$1\", \"device\", \"/dev/(.+)\")) * 0 + 1)) * on (\"k8s.pod.uid\") group_left (\"k8s.namespace.name\", \"k8s.pod.name\") (max by (\"k8s.pod.uid\", \"k8s.namespace.name\", \"k8s.pod.name\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) * 0 + 1)), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\"))",
+              "legendFormat": "{{namespace}}/{{pod}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "gridPos": {
+            "x": 0,
+            "y": 75,
+            "w": 8,
+            "h": 8
+          }
+        },
+        {
+          "id": 72,
+          "type": "timeseries",
+          "title": "Ephemeral storage by container (top 10)",
+          "description": "Container writable layer plus logs on the node's root disk. **Bad:** growing: the app writes into its image filesystem (use a volume) or logs heavily; the kubelet evicts pods when the node disk runs low.",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "bytes",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": false,
+                "drawStyle": "line",
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "min": 0,
+              "links": [
+                {
+                  "title": "Show only this pod",
+                  "url": "/d/k8s-containers/kubernetes-containers?var-namespace=${__field.labels.namespace}&var-pod=${__field.labels.pod}&${__url_time_range}"
+                },
+                {
+                  "title": "Node on the Servers dashboard",
+                  "url": "/d/servers/servers?var-server=${__field.labels.server}&${__url_time_range}"
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull",
+                "max"
+              ],
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "topk_max(10, label_move(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.filesystem.usage\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\"))",
+              "legendFormat": "{{namespace}}/{{pod}}/{{container}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "gridPos": {
+            "x": 8,
+            "y": 75,
+            "w": 8,
+            "h": 8
+          }
+        },
+        {
+          "id": 73,
+          "type": "timeseries",
+          "title": "emptyDir usage (top 10)",
+          "description": "Used bytes of emptyDir volumes (count against the node disk, or RAM for medium: Memory).",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "bytes",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": false,
+                "drawStyle": "line",
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "min": 0,
+              "links": [
+                {
+                  "title": "Show only this pod",
+                  "url": "/d/k8s-containers/kubernetes-containers?var-namespace=${__field.labels.namespace}&var-pod=${__field.labels.pod}&${__url_time_range}"
+                },
+                {
+                  "title": "Node on the Servers dashboard",
+                  "url": "/d/servers/servers?var-server=${__field.labels.server}&${__url_time_range}"
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "lastNotNull",
+                "max"
+              ],
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "topk_max(10, label_move(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.volume.name\") (label_match(label_copy(label_replace({__name__=\"k8s.volume.capacity\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", k8s.volume.type=\"emptyDir\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) - max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.volume.name\") (label_match(label_copy(label_replace({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", k8s.volume.type=\"emptyDir\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.volume.name\", \"volume\"))",
+              "legendFormat": "{{namespace}}/{{pod}} {{volume}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "gridPos": {
+            "x": 16,
+            "y": 75,
+            "w": 8,
+            "h": 8
+          }
+        }
+      ]
+    }
+  ]
+}

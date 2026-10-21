@@ -1,20 +1,21 @@
 # matrix
 
-The Matrix homeserver (`example.com` / `matrix.example.com`) — migrated from Docker Swarm (`10.20.2.10`).
+The Matrix homeserver (`example.com` / `matrix.example.com`) — migrated from Docker Swarm (`10.20.176.187`).
 
 ## Components
 
-- **synapse** — the homeserver. Media + signing key on a CephFS static PV, mounted in place.
+- **synapse** — the homeserver. Media + signing key on the `synapse-data` CephFS PVC.
   `homeserver.yaml` is untouched; overlays deep-merge over it (see below).
 - **synapse-redis** — replication pub/sub (valkey, ephemeral).
 - **mas** — matrix-authentication-service (`mas.example.com`, intercepts login/logout/refresh).
-- **lk-jwt** + **livekit** — Element Call RTC. Signaling via Traefik; media on VIP `10.20.2.19`
+  Config in git; see [MAS](#mas).
+- **lk-jwt** + **livekit** — Element Call RTC. Signaling via Traefik; media on VIP `10.20.176.222`
   (TCP 7881, UDP 50100-50120).
 - **well-known** — nginx serving `m.server = matrix.example.com:443`.
 - **element-web**, **synapse-admin** — static SPAs (ConfigMap config).
 - **baibot** — AI bot; SQLite session/crypto store on ceph-rbd.
 - **Bridges** — whatsapp, telegram, signal, instagram, discord, matrix-sip-bridge (all on CNPG).
-  discord runs a forked image carrying a backfill throttle + retry patch; the rest are upstream.
+  whatsapp and discord run `lhns` forks (discord carries a backfill throttle + retry patch); the rest are upstream.
 
 ### Synapse config is layered
 
@@ -22,7 +23,7 @@ Synapse merges every `--config-path` **last-value-wins per top-level key**:
 
 | path | source | overrides |
 | --- | --- | --- |
-| `/data/homeserver.yaml` | CephFS PV, **not in git** | base |
+| `/data/homeserver.yaml` | `synapse-data` PVC, **not in git** | base |
 | `/secrets/database.yaml` | `synapse-database.yaml` | `database` |
 | `/config/synapse-turn.yaml` | `synapse-turn.yaml` | `turn_*` |
 | `/config-appservices/…` | `synapse-appservices.yaml` | `app_service_config_files` |
@@ -41,12 +42,75 @@ TURN comes from [`../coturn`](../coturn/README.md). `synapse-turn.yaml` is delib
 the secret is read from a mounted file via `turn_shared_secret_path`. Setting both
 `turn_shared_secret` and `turn_shared_secret_path` is a startup error.
 
+## MAS
+
+### MAS config
+
+| path in the pod | source | holds |
+| --- | --- | --- |
+| `/config/config.yaml` | `mas-config.yaml` (ConfigMap `mas-config`, hashed) | everything but secrets |
+| `/secrets/secrets.yaml` | `secret-mas.yaml` (SOPS Secret `mas`) | `database.uri`, `matrix.secret`, `secrets.encryption`, `secrets.keys` |
+| `/secrets/upstream-client-secret` | `secret-mas.yaml` | the Authelia provider's `client_secret_file` |
+| `/admin-client/client_secret` | `secret-mas-admin-client.yaml` (SOPS Secret `mas-admin-client`) | the admin client's `client_secret_file` |
+
+`MAS_CONFIG` names both config files, so `kubectl -n matrix exec deploy/mas -- mas-cli <cmd>`
+loads the full config without `-c`. The image has no shell.
+
+MAS merges the files with figment's `admerge`: maps merge key by key, a later scalar wins, and
+**lists are appended**. So a list must live whole in one file. `clients` and
+`upstream_oauth2.providers` stay in the plaintext file and read their secret through
+`client_secret_file`; `secrets.keys` lives only in `secrets.yaml`.
+
+Changing it:
+
+- A setting: edit `mas-config.yaml`. The ConfigMap name is hashed, so the pod rolls. Its comments
+  ship as config. The component substitutes, so a `$` must be written `$$`.
+- A secret: decrypt, edit and re-encrypt `secret-mas.yaml` on the jumphost, which has the age key.
+  It carries `kustomize.toolkit.fluxcd.io/substitute: disabled` so a `$` in a value survives.
+  Reloader restarts mas on a Secret change.
+- Check a change before merging with `mas-cli config check` against both files, using the
+  release binary of the running version.
+
+The PVC `mas-config` holds the config from before it moved to git. It is no longer mounted and is
+the rollback: revert the PR that moved the config, and mas mounts it again. Do not delete it.
+
+### Admin API
+
+The `adminapi` resource is on the `web` listener, so it serves `/api/admin/v1`, `/api/spec.json`
+and `/api/doc/`. Traefik answers 403 for `mas.example.com/api/` (`routing.yaml`), and kube-vnet admits
+only `net.matrix-mas` egress pods to the Service, so use it through a port-forward from the
+jumphost. Its client, a `client_credentials` client listed in `policy.data.admin_clients`, is in
+the Secret `mas-admin-client` (`client_id`, `client_secret`):
+
+```sh
+kubectl -n matrix port-forward svc/mas 18080:8080 >/dev/null &
+M=http://localhost:18080
+s() { kubectl -n matrix get secret mas-admin-client -o "jsonpath={.data.$1}" | base64 -d; }
+# -K - keeps the client secret off the command line
+TOKEN=$(printf 'user = "%s:%s"\n' "$(s client_id)" "$(s client_secret)" | curl -sK - \
+  -d 'grant_type=client_credentials&scope=urn:mas:admin' "$M/oauth2/token" | jq -r .access_token)
+```
+
+The token lives five minutes. To end one compat session (a `m.login.password` or
+compatibility-token login, e.g. a bridge's or a bot's):
+
+```sh
+U=$(curl -s -H "Authorization: Bearer $TOKEN" "$M/api/admin/v1/users/by-username/<localpart>" | jq -r .data.id)
+curl -sg -H "Authorization: Bearer $TOKEN" \
+  "$M/api/admin/v1/compat-sessions?filter[user]=$U&filter[status]=active" \
+  | jq '.data[] | {id} + (.attributes | {device_id, human_name, user_agent, last_active_at})'
+curl -s -X POST -H "Authorization: Bearer $TOKEN" "$M/api/admin/v1/compat-sessions/<id>/finish" \
+  | jq .data.attributes.finished_at
+```
+
+`/api/doc/` on the port-forward is a Swagger UI for the rest.
+
 ## Media in S3
 
 Uploads go to **`s3.example.com`, bucket `synapse`** as well as local disk (Aug 2026). Driver is cost:
 the media store had reached 32.1 GiB with no retention ever configured.
 
-`store_local` / `store_remote` **true**, `store_synchronous` **false**. **Nothing deletes media.**
+`store_local` / `store_remote` **true**, `store_synchronous` **false**. **Only the sweep deletes media** (local copies, below).
 
 **Async on purpose.** Synapse writes to local NVMe before the provider runs, so the file is already
 durable; blocking the client on an external S3 round trip gates the fast leg on the slow one. The
@@ -55,12 +119,13 @@ so **the sweep is the retry path and is not optional**.
 
 ### The sweep (`synapse-media-sweep` CronJob)
 
-Daily 04:23, **suspended** until first enabled deliberately. One job covers three cases, because it
+Daily 04:23. One job covers three cases, because it
 `HEAD`s each object and does not care why a file is on disk without being in S3: historical media
 the provider never saw, failed async uploads, and already-uploaded files awaiting reclaim.
 
 - `SWEEP_AGE=30d` — files not **accessed** in 30 days (not "created before"), so hot media stays local.
-- `SWEEP_DELETE` empty — set to `--delete` to reclaim disk. Deletes only after a *verified* upload.
+- `SWEEP_DELETE=--delete` — reclaims disk, only after a *verified* upload. It also marks the media
+  `known_deleted`, so later runs skip re-checking it against S3.
 - `concurrencyPolicy: Forbid` + `activeDeadlineSeconds` — two runs would race on `cache.db`; Forbid
   alone has no timeout, so a hung run would block all future ones.
 - `cache.db` is SQLite → its PVC is **ceph-rbd**, per the single-writer-SQLite rule.
@@ -479,7 +544,7 @@ other bridges use.
 `mx-puppet-discord` ran 16 Jun 2022 → 6 Jun 2023. It left **73 ghosts** (`@_discordpuppet__*`), the
 bot `@_discordpuppet_bot`, **51 portals** (31 empty), **46 aliases** — but only **355 messages**, 227
 of them in two bot-command DMs, one human ever, nothing since Jun 2023. **The history is worth
-nothing.** Old data sits read-only at `/mnt/fastappdata/docker/matrix/bridges/discord/` (76 MB,
+nothing.** Old data sits read-only at `/mnt/fastdata/docker/matrix/bridges/discord/` (76 MB,
 SQLite). Its ghosts, rooms and aliases are now orphaned — that was accepted.
 
 Synapse had accumulated ~160k undelivered transactions for it, pushed at `discord-bridge:8434` — a
@@ -633,8 +698,7 @@ watch for is:
 Error collecting messages to forward backfill ... invalid character '<' looking for beginning of value
 ```
 
-If that never shows up at the configured limit, upstream images are fine and this patch should
-stay unbuilt.
+If that never shows up at the configured limit, upstream images are fine and the fork can be dropped.
 
 ## matrix-sip-bridge
 
@@ -682,6 +746,20 @@ The peer is **static** — the bridge never REGISTERs — so its AOR contact nam
 own requests arrive unauthenticated from a pod address that is not that contact, which is why
 the peer name must equal `sip.username` in the bridge config and why the endpoint is
 `identify_by=username`.
+
+### Alerts
+
+The SIP bridge's rule is in `grafana.yaml`: rule group `app-matrix`, folder *Cluster*; backtested over 7 days before it was added.
+
+| Rule | Fires when | For | Severity |
+| --- | --- | --- | --- |
+| `sip-bridge-unregistered` | `sip_bridge_sip_registered` is 0 | 15m | warning |
+
+Backtest over 7 days:
+
+| Rule | Result | Decision |
+| --- | --- | --- |
+| `sip-bridge-unregistered` | one 4h outage | as specified; aggregated per Deployment, since the metric carries pod labels |
 
 ## Databases — shared CNPG (`postgres` ns)
 
@@ -731,7 +809,7 @@ harmless.
   synapse `datcollate = C`.
 - `https://matrix.example.com/_matrix/client/versions` → 200; login via MAS works.
 - `https://federationtester.matrix.org/?server_name=example.com` green.
-- `element.example.com` loads and sends; Element Call connects over `10.20.2.19`.
+- `element.example.com` loads and sends; Element Call connects over `10.20.176.222`.
 - Synapse logs **six** `Loaded application service` lines on startup.
 - `application_services_state` is currently **empty** — Synapse has no state row for any of
   them. Rows appear only once Synapse has recorded a transaction outcome, so absence is not
@@ -742,7 +820,7 @@ harmless.
 
 ## Rollback
 
-The Swarm stack and its CephFS data are untouched (media mounted in place; mas/whatsapp/baibot
+The Swarm stack and its CephFS data are untouched (media, mas, whatsapp and baibot
 copied, not moved; CNPG uses fresh databases). Restart the Swarm stack to restore; drop and re-dump
 the CNPG databases to retry.
 

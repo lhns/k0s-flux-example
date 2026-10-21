@@ -31,9 +31,9 @@ spec:
         - name: mosquitto-prefix
   tls: {}
 ---
-# Raw MQTT/TCP on traefik's `mqtt` entrypoint (10.20.2.15:1883). HostSNI(`*`) with
+# Raw MQTT/TCP on traefik's `mqtt` entrypoint (10.20.176.210:1883). HostSNI(`*`) with
 # NO tls block = plain-TCP passthrough (mosquitto does its own auth, no TLS here),
-# forwarded to the broker's :1883. Native clients connect to 10.20.2.15:1883.
+# forwarded to the broker's :1883. Native clients connect to 10.20.176.210:1883.
 apiVersion: traefik.io/v1alpha1
 kind: IngressRouteTCP
 metadata:

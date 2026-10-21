@@ -13,7 +13,6 @@ metadata:
   annotations:
     reloader.stakater.com/auto: "true"
 spec:
-  # Live. (Was 0 for the cutover; Swarm stopped + the 1.5G DB restored into CNPG.)
   replicas: 1
   strategy:
     type: Recreate
@@ -41,7 +40,12 @@ spec:
         runAsGroup: 0
       containers:
         - name: stalwart
-          image: stalwartlabs/stalwart:v0.16.26
+          image: stalwartlabs/stalwart:v0.16.27
+          resources:
+            requests:
+              memory: 384Mi
+            limits:
+              memory: 768Mi
           env:
             - name: STALWART_PUBLIC_URL
               value: https://mail.example.com
@@ -79,6 +83,7 @@ spec:
             - {name: imaps, containerPort: 993, protocol: TCP}
             - {name: sieve, containerPort: 4190, protocol: TCP}
           readinessProbe:
+            timeoutSeconds: 5
             tcpSocket:
               port: http
             initialDelaySeconds: 10
@@ -115,7 +120,7 @@ spec:
   ports:
     - {name: http, port: 8080, targetPort: http}
 ---
-# Raw mail ports on a dedicated MetalLB VIP (10.20.2.8). externalTrafficPolicy:
+# Raw mail ports on a dedicated MetalLB VIP (10.20.176.66). externalTrafficPolicy:
 # Local preserves client source IPs natively (no PROXY protocol needed) — the
 # listeners' proxy-protocol is disabled post-cutover. Stalwart terminates TLS.
 apiVersion: v1
@@ -124,7 +129,7 @@ metadata:
   name: stalwart-lb
   namespace: stalwart
   annotations:
-    metallb.io/loadBalancerIPs: 10.20.2.8
+    metallb.io/loadBalancerIPs: 10.20.176.66
 spec:
   type: LoadBalancer
   externalTrafficPolicy: Local
@@ -177,7 +182,12 @@ spec:
       enableServiceLinks: false
       containers:
         - name: bulwark
-          image: ghcr.io/bulwarkmail/webmail:1.14.2
+          image: ghcr.io/bulwarkmail/webmail:1.16.0
+          resources:
+            requests:
+              memory: 192Mi
+            limits:
+              memory: 512Mi
           env:
             - name: APP_NAME
               value: Mail
@@ -210,6 +220,7 @@ spec:
           ports:
             - {name: http, containerPort: 3000, protocol: TCP}
           readinessProbe:
+            timeoutSeconds: 5
             tcpSocket:
               port: http
             initialDelaySeconds: 10
@@ -276,6 +287,11 @@ spec:
       containers:
         - name: umleiter
           image: ghcr.io/lhns/umleiter:0.1.1@sha256:2b937dc32bd15747cfe0f4baa42139f258218430057d80356f7b7a95140f3018
+          resources:
+            requests:
+              memory: 128Mi
+            limits:
+              memory: 128Mi
           volumeMounts:
             - name: state
               mountPath: /state

@@ -40,17 +40,10 @@ spec:
     matchLabels:
       app.kubernetes.io/managed-by: opentelemetry-operator
 ---
-# Both collectors export everything to the in-cluster aggregation gateway, and that
-# is a ClusterIP — so it needs vnet membership, where the Swarm collector it replaced
-# (10.20.2.10:4317) was an external address and needed none.
-#
-# Same reason as the binding above rather than a pod label: these pods are created by
-# the OpenTelemetry operator from the HelmRelease's `config`, so there is nowhere to
-# hand-set a label without fighting the operator. Selector-bound instead.
-#
-# The otel-gateway vnet already lists this namespace (infra/opentelemetry-gateway),
-# so nothing there changes — membership was staged in advance and only takes effect
-# once something is actually bound to it, which is what this does.
+# Both collectors export to the gateway's ClusterIP, which needs vnet membership. Bound
+# by selector, not a pod label: the operator creates the pods from the HelmRelease's
+# `config`, so a hand-set label would fight it. The otel-gateway vnet must list this
+# namespace (infra/opentelemetry-gateway/vnet.yaml).
 apiVersion: kube-vnet.lhns.de/v1alpha1
 kind: VirtualNetworkBinding
 metadata:

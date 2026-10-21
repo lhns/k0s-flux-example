@@ -1,0 +1,23 @@
+apiVersion: 1
+contactPoints:
+  - orgId: 1
+    name: matrix
+    receivers:
+      - uid: matrix-alerts
+        type: webhook
+        settings:
+          url: http://matrix-alerts.matrix-alerts.svc:8080/alerts/grafana
+          httpMethod: POST
+  # Pipeline alerts also go by email, so they arrive when Matrix itself is down.
+  - orgId: 1
+    name: matrix-and-email
+    receivers:
+      - uid: matrix-and-email-webhook
+        type: webhook
+        settings:
+          url: http://matrix-alerts.matrix-alerts.svc:8080/alerts/grafana
+          httpMethod: POST
+      - uid: matrix-and-email
+        type: email
+        settings:
+          addresses: admin@example.com

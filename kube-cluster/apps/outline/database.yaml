@@ -16,9 +16,7 @@ spec:
     name: outline-db
   databaseRoleReclaimPolicy: retain
 ---
-# The outline database, owned by that role. A pg_dump of the old Swarm Postgres
-# (10.20.2.10:5436, PG 18) is restored into it once, before Outline first boots
-# (same major, PG 18 -> PG 18.4 -> clean dump/restore). See README.
+# The outline database, owned by that role. See README.
 apiVersion: postgresql.cnpg.io/v1
 kind: Database
 metadata:

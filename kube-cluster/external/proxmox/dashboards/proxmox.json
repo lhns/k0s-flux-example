@@ -1,0 +1,3682 @@
+{
+  "uid": "proxmox-ve",
+  "title": "Proxmox VE",
+  "description": "Proxmox VE cluster: nodes, storage and guests, from the metrics Proxmox pushes itself (service proxmox-ve). Provisioned from git (kube-cluster/external/proxmox).",
+  "tags": [
+    "proxmox"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "1m",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "links": [
+    {
+      "type": "link",
+      "title": "Ceph cluster",
+      "icon": "dashboard",
+      "url": "/d/ceph-cluster/ceph-cluster",
+      "includeVars": false,
+      "keepTime": true,
+      "tooltip": "Health and capacity of the Ceph cluster behind the shared storages",
+      "targetBlank": false
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "ds",
+        "label": "Datasource",
+        "type": "datasource",
+        "query": "victoriametrics-metrics-datasource",
+        "refresh": 1,
+        "current": {},
+        "hide": 0
+      },
+      {
+        "name": "cluster",
+        "label": "Cluster",
+        "type": "query",
+        "datasource": {
+          "type": "victoriametrics-metrics-datasource",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "label_values({__name__=\"proxmox_node_uptime\"}, proxmox.cluster)",
+          "refId": "cluster"
+        },
+        "definition": "label_values({__name__=\"proxmox_node_uptime\"}, proxmox.cluster)",
+        "regex": "",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "hide": 0,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "allValue": ".*"
+      },
+      {
+        "name": "node",
+        "label": "Node",
+        "type": "query",
+        "datasource": {
+          "type": "victoriametrics-metrics-datasource",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "label_values({__name__=\"proxmox_node_uptime\", proxmox.cluster=~\"$cluster\"}, node)",
+          "refId": "node"
+        },
+        "definition": "label_values({__name__=\"proxmox_node_uptime\", proxmox.cluster=~\"$cluster\"}, node)",
+        "regex": "",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "hide": 0,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "allValue": ".*"
+      },
+      {
+        "name": "type",
+        "label": "Guest type",
+        "type": "query",
+        "datasource": {
+          "type": "victoriametrics-metrics-datasource",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "label_values({__name__=\"proxmox_vm_uptime\", proxmox.cluster=~\"$cluster\"}, type)",
+          "refId": "type"
+        },
+        "definition": "label_values({__name__=\"proxmox_vm_uptime\", proxmox.cluster=~\"$cluster\"}, type)",
+        "regex": "",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "hide": 0,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "allValue": ".*"
+      },
+      {
+        "name": "guest",
+        "label": "Guest",
+        "type": "query",
+        "datasource": {
+          "type": "victoriametrics-metrics-datasource",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "label_values({__name__=\"proxmox_vm_uptime\", proxmox.cluster=~\"$cluster\", node=~\"$node\", type=~\"$type\"}, name)",
+          "refId": "guest"
+        },
+        "definition": "label_values({__name__=\"proxmox_vm_uptime\", proxmox.cluster=~\"$cluster\", node=~\"$node\", type=~\"$type\"}, name)",
+        "regex": "",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "hide": 0,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "allValue": ".*"
+      },
+      {
+        "name": "topk",
+        "label": "Top N",
+        "type": "custom",
+        "query": "5,10,15,25",
+        "current": {
+          "text": "10",
+          "value": "10"
+        },
+        "options": [
+          {
+            "text": "5",
+            "value": "5",
+            "selected": false
+          },
+          {
+            "text": "10",
+            "value": "10",
+            "selected": true
+          },
+          {
+            "text": "15",
+            "value": "15",
+            "selected": false
+          },
+          {
+            "text": "25",
+            "value": "25",
+            "selected": false
+          }
+        ],
+        "hide": 0
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Cluster overview",
+      "collapsed": false,
+      "id": 1,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Nodes reporting",
+      "description": "Nodes whose metrics arrived in the last minutes. Fewer than the cluster has: a node is down, or its metric server push or the OTel gateway is broken.",
+      "id": 2,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "count(proxmox_node_uptime{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"})",
+          "legendFormat": "",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "N/A",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Nodes missing",
+      "description": "Nodes seen in the last 24h that report nothing now. Anything above 0 is bad: the node is down, or Proxmox stopped pushing. A node removed on purpose shows for 24h.",
+      "id": 3,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "count(last_over_time(proxmox_node_uptime{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"}[1d])) - count(proxmox_node_uptime{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"})",
+          "legendFormat": "",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "N/A",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Guests running",
+      "description": "Guests with an uptime above 0. Currently all guests are QEMU VMs (no containers).",
+      "id": 4,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "count(proxmox_vm_uptime{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\", name=~\"$guest\", type=~\"$type\"} > 0) or vector(0)",
+          "legendFormat": "",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "N/A",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Guests stopped",
+      "description": "Guests that are defined but not running (uptime 0). Expected for a few; a guest that should run and is listed here needs a look.",
+      "id": 5,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "count(proxmox_vm_uptime{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\", name=~\"$guest\", type=~\"$type\"} == 0) or vector(0)",
+          "legendFormat": "",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "N/A",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Inactive storages",
+      "description": "Storage definitions a node reports as not active (unmounted, Ceph unreachable). Anything above 0 is bad: guests on it cannot start.",
+      "id": 6,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "count(proxmox_storage_active{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"} == 0) or vector(0)",
+          "legendFormat": "",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "N/A",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Fullest storage",
+      "description": "The storage with the highest used share, cluster-wide. Above 85% is bad; see the Storage row for the trend.",
+      "id": 7,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "expr": "topk(1, max by (storage) (proxmox_storage_used{\"proxmox.cluster\"=~\"$cluster\"}) / max by (storage) (proxmox_storage_total{\"proxmox.cluster\"=~\"$cluster\"}))",
+          "legendFormat": "{{storage}}",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.8
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "N/A",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "gauge",
+      "title": "Cluster CPU",
+      "description": "Used share of all CPU threads of the selected nodes. Sustained above 80% leaves no headroom for a node failover.",
+      "id": 8,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 4,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "sum(proxmox_node_cpustat_cpu{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"} * proxmox_node_cpustat_cpus{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"}) / sum(proxmox_node_cpustat_cpus{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"})",
+          "legendFormat": "",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.8
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "N/A",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "gauge",
+      "title": "Cluster memory",
+      "description": "Used share of all node memory, including ZFS ARC (which gives memory back under pressure). Above 90% means a node failover cannot fit.",
+      "id": 9,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 5,
+        "w": 4,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "sum(proxmox_node_memory_memused{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"}) / sum(proxmox_node_memory_memtotal{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"})",
+          "legendFormat": "",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.8
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "N/A",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true,
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "Storage used",
+      "description": "Used share per storage. Shared storages (Ceph) are counted once; local ones per node. Above 85% is bad, above 95% critical.",
+      "id": 10,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 5,
+        "w": 16,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "max by (storage) (proxmox_storage_used{\"proxmox.cluster\"=~\"$cluster\"} / proxmox_storage_total{\"proxmox.cluster\"=~\"$cluster\"}) and on (storage) (max by (storage) (proxmox_storage_shared{\"proxmox.cluster\"=~\"$cluster\"}) == 1)",
+          "legendFormat": "{{storage}}",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        },
+        {
+          "expr": "proxmox_storage_used{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"} / proxmox_storage_total{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"} and on (node, storage) (proxmox_storage_shared{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"} == 0)",
+          "legendFormat": "{{node}} {{storage}}",
+          "refId": "B",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.85
+              },
+              {
+                "color": "red",
+                "value": 0.95
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "N/A",
+                  "index": 0
+                }
+              }
+            }
+          ],
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "auto",
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "sizing": "auto"
+      }
+    },
+    {
+      "type": "row",
+      "title": "Nodes",
+      "collapsed": false,
+      "id": 11,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 11
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "CPU",
+      "description": "Used share of each node's CPU threads. Sustained above 80% is bad.",
+      "id": 12,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "proxmox_node_cpustat_cpu{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"}",
+          "legendFormat": "{{node}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "pointSize": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "barAlignment": 0,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.8
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "CPU I/O wait",
+      "description": "Share of time CPUs wait for disk or network storage. Above a few percent for minutes means slow Ceph or local disks.",
+      "id": 13,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "proxmox_node_cpustat_wait_total{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"}",
+          "legendFormat": "{{node}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "pointSize": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "barAlignment": 0,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Load per core (5 min)",
+      "description": "5 minute load average divided by the thread count. Sustained above 1 means runnable tasks queue for a CPU.",
+      "id": 14,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "proxmox_node_cpustat_avg5{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"} / proxmox_node_cpustat_cpus{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"}",
+          "legendFormat": "{{node}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "pointSize": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "barAlignment": 0,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Memory available",
+      "description": "Share of memory the kernel can hand out without swapping (MemAvailable, ZFS ARC excluded). Below 10% is bad; Proxmox's own 'used' counts the ARC as used.",
+      "id": 15,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "proxmox_node_memory_memavailable{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"} / proxmox_node_memory_memtotal{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"}",
+          "legendFormat": "{{node}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "pointSize": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "barAlignment": 0,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Memory used and total",
+      "description": "Used (including ZFS ARC) against the installed memory. Used close to total is bad unless ARC accounts for it (next panel).",
+      "id": 16,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "proxmox_node_memory_memused{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"}",
+          "legendFormat": "{{node}} used",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        },
+        {
+          "expr": "proxmox_node_memory_memtotal{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"}",
+          "legendFormat": "{{node}} total",
+          "refId": "B",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "pointSize": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "barAlignment": 0,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".* total"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "ZFS ARC",
+      "description": "ZFS cache size against its maximum. It is counted in memory used and shrinks under pressure; it is not a leak.",
+      "id": 17,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "proxmox_node_memory_arcsize{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"}",
+          "legendFormat": "{{node}} size",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        },
+        {
+          "expr": "proxmox_node_memory_arcmax{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"}",
+          "legendFormat": "{{node}} max",
+          "refId": "B",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "pointSize": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "barAlignment": 0,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".* max"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Root filesystem used",
+      "description": "Used share of each node's root filesystem. Above 85% is bad: logs and the Proxmox database live there.",
+      "id": 18,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "proxmox_node_blockstat_used{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"} / proxmox_node_blockstat_blocks{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"}",
+          "legendFormat": "{{node}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "pointSize": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "barAlignment": 0,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.85
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Swap used",
+      "description": "Swap in use. The nodes have no swap configured, so this stays 0; any value means swap was added and memory is tight.",
+      "id": 19,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 36,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "proxmox_node_memory_swapused{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"}",
+          "legendFormat": "{{node}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "pointSize": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "barAlignment": 0,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Network receive",
+      "description": "Receive rate per physical NIC (en*/eth*; bridges, taps and loopback would count the same bytes twice). A NIC far from its neighbours or stuck at 0 is suspect.",
+      "id": 20,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 44,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "rate(proxmox_node_network_receive_total{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\", device=~\"en.*|eth.*\"}[$__rate_interval])",
+          "legendFormat": "{{node}} {{device}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "pointSize": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "barAlignment": 0,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Network transmit",
+      "description": "Transmit rate per physical NIC (en*/eth*). Compare with receive: Ceph traffic is symmetric between nodes.",
+      "id": 21,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 44,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "rate(proxmox_node_network_transmit_total{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\", device=~\"en.*|eth.*\"}[$__rate_interval])",
+          "legendFormat": "{{node}} {{device}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "pointSize": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "barAlignment": 0,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Uptime",
+      "description": "Time since the node booted. A node far below its neighbours rebooted recently (kernel update or crash).",
+      "id": 22,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 52,
+        "w": 24,
+        "h": 3
+      },
+      "targets": [
+        {
+          "expr": "proxmox_node_uptime{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"}",
+          "legendFormat": "{{node}}",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dtdurations",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "N/A",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "row",
+      "title": "Storage",
+      "collapsed": false,
+      "id": 23,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 55
+      },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "Shared storage",
+      "description": "Shared storages are listed once; Proxmox reports them from every node. Time to full is the 7 day linear trend of free space; empty when free space is not falling.",
+      "id": 24,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "max by (storage) (proxmox_storage_used{\"proxmox.cluster\"=~\"$cluster\"}) and on (storage) (max by (storage) (proxmox_storage_shared{\"proxmox.cluster\"=~\"$cluster\"}) == 1)",
+          "legendFormat": "",
+          "refId": "A",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "expr": "max by (storage) (proxmox_storage_avail{\"proxmox.cluster\"=~\"$cluster\"}) and on (storage) (max by (storage) (proxmox_storage_shared{\"proxmox.cluster\"=~\"$cluster\"}) == 1)",
+          "legendFormat": "",
+          "refId": "B",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "expr": "max by (storage) (proxmox_storage_total{\"proxmox.cluster\"=~\"$cluster\"}) and on (storage) (max by (storage) (proxmox_storage_shared{\"proxmox.cluster\"=~\"$cluster\"}) == 1)",
+          "legendFormat": "",
+          "refId": "C",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "expr": "max by (storage) (proxmox_storage_used{\"proxmox.cluster\"=~\"$cluster\"} / proxmox_storage_total{\"proxmox.cluster\"=~\"$cluster\"}) and on (storage) (max by (storage) (proxmox_storage_shared{\"proxmox.cluster\"=~\"$cluster\"}) == 1)",
+          "legendFormat": "",
+          "refId": "D",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "expr": "(max by (storage) (proxmox_storage_avail{\"proxmox.cluster\"=~\"$cluster\"}) / -deriv(max by (storage) (proxmox_storage_avail{\"proxmox.cluster\"=~\"$cluster\"})[7d:1h]) and deriv(max by (storage) (proxmox_storage_avail{\"proxmox.cluster\"=~\"$cluster\"})[7d:1h]) < 0) and on (storage) (max by (storage) (proxmox_storage_shared{\"proxmox.cluster\"=~\"$cluster\"}) == 1)",
+          "legendFormat": "",
+          "refId": "E",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Used"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Free"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Used %"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.85
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.95
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time to full (7d trend)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dtdurations"
+              }
+            ]
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "environment": true,
+              "proxmox.cluster": true,
+              "proxmox.node": true,
+              "scope.name": true,
+              "scope.version": true,
+              "service.name": true,
+              "service.version": true,
+              "node": true
+            },
+            "renameByName": {
+              "storage": "Storage",
+              "Value #A": "Used",
+              "Value #B": "Free",
+              "Value #C": "Total",
+              "Value #D": "Used %",
+              "Value #E": "Time to full (7d trend)"
+            },
+            "indexByName": {
+              "storage": 0,
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3,
+              "Value #D": 4,
+              "Value #E": 5
+            }
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": "",
+          "countRows": false
+        },
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Storage",
+            "desc": false
+          }
+        ]
+      }
+    },
+    {
+      "type": "table",
+      "title": "Local storage",
+      "description": "Per-node storages (root disk, ZFS pools). A local storage near full stops guests on that node.",
+      "id": 25,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 64,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "proxmox_storage_used{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"} and on (node, storage) (proxmox_storage_shared{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"} == 0)",
+          "legendFormat": "",
+          "refId": "A",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "expr": "proxmox_storage_avail{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"} and on (node, storage) (proxmox_storage_shared{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"} == 0)",
+          "legendFormat": "",
+          "refId": "B",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "expr": "proxmox_storage_total{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"} and on (node, storage) (proxmox_storage_shared{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"} == 0)",
+          "legendFormat": "",
+          "refId": "C",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "expr": "proxmox_storage_used{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"} / proxmox_storage_total{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"} and on (node, storage) (proxmox_storage_shared{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"} == 0)",
+          "legendFormat": "",
+          "refId": "D",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "expr": "(max by (storage, node) (proxmox_storage_avail{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"}) / -deriv(max by (storage, node) (proxmox_storage_avail{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"})[7d:1h]) and deriv(max by (storage, node) (proxmox_storage_avail{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"})[7d:1h]) < 0) and on (node, storage) (proxmox_storage_shared{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"} == 0)",
+          "legendFormat": "",
+          "refId": "E",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Used"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Free"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Used %"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.85
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.95
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time to full (7d trend)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dtdurations"
+              }
+            ]
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "environment": true,
+              "proxmox.cluster": true,
+              "proxmox.node": true,
+              "scope.name": true,
+              "scope.version": true,
+              "service.name": true,
+              "service.version": true
+            },
+            "renameByName": {
+              "node": "Node",
+              "storage": "Storage",
+              "Value #A": "Used",
+              "Value #B": "Free",
+              "Value #C": "Total",
+              "Value #D": "Used %",
+              "Value #E": "Time to full (7d trend)"
+            },
+            "indexByName": {
+              "node": 0,
+              "storage": 1,
+              "Value #A": 2,
+              "Value #B": 3,
+              "Value #C": 4,
+              "Value #D": 5,
+              "Value #E": 6
+            }
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": "",
+          "countRows": false
+        },
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Node",
+            "desc": false
+          }
+        ]
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "Time to full",
+      "description": "Seconds until free space reaches 0 at the 7 day linear trend (the retired ceph-storage-fill rules used the same). Only storages whose free space is falling are listed. Under 14 days is bad, under 3 days critical. Pools grow in steps, so read it as a hint, not a forecast.",
+      "id": 26,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 72,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "(max by (storage) (proxmox_storage_avail{\"proxmox.cluster\"=~\"$cluster\"}) / -deriv(max by (storage) (proxmox_storage_avail{\"proxmox.cluster\"=~\"$cluster\"})[7d:1h]) and deriv(max by (storage) (proxmox_storage_avail{\"proxmox.cluster\"=~\"$cluster\"})[7d:1h]) < 0) and on (storage) (max by (storage) (proxmox_storage_shared{\"proxmox.cluster\"=~\"$cluster\"}) == 1)",
+          "legendFormat": "{{storage}}",
+          "refId": "A",
+          "range": false,
+          "instant": true
+        },
+        {
+          "expr": "(max by (storage, node) (proxmox_storage_avail{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"}) / -deriv(max by (storage, node) (proxmox_storage_avail{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"})[7d:1h]) and deriv(max by (storage, node) (proxmox_storage_avail{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"})[7d:1h]) < 0) and on (node, storage) (proxmox_storage_shared{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"} == 0)",
+          "legendFormat": "{{node}} {{storage}}",
+          "refId": "B",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dtdurations",
+          "min": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 259200
+              },
+              {
+                "color": "green",
+                "value": 1209600
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "N/A",
+                  "index": 0
+                }
+              }
+            }
+          ],
+          "max": 7776000
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "auto",
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "sizing": "auto"
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Shared storage used",
+      "description": "Used share per shared storage over time. A steady climb is growth; a step is a large copy or a restore.",
+      "id": 27,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 72,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "max by (storage) (proxmox_storage_used{\"proxmox.cluster\"=~\"$cluster\"} / proxmox_storage_total{\"proxmox.cluster\"=~\"$cluster\"}) and on (storage) (max by (storage) (proxmox_storage_shared{\"proxmox.cluster\"=~\"$cluster\"}) == 1)",
+          "legendFormat": "{{storage}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "pointSize": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "barAlignment": 0,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Local storage used",
+      "description": "Used share per node-local storage over time.",
+      "id": 28,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 72,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "proxmox_storage_used{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"} / proxmox_storage_total{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"} and on (node, storage) (proxmox_storage_shared{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\"} == 0)",
+          "legendFormat": "{{node}} {{storage}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "pointSize": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "barAlignment": 0,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "row",
+      "title": "Guests",
+      "collapsed": false,
+      "id": 29,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 80
+      },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "Guests",
+      "description": "Every guest of the selected nodes (all QEMU VMs today). Memory above 100% means the guest uses more than its allotment (balloon or overhead). Disk usage is not reported for VMs, so only the size is shown.",
+      "id": 30,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 81,
+        "w": 24,
+        "h": 12
+      },
+      "targets": [
+        {
+          "expr": "proxmox_vm_uptime{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\", name=~\"$guest\", type=~\"$type\"}",
+          "legendFormat": "",
+          "refId": "A",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "expr": "clamp_max(proxmox_vm_uptime{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\", name=~\"$guest\", type=~\"$type\"}, 1)",
+          "legendFormat": "",
+          "refId": "B",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "expr": "proxmox_vm_cpu{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\", name=~\"$guest\", type=~\"$type\"}",
+          "legendFormat": "",
+          "refId": "C",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "expr": "proxmox_vm_mem{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\", name=~\"$guest\", type=~\"$type\"} / proxmox_vm_maxmem{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\", name=~\"$guest\", type=~\"$type\"}",
+          "legendFormat": "",
+          "refId": "D",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "expr": "proxmox_vm_mem{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\", name=~\"$guest\", type=~\"$type\"}",
+          "legendFormat": "",
+          "refId": "E",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "expr": "proxmox_vm_cpus{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\", name=~\"$guest\", type=~\"$type\"}",
+          "legendFormat": "",
+          "refId": "F",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        },
+        {
+          "expr": "proxmox_vm_maxdisk{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\", name=~\"$guest\", type=~\"$type\"}",
+          "legendFormat": "",
+          "refId": "G",
+          "range": false,
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Uptime"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dtdurations"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Memory used"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Disk size"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Status"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "stopped",
+                        "color": "orange",
+                        "index": 0
+                      },
+                      "1": {
+                        "text": "running",
+                        "color": "green",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "CPU"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.8
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.95
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Memory %"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.9
+                    },
+                    {
+                      "color": "red",
+                      "value": 1.0
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              }
+            ]
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "environment": true,
+              "proxmox.cluster": true,
+              "proxmox.node": true,
+              "scope.name": true,
+              "scope.version": true,
+              "service.name": true,
+              "service.version": true
+            },
+            "renameByName": {
+              "name": "Name",
+              "vmid": "VMID",
+              "node": "Node",
+              "type": "Type",
+              "Value #A": "Uptime",
+              "Value #B": "Status",
+              "Value #C": "CPU",
+              "Value #D": "Memory %",
+              "Value #E": "Memory used",
+              "Value #F": "vCPUs",
+              "Value #G": "Disk size"
+            },
+            "indexByName": {
+              "name": 0,
+              "vmid": 1,
+              "node": 2,
+              "type": 3,
+              "Value #B": 4,
+              "Value #A": 5,
+              "Value #C": 6,
+              "Value #D": 7,
+              "Value #E": 8,
+              "Value #F": 9,
+              "Value #G": 10
+            }
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": "",
+          "countRows": false
+        },
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Name",
+            "desc": false
+          }
+        ]
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Top $topk guests by CPU",
+      "description": "Used share of the guest's own vCPUs; a guest pinned near 100% is starved of CPU. Stopped guests report 0 and drop out of the top list.",
+      "id": 31,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 93,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "topk($topk, proxmox_vm_cpu{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\", name=~\"$guest\", type=~\"$type\"})",
+          "legendFormat": "{{name}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "pointSize": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "barAlignment": 0,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Top $topk guests by memory",
+      "description": "Memory in use per guest. A guest at its allotment (maxmem) has nothing left for page cache. Stopped guests report 0 and drop out of the top list.",
+      "id": 32,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 93,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "topk($topk, proxmox_vm_mem{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\", name=~\"$guest\", type=~\"$type\"})",
+          "legendFormat": "{{name}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "pointSize": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "barAlignment": 0,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Top $topk guests by disk read",
+      "description": "Read rate of all virtual disks. Stopped guests report 0 and drop out of the top list.",
+      "id": 33,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 101,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "topk($topk, rate(proxmox_vm_diskread_total{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\", name=~\"$guest\", type=~\"$type\"}[$__rate_interval]))",
+          "legendFormat": "{{name}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "pointSize": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "barAlignment": 0,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Top $topk guests by disk write",
+      "description": "Write rate of all virtual disks. A guest writing far above its usual rate fills Ceph. Stopped guests report 0 and drop out of the top list.",
+      "id": 34,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 101,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "topk($topk, rate(proxmox_vm_diskwrite_total{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\", name=~\"$guest\", type=~\"$type\"}[$__rate_interval]))",
+          "legendFormat": "{{name}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "pointSize": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "barAlignment": 0,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Top $topk guests by network in",
+      "description": "Receive rate of all virtual NICs. Stopped guests report 0 and drop out of the top list.",
+      "id": 35,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 109,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "topk($topk, rate(proxmox_vm_netin_total{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\", name=~\"$guest\", type=~\"$type\"}[$__rate_interval]))",
+          "legendFormat": "{{name}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "pointSize": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "barAlignment": 0,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Top $topk guests by network out",
+      "description": "Transmit rate of all virtual NICs. Stopped guests report 0 and drop out of the top list.",
+      "id": 36,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 109,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "topk($topk, rate(proxmox_vm_netout_total{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\", name=~\"$guest\", type=~\"$type\"}[$__rate_interval]))",
+          "legendFormat": "{{name}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "pointSize": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "barAlignment": 0,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Top $topk guests by CPU pressure",
+      "description": "Share of time at least one task of the guest waited for CPU (PSI 'some'). Sustained above 10% is bad: the guest or its node is CPU-starved. Stopped guests report 0 and drop out of the top list.",
+      "id": 37,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 117,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "topk($topk, proxmox_vm_pressurecpusome{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\", name=~\"$guest\", type=~\"$type\"} / 100)",
+          "legendFormat": "{{name}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "pointSize": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "barAlignment": 0,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Top $topk guests by I/O pressure",
+      "description": "Share of time at least one task of the guest waited for disk I/O (PSI 'some'). Sustained above 10% is bad: slow storage under the guest. Stopped guests report 0 and drop out of the top list.",
+      "id": 38,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 117,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "topk($topk, proxmox_vm_pressureiosome{\"proxmox.cluster\"=~\"$cluster\", node=~\"$node\", name=~\"$guest\", type=~\"$type\"} / 100)",
+          "legendFormat": "{{name}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "pointSize": 0,
+            "showPoints": "never",
+            "spanNulls": true,
+            "axisPlacement": "auto",
+            "axisLabel": "",
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "barAlignment": 0,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            },
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    }
+  ]
+}

@@ -38,7 +38,7 @@ def expected_revision(spec):
 def load(path):
     docs = []
     try:
-        docs = [d for d in yaml.safe_load_all(path.read_text(encoding="utf-8")) if isinstance(d, dict)]
+        docs = [d for d in clusters.load_all(path.read_text(encoding="utf-8")) if isinstance(d, dict)]
     except yaml.YAMLError:
         if re.search(r"kind: (ImageComposition|ImageBuild|GitRepository)", path.read_text(encoding="utf-8")):
             raise

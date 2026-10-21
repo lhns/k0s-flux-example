@@ -39,7 +39,7 @@ spec:
 ---
 # ===========================================================================
 # The filesystems backrest reads to back up — MOUNTED in place from the
-# existing CephFS filesystems (appdata/fastappdata/userdata on ceph-cluster),
+# existing CephFS filesystems (appdata/fastdata/userdata on ceph-cluster),
 # NOT copied. Static CephFS PVs (sftpgo/immich pattern). RW (restore can target
 # them). backrest-repos is the (currently empty) local restic repo dir.
 # ===========================================================================
@@ -85,7 +85,7 @@ kind: PersistentVolume
 metadata:
   annotations:
     kustomize.toolkit.fluxcd.io/prune: disabled
-  name: backrest-fastappdata
+  name: backrest-fastdata
 spec:
   accessModes: [ReadWriteMany]
   capacity:
@@ -97,22 +97,22 @@ spec:
     nodeStageSecretRef:
       name: csi-cephfs-secret
       namespace: ceph-csi-cephfs
-    volumeHandle: backrest-fastappdata
+    volumeHandle: backrest-fastdata
     volumeAttributes:
       clusterID: ceph-cluster
-      fsName: fastappdata
+      fsName: fastdata
       staticVolume: "true"
       rootPath: /
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: backrest-fastappdata
+  name: backrest-fastdata
   namespace: backrest
 spec:
   accessModes: [ReadWriteMany]
   storageClassName: ""
-  volumeName: backrest-fastappdata
+  volumeName: backrest-fastdata
   resources:
     requests:
       storage: 1Gi
@@ -197,8 +197,6 @@ metadata:
   name: backrest
   namespace: backrest
 spec:
-  # Live. (Shipped as 0 for the cutover; the Swarm backrest was stopped and
-  # /data + /config copied into the state PVC — see README.)
   replicas: 1
   # Single-writer SQLite oplog -> Recreate, never two.
   strategy:
@@ -247,6 +245,7 @@ spec:
             - name: http
               containerPort: 9898
           readinessProbe:
+            timeoutSeconds: 5
             tcpSocket:
               port: http
             initialDelaySeconds: 10
@@ -270,10 +269,15 @@ spec:
               mountPath: /repos
             - name: appdata
               mountPath: /mnt/appdata
-            - name: fastappdata
-              mountPath: /mnt/fastappdata
+            - name: fastdata
+              mountPath: /mnt/fastdata
             - name: userdata
               mountPath: /mnt/userdata
+          resources:
+            requests:
+              memory: 96Mi
+            limits:
+              memory: 2Gi
       volumes:
         - name: state
           persistentVolumeClaim:
@@ -289,9 +293,9 @@ spec:
         - name: appdata
           persistentVolumeClaim:
             claimName: backrest-appdata
-        - name: fastappdata
+        - name: fastdata
           persistentVolumeClaim:
-            claimName: backrest-fastappdata
+            claimName: backrest-fastdata
         - name: userdata
           persistentVolumeClaim:
             claimName: backrest-userdata

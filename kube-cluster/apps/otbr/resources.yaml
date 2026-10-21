@@ -12,7 +12,7 @@
 # NO gateway in the ipam block: it would install a default route via net1 and hijack
 # egress away from eth0, breaking cluster DNS and API access.
 #
-# 10.20.3.7 is macvlan space by convention -- 10.20.2.x is MetalLB, and a macvlan pod in
+# 10.20.37.150 is macvlan space by convention -- 10.20.176.x is MetalLB, and a macvlan pod in
 # that range is invisible to MetalLB, which would hand the same address to a Service.
 apiVersion: k8s.cni.cncf.io/v1
 kind: NetworkAttachmentDefinition
@@ -31,7 +31,7 @@ spec:
           "mode": "bridge",
           "ipam": {
             "type": "static",
-            "addresses": [{"address": "10.20.3.7/16"}]
+            "addresses": [{"address": "10.20.37.150/16"}]
           }
         },
         {
@@ -47,10 +47,7 @@ spec:
 # The Active Operational Dataset: the Thread network's identity. Lose this volume and
 # every commissioned device is orphaned and must be re-commissioned by hand.
 #
-# cephfs, not ceph-rbd (which it was at first, by mistake). Backrest mounts the
-# fastappdata filesystem and the cephfs class provisions subvolumes inside it, so those
-# are reachable; dynamic RBD volumes are block images with no path and nothing can back
-# them up. Coverage still needs the Backrest plan -- task #89.
+# cephfs, not ceph-rbd: a flat file rewritten via tmp+rename needs no block volume (ADR 0007).
 #
 # RWX, as matter-server does. Single-writer is enforced by strategy: Recreate below, which
 # the fixed macvlan address and the single radio require anyway.
@@ -96,19 +93,10 @@ spec:
         kube-vnet/net.otbr: ingress
     spec:
       enableServiceLinks: false
-      # No initContainer. socat is mounted from the image that ships it and the launcher comes
-      # from a ConfigMap, so nothing is copied or chmod-ed at pod start — the kubelet already had
-      # to mount that image to run the copy, so the copy bought nothing.
-      #
-      # The image ships no socat, no netcat and no curl (verified: it is Ubuntu 18.04, glibc
-      # 2.27), and the RCP is not a local device — it is the SLZB's serial-over-IP port.
-      # Something has to bridge TCP to a pty, and it must run in the OTBR container itself: a pty
-      # belongs to the /dev/pts instance of the container that created it, so a sidecar cannot
-      # hand one over. Files can be shared, which is why socat arrives as a volume.
-      #
-      # glibc 2.27 is too old for any current prebuilt socat, so this uses the musl loader and
-      # socat's libraries from the alpine image and invokes them explicitly, sidestepping the
-      # host libc entirely. See socat-launcher.
+      # socat is mounted from the image that ships it and the launcher from a ConfigMap: the
+      # OTBR image has no socat/netcat/curl and its glibc 2.27 is too old for a prebuilt one,
+      # so the alpine musl loader runs it (see socat-launcher). It must run inside the OTBR
+      # container: a pty belongs to the /dev/pts of the container that created it.
       containers:
         - name: otbr
           # Bare digest, not tag@digest: upstream publishes exactly one tag (`latest`), so a tag
@@ -118,10 +106,9 @@ spec:
           # RCP firmware on the SLZB-MR5U, which lives outside the cluster -- nothing in CI can
           # tell whether a digest works, so Renovate is dashboard-gated for it.
           #
-          # Two digests are known bad (58a44e6c, 42b358ed), both aborting identically in
-          # otPlatRadioSetMacKey() at radio.cpp:964 right after the RCP reset. Every image since
-          # this one has disagreed with the radio's firmware: treat the next as bad until proven
-          # otherwise, and expect the fix to be a firmware update, not a newer image.
+          # Two digests are known bad (58a44e6c, 42b358ed): otbr-agent aborts in
+          # otPlatRadioSetMacKey() after the RCP reset. Treat the next as bad until proven
+          # otherwise; the fix is usually a firmware update, not a newer image.
           #
           # The failure is SILENT: otbr-agent is not PID 1, so its abort leaves the pod Running
           # with only the :8081 readiness probe red. Watch for 0/1 after any bump.
@@ -138,21 +125,11 @@ spec:
           env:
             - name: TZ
               value: Europe/Berlin
-            # How otbr-agent reaches the radio. `spinel+hdlc+forkpty://` is one of only
-            # three transports OpenThread implements (the others are +uart and +spi);
-            # there is deliberately no TCP scheme, because the RCP split leaves the
-            # timing-critical lower MAC on the radio and 802.15.4 has hard deadlines.
-            # otbr-agent forks this program with a pty attached and speaks HDLC over it.
-            #
-            # The pty is safe for binary spinel: otbr-agent passes a cfmakeraw termios as
-            # forkpty()'s third argument, so the slave is raw from creation and nothing
-            # translates 0x0a or eats 0x00. (Measured: through a pty that is *not* raw, an
-            # HDLC frame comes back mangled and echoed — hence the explicit note.)
-            #
-            # nodelay disables Nagle. Not cosmetic: this link is already out of spec on
-            # latency grounds, and buffering 40ms of spinel would make it worse.
+            # No TCP radio scheme exists, so forkpty runs socat; nodelay (no Nagle) matters because
+            # the link is already out of spec on latency. The pty is raw (cfmakeraw), so binary
+            # spinel is not mangled.
             - name: RADIO_URL
-              value: "spinel+hdlc+forkpty:///opt/socat-bin/socat.sh?forkpty-arg=-&forkpty-arg=tcp:10.20.1.50:7638,nodelay"
+              value: "spinel+hdlc+forkpty:///opt/socat-bin/socat.sh?forkpty-arg=-&forkpty-arg=tcp:10.20.62.170:7638,nodelay"
             # The infrastructure ("backbone") interface: where RAs are sent, where mDNS is
             # answered, where the mesh prefix is advertised. This MUST be net1. The image
             # defaults it to eth0, which would advertise Thread into the pod network and
@@ -161,12 +138,15 @@ spec:
               value: net1
             - name: TUN_INTERFACE_NAME
               value: wpan0
-            # The image's entrypoint binds the REST API to $REST_HOST, which defaults to
-            # $HTTP_HOST, which defaults to 127.0.0.1 — i.e. unreachable from outside the
-            # pod unless set. 0.0.0.0 rather than :: because the path we actually use is
-            # the IPv4 ClusterIP; Thread traffic never goes through REST.
+            # The entrypoint passes $REST_HOST to --rest-listen-address (default 127.0.0.1).
+            # The REST API is unauthenticated and serves the Thread network key: bind it to the
+            # pod IP (eth0, the ClusterIP path), never 0.0.0.0, which includes net1 (ADR 0031).
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
             - name: REST_HOST
-              value: 0.0.0.0
+              value: $(POD_IP)
             # ...while the web UI stays on loopback. It is an unauthenticated admin
             # interface that can erase the dataset, and this pod is on the LAN with no
             # NetworkPolicy in front of net1. Reach it with `kubectl port-forward` when
@@ -181,23 +161,10 @@ spec:
             # IPv4.
             - name: NAT64
               value: "0"
-            # The Thread firewall is OFF, and not by preference — the entrypoint aborts
-            # the whole container without it, so this is what "running at all" costs here.
-            #
-            # It wants legacy ip6tables (`ip6tables -N OTBR_FORWARD_INGRESS`), and the
-            # nodes have no `ip6table_filter` module loaded: "can't initialize ip6tables
-            # table `filter': Table does not exist". The container cannot load it — the
-            # image has no kmod, and loading host modules would need SYS_MODULE. The image
-            # is Ubuntu 18.04 with iptables 1.6.1, which is legacy-only and cannot fall
-            # back to the nft backend the nodes actually use.
-            #
-            # What is lost: OTBR_FORWARD_INGRESS, the Thread 1.2 rule set filtering
-            # traffic coming *from* the mesh onto the infrastructure link. Mesh devices can
-            # now reach the LAN unfiltered. That is a real reduction, though a bounded one
-            # here — net1 already sits outside NetworkPolicy entirely (see README).
-            #
-            # To restore it: load ip6table_filter on the workers and persist it via
-            # k0sctl.yaml, then drop this variable.
+            # Off because the entrypoint aborts the container without ip6table_filter, which the
+            # nodes lack and the image cannot load. Mesh-to-LAN traffic is therefore unfiltered
+            # (net1 is outside NetworkPolicy anyway). Restore: load the module on the workers
+            # via k0sctl.yaml, then drop this variable.
             - name: FIREWALL
               value: "0"
             # 6 = INFO. The default is 7 (DEBUG), which is a firehose of spinel frames.
@@ -209,6 +176,7 @@ spec:
             - name: rest
               containerPort: 8081
           readinessProbe:
+            timeoutSeconds: 5
             # tcpSocket, not httpGet /node/state: the REST API answers long before the
             # node has attached to (or formed) a mesh, and a probe that failed while
             # detached would restart the pod exactly when it is trying to re-attach.
@@ -218,6 +186,12 @@ spec:
             initialDelaySeconds: 20
             periodSeconds: 10
             failureThreshold: 12
+          # Generous for a ~30Mi process: an OOM-killed otbr-agent fails silently (pod stays Running).
+          resources:
+            requests:
+              memory: 64Mi
+            limits:
+              memory: 192Mi
           volumeMounts:
             - name: data
               mountPath: /var/lib/thread
@@ -249,7 +223,7 @@ spec:
         - name: socat
           image:
             # renovate: datasource=docker
-            reference: alpine/socat:1.8.1.3@sha256:fb3862c949af7c79996d0e514ee96128644d840835ed5368eeecb14a869de361
+            reference: alpine/socat:1.8.1.3@sha256:22d77becaeeea8ef56b8c4bb2312323acafe85354be6a85714ff5050e3537842
             pullPolicy: IfNotPresent
         - name: socat-launcher
           configMap:

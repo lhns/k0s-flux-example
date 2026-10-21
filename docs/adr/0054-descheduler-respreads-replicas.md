@@ -26,3 +26,7 @@ drain or node loss the replicas of a set end up on few nodes and stay there.
 - A replica of a set restarts when moved; PDBs bound how many at once.
 - Singletons and `Recreate` apps are never touched.
 - Spread recovers within 15 minutes of a node returning, not instantly.
+
+## References
+
+- `fac2f4b3`.

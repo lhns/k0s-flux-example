@@ -17,7 +17,7 @@ spec:
 ---
 # ===========================================================================
 # The filesystems sftpgo serves — MOUNTED in place from the existing CephFS
-# filesystems (appdata/fastappdata/userdata/archive on the same ceph-cluster),
+# filesystems (appdata/fastdata/userdata/archive on the same ceph-cluster),
 # NOT copied (the appdata data dir alone is ~249G). Static CephFS PVs
 # (jellyfin/immich pattern): storageClassName "", csi cephfs.csi.ceph.com,
 # staticVolume, per-fs fsName + rootPath, bound by volumeName. capacity 1Gi is
@@ -66,7 +66,7 @@ kind: PersistentVolume
 metadata:
   annotations:
     kustomize.toolkit.fluxcd.io/prune: disabled
-  name: sftpgo-fastappdata
+  name: sftpgo-fastdata
 spec:
   accessModes: [ReadWriteMany]
   capacity:
@@ -78,22 +78,22 @@ spec:
     nodeStageSecretRef:
       name: csi-cephfs-secret
       namespace: ceph-csi-cephfs
-    volumeHandle: sftpgo-fastappdata
+    volumeHandle: sftpgo-fastdata
     volumeAttributes:
       clusterID: ceph-cluster
-      fsName: fastappdata
+      fsName: fastdata
       staticVolume: "true"
       rootPath: /
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: sftpgo-fastappdata
+  name: sftpgo-fastdata
   namespace: sftpgo
 spec:
   accessModes: [ReadWriteMany]
   storageClassName: ""
-  volumeName: sftpgo-fastappdata
+  volumeName: sftpgo-fastdata
   resources:
     requests:
       storage: 1Gi
@@ -180,8 +180,6 @@ metadata:
   annotations:
     reloader.stakater.com/auto: "true"
 spec:
-  # Live. (Shipped as 0 for the cutover, then scaled to 1 once the Swarm sftpgo was
-  # stopped so the seed captured the final sftpgo.db — see README.)
   replicas: 1
   # Single-writer (sftpgo.db + the served dirs) -> Recreate, never two.
   strategy:
@@ -212,6 +210,11 @@ spec:
       containers:
         - name: sftpgo
           image: ghcr.io/drakkan/sftpgo:v2.7.6
+          resources:
+            requests:
+              memory: 128Mi
+            limits:
+              memory: 192Mi
           env:
             - name: SFTPGO_WEBDAVD__BINDINGS__0__PORT
               value: "10080"
@@ -244,7 +247,7 @@ spec:
               value: "2121"
             # Passive FTP hands this IP to clients -> must be the sftpgo-lb VIP.
             - name: SFTPGO_FTPD__BINDINGS__0__FORCE_PASSIVE_IP
-              value: 10.20.2.17
+              value: 10.20.176.224
             - name: SFTPGO_FTPD__PASSIVE_PORT_RANGE__START
               value: "50000"
             - name: SFTPGO_FTPD__PASSIVE_PORT_RANGE__END
@@ -255,6 +258,7 @@ spec:
             - {name: sftp, containerPort: 2022, protocol: TCP}
             - {name: ftp, containerPort: 2121, protocol: TCP}
           readinessProbe:
+            timeoutSeconds: 5
             tcpSocket:
               port: web
             initialDelaySeconds: 10
@@ -271,8 +275,8 @@ spec:
               mountPath: /appdata
             - name: appdata
               mountPath: /mnt/appdata
-            - name: fastappdata
-              mountPath: /mnt/fastappdata
+            - name: fastdata
+              mountPath: /mnt/fastdata
             - name: userdata
               mountPath: /userdata
             - name: userdata
@@ -288,9 +292,9 @@ spec:
         - name: appdata
           persistentVolumeClaim:
             claimName: sftpgo-appdata
-        - name: fastappdata
+        - name: fastdata
           persistentVolumeClaim:
-            claimName: sftpgo-fastappdata
+            claimName: sftpgo-fastdata
         - name: userdata
           persistentVolumeClaim:
             claimName: sftpgo-userdata
@@ -311,7 +315,7 @@ spec:
     - {name: web, port: 8080, targetPort: web}
     - {name: webdav, port: 10080, targetPort: webdav}
 ---
-# Raw SFTP/FTP + FTP passive ports on a dedicated MetalLB VIP (10.20.2.17) —
+# Raw SFTP/FTP + FTP passive ports on a dedicated MetalLB VIP (10.20.176.224) —
 # Traefik can't carry these (SFTP is SSH, no SNI) and its VIP can't be shared
 # (externalTrafficPolicy: Local). externalTrafficPolicy: Local preserves the
 # client source IP; single pod so the VIP + passive data connections follow it.
@@ -321,7 +325,7 @@ metadata:
   name: sftpgo-lb
   namespace: sftpgo
   annotations:
-    metallb.io/loadBalancerIPs: 10.20.2.17
+    metallb.io/loadBalancerIPs: 10.20.176.224
 spec:
   type: LoadBalancer
   externalTrafficPolicy: Local

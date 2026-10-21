@@ -91,6 +91,7 @@ spec:
             - name: https
               containerPort: 6901
           readinessProbe:
+            timeoutSeconds: 5
             # TCP rather than httpGet: the endpoint is HTTPS with a self-signed cert,
             # so an httpGet probe would need scheme: HTTPS and would still only be
             # checking a login page. A successful connect is what we actually want.
@@ -119,7 +120,7 @@ spec:
         # credential in plaintext in git is not something this repo does. A sidecar keeps
         # it in the Secret.
         - name: proxy
-          image: nginx:1.31.6-alpine
+          image: nginx:1.31.7-alpine
           command: [sh, -c]
           args:
             - |
@@ -140,6 +141,7 @@ spec:
             - name: http
               containerPort: 8080
           readinessProbe:
+            timeoutSeconds: 5
             # Now a real check, unlike the TCP probe on the kasm container: this asks for
             # the actual page through the injected credential, so a 200 proves the whole
             # chain — proxy up, credential correct, KasmVNC answering.

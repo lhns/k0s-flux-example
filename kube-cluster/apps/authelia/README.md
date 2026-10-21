@@ -24,20 +24,11 @@ from Docker Swarm into the cluster. Public at `auth.example.com`. Everything SSO
   egress`). **valkey**: the `valkey` and `valkey-internal` vnets (intra-ns), bound by
   `valkey-clients` and `valkey-peers`.
 - **Rate limits**: Authelia keys its buckets on the source IP alone, and LAN clients reach
-  `auth.example.com` hairpinned through the router, so all 23 OIDC clients land in one bucket — one
+  `auth.example.com` hairpinned through the router, so all OIDC clients land in one bucket — one
   client looping on a rejected token refresh rate-limits every other client's logins. The
   `openid_connect_token` buckets in `configuration.yml` are sized for that shared bucket. Genuine
   per-client isolation would need split-horizon DNS on the router (`auth.example.com` → the Traefik VIP
-  `10.20.2.15`), which is outside this repo.
+  `10.20.176.210`), which is outside this repo.
 - **user-info**: the `/info` page (group→app access matrix), behind the authelia middleware.
 - **forwardAuth**: the reflected `authelia` / `authelia-basicauth` Middlewares (`routing.yaml`) protect
-  every app. **At cutover** their address flips from the external `10.20.2.10:9091` → the in-cluster
-  `authelia.authelia.svc:9091` (a single Traefik→Authelia hop, so the header-stripping issue that
-  required the direct port on Swarm is gone).
-
-## Cutover (do AFTER the in-cluster Authelia is verified healthy)
-1. Deploy at `replicas: 0`; migrate the `authelia` db; scale to 1; verify `/api/health` + an OIDC + a
-   forwardAuth flow via `--resolve` to the cluster LB.
-2. Flip the reflected Middleware address to the in-cluster service (a one-line edit), and point
-   `auth.example.com` / `lldap.example.com` DNS → the Traefik LB `10.20.2.15`; stop the Swarm auth stack.
-   Rollback = revert the Middleware address to `10.20.2.10:9091` (Swarm stays warm until you stop it).
+  every app, at the in-cluster `authelia.authelia.svc:9091` (a single Traefik→Authelia hop).

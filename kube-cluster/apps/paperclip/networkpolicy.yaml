@@ -1,0 +1,65 @@
+# Egress containment for the agent CLIs, which run model-chosen shell commands inside this pod
+# (ADR 0031). Additive to kube-vnet, which is ingress-only. Pattern: apps/hermes. Covers both
+# containers (the hermes-forward sidecar shares the pod's network).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: paperclip-egress
+  namespace: paperclip
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: paperclip
+  policyTypes: [Egress]
+  egress:
+    # DNS by pod selector: a ClusterIP is DNAT'd before the policy sees it.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+        - ipBlock:
+            cidr: 172.19.0.10/32
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # The shared CNPG cluster (postgres-rw follows the primary, so all instances).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: postgres
+          podSelector:
+            matchLabels:
+              cnpg.io/cluster: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+
+    # hermes-forward -> the Hermes worker that runs Paperclip's agents.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: hermes
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: hermes-worker
+      ports:
+        - protocol: TCP
+          port: 8642
+
+    # The public internet and nothing private: not the LAN (Ceph mons, API server), not the
+    # pod/service networks (172.16/12), not CGNAT (100.64/10), not link-local.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 100.64.0.0/10
+              - 169.254.0.0/16

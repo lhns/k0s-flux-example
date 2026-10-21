@@ -1,0 +1,880 @@
+# Grafana Operator objects of this component (README.md, "Grafana objects"). Each opts out of Flux
+# substitution: rule templates and dashboard JSON are full of ${...}.
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: infra-opentelemetry-monitoring-servers
+  namespace: grafana
+spec:
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: ag1airdsjen7kc # Cluster
+  configMapRef:
+    name: infra-opentelemetry-monitoring-dashboards
+    key: servers.json
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: infra-opentelemetry-monitoring-k8s-containers
+  namespace: grafana
+spec:
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: ag1airdsjen7kc # Cluster
+  configMapRef:
+    name: infra-opentelemetry-monitoring-dashboards
+    key: kubernetes-containers.json
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaAlertRuleGroup
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: infra-opentelemetry-monitoring-workloads
+  namespace: grafana
+spec:
+  name: infra-opentelemetry-monitoring-workloads
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: ag1airdsjen7kc # Cluster
+  interval: 1m
+  rules:
+    - uid: job-failed
+      title: Job has failed pods
+      condition: C
+      for: 0s
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 21600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move(max by ("k8s.namespace.name", "k8s.job.name") ({__name__="k8s.job.failed_pods"}) > 0 unless max by ("k8s.namespace.name", "k8s.job.name") ({__name__="k8s.job.failed_pods"}) offset 6h > 0, "k8s.namespace.name", "namespace", "k8s.job.name", "job")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0]}
+      labels:
+        severity: warning
+      annotations:
+        summary: '{{ $labels.namespace }}/{{ $labels.job }} has failed pods'
+        description: 'Fires once, when the failure first shows: a Job keeps its failed-pod count until it is deleted. kubectl -n {{ $labels.namespace }} describe job {{ $labels.job }}.'
+      notificationSettings:
+        receiver: matrix
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaAlertRuleGroup
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: infra-opentelemetry-monitoring-containers
+  namespace: grafana
+spec:
+  name: infra-opentelemetry-monitoring-containers
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: ag1airdsjen7kc # Cluster
+  interval: 1m
+  rules:
+    # Every crash shows up as a new container instance: a restart gets a new container.id, a
+    # recreated pod with a fixed name (e.g. an ARC listener) a new pod uid, while restart counts
+    # stay 0. 3+ distinct container.id in 15m rules out a single restart. Count ids, not series:
+    # a collector upgrade relabels series (scope.version, image name) without any restart.
+    - uid: container-restart-loop
+      title: Container restart loop
+      condition: C
+      for: 10m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 900, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move(count by ("k8s.namespace.name", "k8s.pod.name", "k8s.container.name")
+              (count by ("k8s.namespace.name", "k8s.pod.name", "k8s.container.name", "container.id")
+              (count_over_time({__name__="k8s.container.ready", "container.id"!=""}[15m]))),
+              "k8s.namespace.name", "namespace", "k8s.pod.name", "pod", "k8s.container.name", "container")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [2]}
+      labels:
+        severity: warning
+      annotations:
+        summary: "{{ $labels.namespace }}/{{ $labels.pod }}: container {{ $labels.container }} keeps restarting"
+        description: "{{ $values.A }} container instances in the last 15 minutes."
+      notificationSettings:
+        receiver: matrix
+    # RSS, not working set: page cache in the working set is reclaimed before an OOM kill.
+    - uid: container-oom-risk
+      title: Container heading for its memory limit
+      condition: C
+      for: 15m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move(((max by ("k8s.namespace.name", "k8s.pod.name", "k8s.container.name") ({__name__="k8s.container.memory_limit"}) - max by ("k8s.namespace.name", "k8s.pod.name", "k8s.container.name") ({__name__="container.memory.rss", k8s.namespace.name!=""})) / deriv(max by ("k8s.namespace.name", "k8s.pod.name", "k8s.container.name") ({__name__="container.memory.rss", k8s.namespace.name!=""})[1h:1m]) and deriv(max by ("k8s.namespace.name", "k8s.pod.name", "k8s.container.name") ({__name__="container.memory.rss", k8s.namespace.name!=""})[1h:1m]) > 0 and max by ("k8s.namespace.name", "k8s.pod.name", "k8s.container.name") ({__name__="container.memory.rss", k8s.namespace.name!=""}) > 0.7 * max by ("k8s.namespace.name", "k8s.pod.name", "k8s.container.name") ({__name__="k8s.container.memory_limit"})) or (max by ("k8s.namespace.name", "k8s.pod.name", "k8s.container.name") ({__name__="container.memory.rss", k8s.namespace.name!=""}) > 0.9 * max by ("k8s.namespace.name", "k8s.pod.name", "k8s.container.name") ({__name__="k8s.container.memory_limit"})) * 0, "k8s.namespace.name", "namespace", "k8s.pod.name", "pod", "k8s.container.name", "container")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: lt, params: [3600]}
+      labels:
+        severity: warning
+      annotations:
+        summary: '{{ $labels.namespace }}/{{ $labels.pod }}: {{ $labels.container }} {{ if and $values.A (eq $values.A.Value 0.0) }}is at 90% of its memory limit{{ else }}reaches its memory limit in {{ with $values.A }}{{ humanizeDuration .Value }}{{ end }}{{ end }}'
+        description: 'RSS (not reclaimable) against the limit, from its 1h trend. Raise the limit or fix the leak before the OOM kill. https://grafana.example.com/d/k8s-containers/kubernetes-containers?var-namespace={{ $labels.namespace }}'
+      notificationSettings:
+        receiver: matrix
+    # Needs k8s.container.status.last_terminated_reason (infra/opentelemetry-monitoring).
+    - uid: container-oom-killed
+      title: Container OOM-killed
+      condition: C
+      for: 0s
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move(increase((max by ("k8s.namespace.name", "k8s.pod.name", "k8s.container.name") ({__name__="k8s.container.restarts"}))[15m:1m]) > 0 and on ("k8s.namespace.name", "k8s.pod.name", "k8s.container.name") max by ("k8s.namespace.name", "k8s.pod.name", "k8s.container.name") ({__name__="k8s.container.restarts", k8s.container.status.last_terminated_reason="OOMKilled"}), "k8s.namespace.name", "namespace", "k8s.pod.name", "pod", "k8s.container.name", "container")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0]}
+      labels:
+        severity: warning
+      annotations:
+        summary: '{{ $labels.namespace }}/{{ $labels.pod }}: {{ $labels.container }} was OOM-killed'
+        description: 'It hit its memory limit and was restarted. Raise the limit or fix the leak. https://grafana.example.com/d/k8s-containers/kubernetes-containers?var-namespace={{ $labels.namespace }}'
+      notificationSettings:
+        receiver: matrix
+    # No throttling counter in this pipeline; usage at the limit is the proxy.
+    - uid: container-cpu-at-limit
+      title: Container pinned at its CPU limit
+      condition: C
+      for: 30m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move(sum by ("k8s.namespace.name", "k8s.pod.name", "k8s.container.name") (rate({__name__="container.cpu.time", k8s.namespace.name!=""}[15m])) / max by ("k8s.namespace.name", "k8s.pod.name", "k8s.container.name") ({__name__="k8s.container.cpu_limit"}), "k8s.namespace.name", "namespace", "k8s.pod.name", "pod", "k8s.container.name", "container")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0.9]}
+      labels:
+        severity: warning
+      annotations:
+        summary: '{{ $labels.namespace }}/{{ $labels.pod }}: {{ $labels.container }} at {{ with $values.A }}{{ humanizePercentage .Value }}{{ end }} of its CPU limit for 30m'
+        description: 'It is being CFS-throttled. Raise or remove the CPU limit (keep the request). https://grafana.example.com/d/k8s-containers/kubernetes-containers?var-namespace={{ $labels.namespace }}'
+      notificationSettings:
+        receiver: matrix
+    - uid: pod-pending
+      title: Pod stuck Pending
+      condition: C
+      for: 15m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move(max by ("k8s.namespace.name", "k8s.pod.name") ({__name__="k8s.pod.phase"}) == 1, "k8s.namespace.name", "namespace", "k8s.pod.name", "pod")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0]}
+      labels:
+        severity: warning
+      annotations:
+        summary: '{{ $labels.namespace }}/{{ $labels.pod }} is Pending for 15m'
+        description: 'No node fits its requests, a PVC does not bind, or the image does not pull. kubectl describe pod shows the event. https://grafana.example.com/d/k8s-containers/kubernetes-containers?var-namespace={{ $labels.namespace }}'
+      notificationSettings:
+        receiver: matrix
+    # Restart loops are excluded: container-restart-loop covers them.
+    - uid: container-not-ready
+      title: Container not ready
+      condition: C
+      for: 15m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move(((max by ("k8s.namespace.name", "k8s.pod.name", "k8s.container.name") ({__name__="k8s.container.ready"}) == 0) and on ("k8s.namespace.name", "k8s.pod.name") (max by ("k8s.namespace.name", "k8s.pod.name") ({__name__="k8s.pod.phase"}) == 2) unless on ("k8s.namespace.name", "k8s.pod.name", "k8s.container.name") (count by ("k8s.namespace.name", "k8s.pod.name", "k8s.container.name") (count_over_time({__name__="k8s.container.ready"}[30m])) > 1)) * 0 + 1, "k8s.namespace.name", "namespace", "k8s.pod.name", "pod", "k8s.container.name", "container")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0]}
+      labels:
+        severity: warning
+      annotations:
+        summary: '{{ $labels.namespace }}/{{ $labels.pod }}: {{ $labels.container }} not ready for 15m'
+        description: 'Its readiness probe fails while the pod runs. Read its log and the probe events. https://grafana.example.com/d/k8s-containers/kubernetes-containers?var-namespace={{ $labels.namespace }}'
+      notificationSettings:
+        receiver: matrix
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaAlertRuleGroup
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: infra-opentelemetry-monitoring-servers
+  namespace: grafana
+spec:
+  name: infra-opentelemetry-monitoring-servers
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: ag1airdsjen7kc # Cluster
+  interval: 1m
+  rules:
+    # Only while other hosts are fresh: a stalled pipeline is server-metrics-stalled, not N host alerts.
+    - uid: server-down
+      title: Server stopped reporting
+      condition: C
+      for: 5m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move((time() - max by ("host.name") (tlast_over_time({__name__="system.cpu.load_average.1m"}[1d]))) and on () (min(time() - max by ("host.name") (tlast_over_time({__name__="system.cpu.load_average.1m"}[1d]))) < 120), "host.name", "server")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [300]}
+      labels:
+        severity: critical
+      annotations:
+        summary: '{{ $labels.server }} stopped sending metrics'
+        description: 'No host metrics for {{ with $values.A }}{{ humanizeDuration .Value }}{{ end }} while other servers report. Check the host is up and its otel collector runs. A decommissioned host stops alerting after a day. https://grafana.example.com/d/servers/servers?var-server={{ $labels.server }}'
+      notificationSettings:
+        receiver: matrix
+    # NoData = nothing at all in a day.
+    - uid: server-metrics-stalled
+      title: No host metrics from any server
+      condition: C
+      for: 5m
+      noDataState: Alerting
+      execErrState: Error
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              min(time() - max by ("host.name") (tlast_over_time({__name__="system.cpu.load_average.1m"}[1d])))
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [600]}
+      labels:
+        severity: critical
+      annotations:
+        summary: 'No host metrics from any server'
+        description: 'The newest host metric is {{ with $values.A }}{{ humanizeDuration .Value }}{{ end }} old: the OTel gateway, Kafka or the Victoria exporters are stuck rather than the servers.'
+      notificationSettings:
+        receiver: matrix
+    - uid: server-cpu-saturated
+      title: Server CPU saturated
+      condition: C
+      for: 30m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move(1 - sum by ("host.name") (rate({__name__="system.cpu.time", state="idle"}[15m])) / sum by ("host.name") (rate({__name__="system.cpu.time"}[15m])), "host.name", "server")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0.95]}
+      labels:
+        severity: warning
+      annotations:
+        summary: '{{ $labels.server }}: CPU {{ with $values.A }}{{ humanizePercentage .Value }}{{ end }} busy for 30m'
+        description: 'Requests queue and latency rises. Find the consumer (k8s nodes: top pods on the Servers dashboard) and move, limit or scale it. https://grafana.example.com/d/servers/servers?var-server={{ $labels.server }}'
+      notificationSettings:
+        receiver: matrix
+    - uid: server-iowait-high
+      title: Server waiting on disk
+      condition: C
+      for: 30m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move(sum by ("host.name") (rate({__name__="system.cpu.time", state="wait"}[15m])) / sum by ("host.name") (rate({__name__="system.cpu.time"}[15m])), "host.name", "server")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0.4]}
+      labels:
+        severity: warning
+      annotations:
+        summary: '{{ $labels.server }}: {{ with $values.A }}{{ humanizePercentage .Value }}{{ end }} of CPU time waiting on I/O for 30m'
+        description: 'Storage is the bottleneck. Check Disk I/O latency and queue depth; on Ceph-backed nodes check Ceph too. https://grafana.example.com/d/servers/servers?var-server={{ $labels.server }}'
+      notificationSettings:
+        receiver: matrix
+    # for: 1h, because a nightly hypervisor job steals 20-35% for about 45 minutes.
+    - uid: server-cpu-steal
+      title: Server CPU stolen by the hypervisor
+      condition: C
+      for: 1h
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move(sum by ("host.name") (rate({__name__="system.cpu.time", state="steal"}[15m])) / sum by ("host.name") (rate({__name__="system.cpu.time"}[15m])), "host.name", "server")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0.25]}
+      labels:
+        severity: warning
+      annotations:
+        summary: '{{ $labels.server }}: hypervisor steals {{ with $values.A }}{{ humanizePercentage .Value }}{{ end }} of CPU for 1h'
+        description: 'Other VMs on the same Proxmox host take the CPU. Rebalance VMs or lower vCPU overcommit. https://grafana.example.com/d/servers/servers?var-server={{ $labels.server }}'
+      notificationSettings:
+        receiver: matrix
+    - uid: server-load-high
+      title: Server load above twice its cores
+      condition: C
+      for: 30m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move(max by ("host.name") ({__name__="system.cpu.load_average.15m"}) / max by ("host.name") ({__name__="system.cpu.logical.count"}), "host.name", "server")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [2]}
+      labels:
+        severity: warning
+      annotations:
+        summary: '{{ $labels.server }}: load {{ with $values.A }}{{ printf "%.1f" .Value }}{{ end }}x its cores for 30m'
+        description: 'Runnable or I/O-blocked tasks are queueing. With high CPU busy it is CPU saturation, with high iowait it is storage. https://grafana.example.com/d/servers/servers?var-server={{ $labels.server }}'
+      notificationSettings:
+        receiver: matrix
+    # Trend-based; the quarter-left guard keeps normal fluctuation on roomy hosts quiet.
+    - uid: server-memory-exhaustion
+      title: Server memory running out
+      condition: C
+      for: 15m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move((max by ("host.name") ({__name__="system.memory.limit"}) - max by ("host.name") ({__name__="system.memory.usage", state="used"})) / -deriv((max by ("host.name") ({__name__="system.memory.limit"}) - max by ("host.name") ({__name__="system.memory.usage", state="used"}))[1h:1m]) and deriv((max by ("host.name") ({__name__="system.memory.limit"}) - max by ("host.name") ({__name__="system.memory.usage", state="used"}))[1h:1m]) < 0 and (max by ("host.name") ({__name__="system.memory.limit"}) - max by ("host.name") ({__name__="system.memory.usage", state="used"})) < 0.25 * max by ("host.name") ({__name__="system.memory.limit"}), "host.name", "server")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: lt, params: [7200]}
+      labels:
+        severity: warning
+      annotations:
+        summary: '{{ $labels.server }}: available memory runs out in {{ with $values.A }}{{ humanizeDuration .Value }}{{ end }}'
+        description: 'Under a quarter of memory is left and it is shrinking; the kernel will swap and OOM-kill. Find the growing process (k8s nodes: top pods by memory) and restart or limit it. https://grafana.example.com/d/servers/servers?var-server={{ $labels.server }}'
+      notificationSettings:
+        receiver: matrix
+    - uid: server-network-errors
+      title: Server dropping packets
+      condition: C
+      for: 15m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move((sum by ("host.name") (rate({__name__="system.network.errors", device!~"lo|veth.*|docker.*|br-.*"}[15m])) + sum by ("host.name") (rate({__name__="system.network.dropped", device!~"lo|veth.*|docker.*|br-.*"}[15m]))) / sum by ("host.name") (rate({__name__="system.network.packets", device!~"lo|veth.*|docker.*|br-.*"}[15m])) and sum by ("host.name") (rate({__name__="system.network.packets", device!~"lo|veth.*|docker.*|br-.*"}[15m])) > 10, "host.name", "server")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0.01]}
+      labels:
+        severity: warning
+      annotations:
+        summary: '{{ $labels.server }}: {{ with $values.A }}{{ humanizePercentage .Value }}{{ end }} of packets dropped or errored for 15m'
+        description: 'Check cabling/NIC errors and MTU; drops rising with traffic mean ring buffer or backlog overflow. https://grafana.example.com/d/servers/servers?var-server={{ $labels.server }}'
+      notificationSettings:
+        receiver: matrix
+    - uid: server-filesystem-readonly
+      title: Server filesystem read-only
+      condition: C
+      for: 5m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move(count by ("host.name", mountpoint) ({__name__="system.filesystem.utilization", mode="ro", mountpoint!~"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*"}), "host.name", "server")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0]}
+      labels:
+        severity: critical
+      annotations:
+        summary: '{{ $labels.server }}:{{ $labels.mountpoint }} is mounted read-only'
+        description: 'The kernel remounts read-only after I/O or filesystem errors. Check dmesg and the disk, fsck, then remount. https://grafana.example.com/d/servers/servers?var-server={{ $labels.server }}'
+      notificationSettings:
+        receiver: matrix
+    - uid: k8s-node-not-ready
+      title: Kubernetes node not ready
+      condition: C
+      for: 5m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move(max by ("k8s.node.name") ({__name__="k8s.node.condition_ready"}), "k8s.node.name", "server")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: lt, params: [1]}
+      labels:
+        severity: critical
+      annotations:
+        summary: 'k8s node {{ $labels.server }} is NotReady'
+        description: 'Pods there are not scheduled and are evicted after the toleration timeout. Check the kubelet/k0s on the node. https://grafana.example.com/d/servers/servers?var-server={{ $labels.server }}'
+      notificationSettings:
+        receiver: matrix
+    - uid: k8s-node-pressure
+      title: Kubernetes node under resource pressure
+      condition: C
+      for: 5m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move(max by ("k8s.node.name", condition) (label_set({__name__="k8s.node.condition_memory_pressure"}, "condition", "MemoryPressure") or label_set({__name__="k8s.node.condition_disk_pressure"}, "condition", "DiskPressure")), "k8s.node.name", "server")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0]}
+      labels:
+        severity: warning
+      annotations:
+        summary: 'k8s node {{ $labels.server }} reports {{ $labels.condition }}'
+        description: 'The kubelet is evicting pods to free memory or disk. See the node on the Servers dashboard. https://grafana.example.com/d/servers/servers?var-server={{ $labels.server }}'
+      notificationSettings:
+        receiver: matrix
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaAlertRuleGroup
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: infra-opentelemetry-monitoring-capacity
+  namespace: grafana
+spec:
+  name: infra-opentelemetry-monitoring-capacity
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: ag1airdsjen7kc # Cluster
+  interval: 5m
+  rules:
+    # Time-to-full from the 6h trend, over half full only; ≥97% full counts as 0 so a full static disk alerts.
+    - uid: server-disk-fill-24h
+      title: Server filesystem fills within a day
+      condition: C
+      for: 30m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 21600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move((max by ("host.name", mountpoint) ({__name__="system.filesystem.usage", state="free", mountpoint!~"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*"}) / -deriv(max by ("host.name", mountpoint) ({__name__="system.filesystem.usage", state="free", mountpoint!~"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*"})[6h:5m]) and deriv(max by ("host.name", mountpoint) ({__name__="system.filesystem.usage", state="free", mountpoint!~"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*"})[6h:5m]) < 0 and max by ("host.name", mountpoint) ({__name__="system.filesystem.utilization", mountpoint!~"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*"}) > 0.5) or (max by ("host.name", mountpoint) ({__name__="system.filesystem.utilization", mountpoint!~"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*"}) > 0.97) * 0, "host.name", "server")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: within_range, params: [14400, 86400]}
+      labels:
+        severity: warning
+      annotations:
+        summary: '{{ $labels.server }}:{{ $labels.mountpoint }} {{ if and $values.A (eq $values.A.Value 0.0) }}is at least 97% full{{ else }}fills up in {{ with $values.A }}{{ humanizeDuration .Value }}{{ end }}{{ end }}'
+        description: 'Predicted from the 6h trend. Find what grows (logs, images, databases) and prune or grow the disk. https://grafana.example.com/d/servers/servers?var-server={{ $labels.server }}'
+      notificationSettings:
+        receiver: matrix
+    - uid: server-disk-fill-4h
+      title: Server filesystem fills within 4 hours
+      condition: C
+      for: 15m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 21600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move((max by ("host.name", mountpoint) ({__name__="system.filesystem.usage", state="free", mountpoint!~"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*"}) / -deriv(max by ("host.name", mountpoint) ({__name__="system.filesystem.usage", state="free", mountpoint!~"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*"})[6h:5m]) and deriv(max by ("host.name", mountpoint) ({__name__="system.filesystem.usage", state="free", mountpoint!~"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*"})[6h:5m]) < 0 and max by ("host.name", mountpoint) ({__name__="system.filesystem.utilization", mountpoint!~"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*"}) > 0.5) or (max by ("host.name", mountpoint) ({__name__="system.filesystem.utilization", mountpoint!~"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*"}) > 0.97) * 0, "host.name", "server")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: lt, params: [14400]}
+      labels:
+        severity: critical
+      annotations:
+        summary: '{{ $labels.server }}:{{ $labels.mountpoint }} {{ if and $values.A (eq $values.A.Value 0.0) }}is at least 97% full{{ else }}fills up in {{ with $values.A }}{{ humanizeDuration .Value }}{{ end }}{{ end }}'
+        description: 'Predicted from the 6h trend. Free space now. https://grafana.example.com/d/servers/servers?var-server={{ $labels.server }}'
+      notificationSettings:
+        receiver: matrix
+    - uid: server-inodes-fill
+      title: Server filesystem runs out of inodes
+      condition: C
+      for: 30m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 21600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move((max by ("host.name", mountpoint) ({__name__="system.filesystem.inodes.usage", state="free", mountpoint!~"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*"}) / -deriv(max by ("host.name", mountpoint) ({__name__="system.filesystem.inodes.usage", state="free", mountpoint!~"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*"})[6h:5m]) and deriv(max by ("host.name", mountpoint) ({__name__="system.filesystem.inodes.usage", state="free", mountpoint!~"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*"})[6h:5m]) < 0 and (max by ("host.name", mountpoint) ({__name__="system.filesystem.inodes.usage", state="used", mountpoint!~"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*"}) / (max by ("host.name", mountpoint) ({__name__="system.filesystem.inodes.usage", state="used", mountpoint!~"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*"}) + max by ("host.name", mountpoint) ({__name__="system.filesystem.inodes.usage", state="free", mountpoint!~"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*"}))) > 0.5) or ((max by ("host.name", mountpoint) ({__name__="system.filesystem.inodes.usage", state="used", mountpoint!~"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*"}) / (max by ("host.name", mountpoint) ({__name__="system.filesystem.inodes.usage", state="used", mountpoint!~"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*"}) + max by ("host.name", mountpoint) ({__name__="system.filesystem.inodes.usage", state="free", mountpoint!~"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*"}))) > 0.97) * 0, "host.name", "server")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: lt, params: [86400]}
+      labels:
+        severity: warning
+      annotations:
+        summary: '{{ $labels.server }}:{{ $labels.mountpoint }} inodes: {{ if and $values.A (eq $values.A.Value 0.0) }}is at least 97% used{{ else }}fills up in {{ with $values.A }}{{ humanizeDuration .Value }}{{ end }}{{ end }}'
+        description: 'Millions of small files (caches, sessions, mail). Find and delete them; the filesystem reports full with bytes free. https://grafana.example.com/d/servers/servers?var-server={{ $labels.server }}'
+      notificationSettings:
+        receiver: matrix
+    - uid: pvc-fill-24h
+      title: PVC fills within a day
+      condition: C
+      for: 30m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 21600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move((max by ("k8s.namespace.name", "k8s.persistentvolumeclaim.name") ({__name__="k8s.volume.available", k8s.volume.type="persistentVolumeClaim"}) / -deriv(max by ("k8s.namespace.name", "k8s.persistentvolumeclaim.name") ({__name__="k8s.volume.available", k8s.volume.type="persistentVolumeClaim"})[6h:5m]) and deriv(max by ("k8s.namespace.name", "k8s.persistentvolumeclaim.name") ({__name__="k8s.volume.available", k8s.volume.type="persistentVolumeClaim"})[6h:5m]) < 0 and (1 - max by ("k8s.namespace.name", "k8s.persistentvolumeclaim.name") ({__name__="k8s.volume.available", k8s.volume.type="persistentVolumeClaim"}) / max by ("k8s.namespace.name", "k8s.persistentvolumeclaim.name") ({__name__="k8s.volume.capacity", k8s.volume.type="persistentVolumeClaim"})) > 0.5) or ((1 - max by ("k8s.namespace.name", "k8s.persistentvolumeclaim.name") ({__name__="k8s.volume.available", k8s.volume.type="persistentVolumeClaim"}) / max by ("k8s.namespace.name", "k8s.persistentvolumeclaim.name") ({__name__="k8s.volume.capacity", k8s.volume.type="persistentVolumeClaim"})) > 0.97) * 0, "k8s.namespace.name", "namespace", "k8s.persistentvolumeclaim.name", "pvc")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: within_range, params: [14400, 86400]}
+      labels:
+        severity: warning
+      annotations:
+        summary: 'PVC {{ $labels.namespace }}/{{ $labels.pvc }} {{ if and $values.A (eq $values.A.Value 0.0) }}is at least 97% full{{ else }}fills up in {{ with $values.A }}{{ humanizeDuration .Value }}{{ end }}{{ end }}'
+        description: 'Predicted from the 6h trend. Prune the data or grow the PVC; never delete the PV (AGENTS.md). https://grafana.example.com/d/k8s-containers/kubernetes-containers?var-namespace={{ $labels.namespace }}'
+      notificationSettings:
+        receiver: matrix
+    - uid: pvc-fill-4h
+      title: PVC fills within 4 hours
+      condition: C
+      for: 15m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 21600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move((max by ("k8s.namespace.name", "k8s.persistentvolumeclaim.name") ({__name__="k8s.volume.available", k8s.volume.type="persistentVolumeClaim"}) / -deriv(max by ("k8s.namespace.name", "k8s.persistentvolumeclaim.name") ({__name__="k8s.volume.available", k8s.volume.type="persistentVolumeClaim"})[6h:5m]) and deriv(max by ("k8s.namespace.name", "k8s.persistentvolumeclaim.name") ({__name__="k8s.volume.available", k8s.volume.type="persistentVolumeClaim"})[6h:5m]) < 0 and (1 - max by ("k8s.namespace.name", "k8s.persistentvolumeclaim.name") ({__name__="k8s.volume.available", k8s.volume.type="persistentVolumeClaim"}) / max by ("k8s.namespace.name", "k8s.persistentvolumeclaim.name") ({__name__="k8s.volume.capacity", k8s.volume.type="persistentVolumeClaim"})) > 0.5) or ((1 - max by ("k8s.namespace.name", "k8s.persistentvolumeclaim.name") ({__name__="k8s.volume.available", k8s.volume.type="persistentVolumeClaim"}) / max by ("k8s.namespace.name", "k8s.persistentvolumeclaim.name") ({__name__="k8s.volume.capacity", k8s.volume.type="persistentVolumeClaim"})) > 0.97) * 0, "k8s.namespace.name", "namespace", "k8s.persistentvolumeclaim.name", "pvc")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: lt, params: [14400]}
+      labels:
+        severity: critical
+      annotations:
+        summary: 'PVC {{ $labels.namespace }}/{{ $labels.pvc }} {{ if and $values.A (eq $values.A.Value 0.0) }}is at least 97% full{{ else }}fills up in {{ with $values.A }}{{ humanizeDuration .Value }}{{ end }}{{ end }}'
+        description: 'Predicted from the 6h trend. Prune the data or grow the PVC now; never delete the PV (AGENTS.md). https://grafana.example.com/d/k8s-containers/kubernetes-containers?var-namespace={{ $labels.namespace }}'
+      notificationSettings:
+        receiver: matrix
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaAlertRuleGroup
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: infra-opentelemetry-monitoring-telemetry
+  namespace: grafana
+spec:
+  name: infra-opentelemetry-monitoring-telemetry
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: ag1airdsjen7kc # Cluster
+  interval: 1m
+  rules:
+    # NoData = nothing at all in a day. Emailed as well: this is the pipeline the other alerts depend on.
+    - uid: k8s-metrics-stalled
+      title: No pod metrics from Kubernetes
+      condition: C
+      for: 5m
+      noDataState: Alerting
+      execErrState: Error
+      data:
+        - refId: A
+          relativeTimeRange: {from: 86400, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              time() - max(tlast_over_time({__name__="k8s.pod.phase"}[1d]))
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [600]}
+      labels:
+        severity: critical
+      annotations:
+        summary: 'No Kubernetes cluster metrics'
+        description: 'The newest k8s.pod.phase sample is {{ with $values.A }}{{ humanizeDuration .Value }}{{ end }} old: the k8s_cluster receiver, the OTel gateway or Kafka are stuck, so the pod and workload alerts are blind.'
+      notificationSettings:
+        receiver: matrix-and-email
+    - uid: k8s-kubelet-metrics-stalled
+      title: No kubelet metrics from Kubernetes
+      condition: C
+      for: 5m
+      noDataState: Alerting
+      execErrState: Error
+      data:
+        - refId: A
+          relativeTimeRange: {from: 86400, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              time() - max(tlast_over_time({__name__="k8s.pod.cpu.time"}[1d]))
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [600]}
+      labels:
+        severity: critical
+      annotations:
+        summary: 'No kubeletstats metrics'
+        description: 'The newest k8s.pod.cpu.time sample is {{ with $values.A }}{{ humanizeDuration .Value }}{{ end }} old: the kubeletstats receivers, the OTel gateway or Kafka are stuck, so the container alerts are blind.'
+      notificationSettings:
+        receiver: matrix-and-email

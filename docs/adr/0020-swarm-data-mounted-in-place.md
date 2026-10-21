@@ -1,7 +1,7 @@
 # 0020 — Large Swarm data is mounted in place through static PVs (an exception)
 
 - Status: Accepted
-- Date: 2026-07-11, amended 2026-07-25, 2026-09-03, 2026-09-20 and 2026-10-04
+- Date: 2026-07-11, amended 2026-07-25, 2026-09-03, 2026-09-20, 2026-10-04 and 2026-10-16
 - Current answer: an app's large existing data directory on CephFS is not copied. A static PV
   (`staticVolume: "true"`, `rootPath` pointing at the Swarm-era directory, `storageClassName: ""`,
   `Retain`) binds it by name. These PVs are the exception to dynamic provisioning: pv-reaper
@@ -30,6 +30,9 @@ tier it would be copied onto was nearly full. Copying would also have made cutov
 - **New stores are dynamic** (2026-10-04), e.g. VictoriaMetrics' long-term store on
   `cephfs-appdata`, not the Swarm-era pattern. The existing static PVs (media libraries,
   whole-filesystem backups) stay static by design.
+- **Read-only second consumer** (2026-10-16): a static PV (`csi.readOnly: true`, `ReadOnlyMany`) may
+  re-mount a dynamic subvolume by its `subvolumePath` for a second app. Deleting that PV is safe;
+  only the original dynamic PV is destructive.
 
 ## Consequences
 

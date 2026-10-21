@@ -1,7 +1,7 @@
 # ceph-csi-cephfs-appdata
 
 A second CephFS CSI driver (`cephfs-appdata.csi.ceph.com`), serving the
-`appdata` filesystem only. `../ceph-csi-cephfs` keeps `fastappdata`.
+`appdata` filesystem only. `../ceph-csi-cephfs` keeps `fastdata`.
 
 ## Why
 
@@ -10,7 +10,7 @@ unit. ceph-csi 3.17.0 calls `os.Exit(1)` when any gRPC handler is stuck for 10
 minutes (upstream #6286), and a mount whose PGs are inactive blocks in the
 kernel forever. On 2026-08-17 a single hung `appdata` volume (`forgejo-git`)
 restarted the shared cephfs plugin ~40 times and unmounted every *other* cephfs
-volume on those nodes — NVMe-backed `fastappdata` volumes included — because
+volume on those nodes — NVMe-backed `fastdata` volumes included — because
 they shared only the process, not the pool. Nine unrelated apps went `Unknown`.
 
 Splitting by driver name is the only way to split the process: kubelet resolves
@@ -56,4 +56,4 @@ For a static PV, the subvolume is reused and no data is touched:
 6. Recreate the PVC with `storageClassName: cephfs-appdata`.
 7. Scale the workload back up and remove the annotation.
 
-Volumes done so far: `forgejo/forgejo-git`.
+No static volume has been moved this way; `forgejo/forgejo-git` moved by copy.

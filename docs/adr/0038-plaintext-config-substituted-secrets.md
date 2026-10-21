@@ -1,13 +1,14 @@
 # 0038 — Configs stay plaintext; secrets are substituted from `substitution-secrets/`
 
 - Status: Accepted
-- Date: 2026-09-04, amended 2026-09-16 and 2026-10-03
+- Date: 2026-09-04, amended 2026-09-16, 2026-10-03 and 2026-10-16
 - Current answer: a config file that holds a credential stays a real, readable file with
   `${VAR}` placeholders. The values are SOPS Secrets in the component's `substitution-secrets/`,
   which gets its own Kustomization; the component depends on it and substitutes from each Secret
   (`optional: false`). A substituted config that must end up in a Secret is a
   `configMapGenerator` marked `flux-component-generator/as-secret`, which the generator patches
-  into a Secret. Substitution is strict: an undefined variable fails the reconcile.
+  into a Secret. Substitution is strict: an undefined variable fails the reconcile, but only
+  once the Kustomization has `postBuild` (see the 2026-10-16 amendment).
 
 ## Context
 
@@ -33,6 +34,10 @@ Flux's `postBuild.substituteFrom` can fill placeholders, with traps:
   credential as a ConfigMap; `check-substitution.py` fails both cases.
 - **Checks** (2026-09-16): a `${VAR}` no source defines fails the lint.
 - **`StrictPostBuildSubstitutions`** (2026-10-03, PR #546) makes the cluster fail the same way.
+- **Strictness needs `postBuild`** (2026-10-16): a component's first `artifacts/` or
+  `substitution-secrets/` must land before any `${VAR}` reference. Backstops: a
+  ValidatingAdmissionPolicy denying `$` in image references, and the
+  `CancelHealthCheckOnNewRevision` gate.
 - The Secrets live in the control namespace, since Flux reads `substituteFrom` from the
   Kustomization's namespace ([0046](0046-control-namespaces-always-on.md)).
 

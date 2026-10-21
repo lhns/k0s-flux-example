@@ -30,7 +30,7 @@ metadata:
   namespace: homeassistant
 spec:
   redirectRegex:
-    regex: "^https://homeassistant.kube.example.com/(.*)"
+    regex: "^https?://[^/]+/(.*)"
     replacement: "https://homeassistant.example.com/${1}"
     permanent: true
 ---
@@ -45,8 +45,8 @@ spec:
     - kind: Rule
       match: Host(`homeassistant.kube.example.com`)
       services:
-        - name: homeassistant
-          port: 8123
+        - name: noop@internal
+          kind: TraefikService
       middlewares:
         - name: homeassistant-kube-redirect
   tls: {}

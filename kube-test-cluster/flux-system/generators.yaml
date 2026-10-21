@@ -23,6 +23,7 @@ spec:
       - { base: kube-test-cluster/apps, prefix: app }
       - { base: kube-test-cluster/infra, prefix: infra }
       - { base: kube-test-cluster/rbac, prefix: rbac }
+      - { base: kube-test-cluster/external, prefix: ext }
     generate:
       pruneDisabled: []
     k0sUpgrade:

@@ -20,7 +20,7 @@ spec:
   chart:
     spec:
       chart: nats
-      version: "2.15.0"
+      version: "2.15.1"
       interval: 1h0m0s
       sourceRef:
         kind: HelmRepository
@@ -123,6 +123,6 @@ spec:
                       app.kubernetes.io/instance: nats
                       app.kubernetes.io/component: nats
 
-    # No credentials for it yet: README.md "Adding users".
+    # No credentials for it yet: README.md "Adding an app".
     natsBox:
       enabled: false

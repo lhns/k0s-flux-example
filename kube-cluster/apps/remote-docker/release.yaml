@@ -9,7 +9,7 @@ spec:
   url: oci://ghcr.io/lhns/charts/remote-docker-workspace
   ref:
     # Bump to roll a new version.
-    tag: "0.10.0"
+    tag: "0.14.0"
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -18,6 +18,8 @@ metadata:
   namespace: remote-docker
 spec:
   interval: 10m0s
+  # A rollout waits for the old pod's dockerd to stop, which can outlast Helm's 5m default.
+  timeout: 15m
   chartRef:
     kind: OCIRepository
     name: remote-docker-workspace
@@ -26,12 +28,9 @@ spec:
     # The Service name is what routing.yaml and the runners address.
     fullnameOverride: remote-docker
 
-    # A dockerd per enrolled account (ADR 0019). The Swarm service ran the shared
-    # daemon instead; this is the behaviour change at cutover, and it means every
-    # account keeps its own copy of every image. Deliberate: it stops one account
-    # casually seeing another's containers, which matters now that a third party's
-    # CI is enrolled. Note ADR 0019's own caveat -- separation, not isolation:
-    # each daemon is still privileged.
+    # A dockerd per enrolled account (ADR 0019 of the remote-docker repo): every account
+    # keeps its own copy of every image, and cannot casually see another's containers.
+    # Separation, not isolation: each daemon is still privileged.
     perUserDind: true
 
     # overlay2 refuses to start on Ceph- and NFS-backed volumes, and the failure is
@@ -43,10 +42,10 @@ spec:
     # driver above, and stock docker:dind has no fuse-overlayfs and restart-loops.
 
     persistence:
-      # Every account's /var/lib/docker: a full private image + build cache each, and
-      # nothing prunes them. `size` only applies to a claim that does not exist yet (a
-      # StatefulSet volumeClaimTemplate is immutable): the live claim was grown to 80Gi by
-      # patching the PVC, which is how to grow it again.
+      # Every account's /var/lib/docker: a full private image + build cache each, pruned
+      # by the agent (chart default `prune`). `size` only applies to a claim that does not
+      # exist yet (a StatefulSet volumeClaimTemplate is immutable): the live claim was grown
+      # to 80Gi by patching the PVC, which is how to grow it again.
       graph:
         size: 40Gi
         storageClass: ceph-rbd
@@ -82,9 +81,8 @@ spec:
     # should be a reviewable one-line diff rather than a sops round-trip. The entry
     # name IS the unix account. The chart renders these into its own Secret.
     #
-    # Copied from the Swarm workspace's authorized_keys.d/lhns.pub. One account can hold
-    # several machines (ADR 0029); the chart renders each entry as <account>.pub, so this
-    # reproduces that file byte for byte.
+    # One account can hold several machines (ADR 0029 of the remote-docker repo); the chart
+    # renders each entry as <account>.pub.
     #
     # `remote-docker remote enroll` prints the public key for a new machine.
     authorizedKeys:

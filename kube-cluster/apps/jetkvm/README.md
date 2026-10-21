@@ -86,7 +86,7 @@ Node lower-cases every header key and there is no `.toLowerCase()` here, so `X-R
 upstream's `.env.example` suggests — looks up a key that cannot exist, falls through to
 `req.socket.remoteAddress`, and records **Traefik's pod IP**. It is also not
 `x-forwarded-for`: the value is used whole with no list parsing, and behind our two proxies that
-header is `"1.2.3.4, 10.20.2.31"`, which is not an address. This value is the device's own
+header is `"1.2.3.4, 10.20.176.125"`, which is not an address. This value is the device's own
 observed source address, echoed back to it as its srflx candidate.
 
 **`ALLOWED_IDENTITIES` is security-critical.** Upstream's comment is *"leave empty to allow
@@ -188,7 +188,7 @@ out.
 4. **The one that will actually bite**: register a device, then check what source IP the API
    recorded for it (`[Device] New connection`). `*.example.com` resolves only to the public edge —
    there is no split-horizon — so a device on the LAN hairpins out through the router and back in
-   via the swarm Traefik at `10.20.2.31/.32/.33`. Whether it arrives with its LAN or WAN address
+   via the swarm Traefik at `10.20.176.125/.185/.190`. Whether it arrives with its LAN or WAN address
    depends on the router's hairpin NAT, and that value is what the device advertises as its srflx
    candidate. Confirm empirically before assuming remote access works.
 5. Device enrolment is `setCloudUrl(https://jetkvm-api.example.com, https://jetkvm.example.com)` followed

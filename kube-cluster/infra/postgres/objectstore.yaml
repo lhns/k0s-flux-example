@@ -17,6 +17,12 @@ spec:
   # listings a day against the bottleneck, for a 30 day policy.
   instanceSidecarConfiguration:
     retentionPolicyIntervalSeconds: 3600
+    # Memory limit (ADR 0028). Changing it rolls the instance pods (switchover).
+    resources:
+      requests:
+        memory: 128Mi
+      limits:
+        memory: 1Gi
     env:
       - name: AWS_RETRY_MODE
         value: standard

@@ -48,7 +48,7 @@ spec:
               app.kubernetes.io/name: opentelemetry-gateway
       containers:
         - name: otelcol
-          image: otel/opentelemetry-collector-contrib:0.162.0
+          image: otel/opentelemetry-collector-contrib:0.163.1
           # Every signal in the cluster enters here. Unbounded it grows with a burst and
           # takes the node down; bounded it is OOMKilled alone. There is no memory_limiter
           # processor, so this is the only backstop.
@@ -79,6 +79,7 @@ spec:
             - {name: metrics, containerPort: 8888, protocol: TCP}
             - {name: health, containerPort: 13133, protocol: TCP}
           readinessProbe:
+            timeoutSeconds: 5
             httpGet:
               path: /
               port: health
@@ -122,7 +123,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: otelcol
-          image: otel/opentelemetry-collector-contrib:0.162.0
+          image: otel/opentelemetry-collector-contrib:0.163.1
           resources:
             requests:
               memory: 64Mi
@@ -137,6 +138,7 @@ spec:
             - {name: metrics, containerPort: 8888, protocol: TCP}
             - {name: health, containerPort: 13133, protocol: TCP}
           readinessProbe:
+            timeoutSeconds: 5
             httpGet:
               path: /
               port: health
@@ -175,7 +177,7 @@ spec:
     - {name: syslog-tcp, port: 54526, targetPort: syslog-tcp, protocol: TCP}
     - {name: syslog-udp, port: 54526, targetPort: syslog-udp, protocol: UDP}
 ---
-# The estate's ingest VIP. Replaces 10.20.2.10's published ports; senders outside the
+# The estate's ingest VIP. Replaces 10.20.176.187's published ports; senders outside the
 # cluster point here. externalTrafficPolicy: Local preserves the real client source IP,
 # which syslog and carbon rely on to identify the sender.
 # Note syslog occupies 54526 on BOTH TCP and UDP — two entries, distinct names, same
@@ -186,7 +188,7 @@ metadata:
   name: opentelemetry-gateway-lb
   namespace: opentelemetry-gateway
   annotations:
-    metallb.io/loadBalancerIPs: 10.20.2.14
+    metallb.io/loadBalancerIPs: 10.20.176.58
 spec:
   type: LoadBalancer
   externalTrafficPolicy: Local

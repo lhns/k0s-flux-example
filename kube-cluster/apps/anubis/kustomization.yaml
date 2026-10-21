@@ -1,0 +1,32 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # traefik-reflector copies the Middleware into every namespace; Reloader rolls the pods when
+    # the key Secret changes. Read by the root generator; inert to kustomize.
+    flux-component-generator/dependsOn: infra-traefik-reflector,infra-reloader
+resources:
+- resources.yaml
+- valkey.yaml
+- routing.yaml
+- vnet.yaml
+- secret.yaml
+- grafana.yaml
+# botPolicies.yaml -> a hashed ConfigMap, so a policy edit rolls the pods.
+configMapGenerator:
+- name: anubis-policy
+  namespace: anubis
+  files:
+  - botPolicies.yaml
+# Dashboard JSON: stable names with the operator's label (its informer only sees labelled
+# ConfigMaps, so a JSON change syncs at once instead of at the next resync), no substitution.
+- name: app-anubis-dashboards
+  namespace: grafana
+  options:
+    disableNameSuffixHash: true
+    labels:
+      app.kubernetes.io/managed-by: grafana-operator
+    annotations:
+      kustomize.toolkit.fluxcd.io/substitute: disabled
+  files:
+  - dashboards/anubis.json

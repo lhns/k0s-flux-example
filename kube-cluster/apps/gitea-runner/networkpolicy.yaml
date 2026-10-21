@@ -44,13 +44,13 @@ spec:
     # --- Gitea, via Traefik ----------------------------------------------
     # The runner talks to https://gitea.example.com, which a hostAliases entry pins
     # to Traefik's MetalLB VIP. Both ends of the DNAT are allowed for the same
-    # reason as DNS above: 10.20.2.15 is what the pod addresses, a traefik pod is
+    # reason as DNS above: 10.20.176.210 is what the pod addresses, a traefik pod is
     # what the packet is rewritten to. No port restriction on the traefik pods —
     # the VIP's :443 maps to a container port that the chart chooses, and pinning
     # it here would break silently on a chart upgrade.
     - to:
         - ipBlock:
-            cidr: 10.20.2.15/32
+            cidr: 10.20.176.210/32
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: traefik
@@ -58,8 +58,8 @@ spec:
     # --- The public internet, and nothing private ------------------------
     # Needed for image pulls (Docker Hub, ghcr.io) and for whatever actions a
     # workflow downloads. The `except` list is the actual containment:
-    #   10.0.0.0/8      the LAN — nodes, Ceph mons (10.20.2.101-103), the
-    #                   API server VIP (10.20.2.50), every other appliance
+    #   10.0.0.0/8      the LAN — nodes, Ceph mons (10.20.176.250-252), the
+    #                   API server VIP (10.20.176.193), every other appliance
     #   172.16.0.0/12   the pod network (172.18.0.0/16) AND the service
     #                   network (172.19.0.0/16) — so no pod-to-pod, no
     #                   ClusterIP, except what is allowed above

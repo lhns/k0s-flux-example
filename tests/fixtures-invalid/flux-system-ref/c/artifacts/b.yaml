@@ -1,0 +1,9 @@
+apiVersion: oci-composer.example.com/v1alpha1
+kind: ImageBuild
+metadata:
+  name: b
+  namespace: oci-composer
+spec:
+  push:
+    writeRefTo:
+      namespace: flux-system

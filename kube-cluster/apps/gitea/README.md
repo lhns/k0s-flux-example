@@ -66,7 +66,7 @@ the dump needs.
 4. Restore the database **before the first boot** — Gitea runs xorm schema sync on start and would
    create an empty schema that collides with the dump:
    ```sh
-   pg_dump -Fc --no-owner --no-acl -h 10.20.2.10 -p 5436 -U gitea -d gitea -f /tmp/gitea.dump
+   pg_dump -Fc --no-owner --no-acl -h 10.20.176.187 -p 5436 -U gitea -d gitea -f /tmp/gitea.dump
    pg_restore --no-owner --no-acl -h postgres-rw.postgres.svc.cluster.local -U gitea -d gitea /tmp/gitea.dump
    ```
    Run as a one-shot Job with a pod label and `kube-vnet/net.postgres.postgres: egress`, using the
@@ -119,4 +119,4 @@ the dump needs.
   SSH client path out of this pod's config any more.
 - Leftovers to reclaim on the Swarm side once this is trusted (**user action** — the Swarm host is
   off-limits here): the stale 1.4 G `/mnt/appdata/docker/gitea/gitea`, the old
-  `/mnt/fastappdata/docker/gitea/db`, and `.../gitea/ssh`.
+  `/mnt/fastdata/docker/gitea/db`, and `.../gitea/ssh`.

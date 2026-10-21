@@ -1,0 +1,4201 @@
+{
+  "uid": "ceph-cluster",
+  "title": "Ceph cluster",
+  "description": "The Ceph cluster: health checks, capacity, throughput, PG states, latency, versions. Derived from ceph-mixin v20.2.4; provisioned from git (kube-cluster/apps/grafana/dashboards/ceph), the README there has the runbook.",
+  "tags": [
+    "ceph"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "1m",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "links": [
+    {
+      "type": "link",
+      "title": "Ceph OSDs",
+      "icon": "dashboard",
+      "url": "/d/ceph-osds/ceph-osds",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "All OSDs",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph OSD device",
+      "icon": "dashboard",
+      "url": "/d/ceph-osd-device/ceph-osd-device",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "One OSD and its device",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph pools",
+      "icon": "dashboard",
+      "url": "/d/ceph-pools/ceph-pools",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "All pools",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph pool",
+      "icon": "dashboard",
+      "url": "/d/ceph-pool/ceph-pool",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "One pool",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph CephFS",
+      "icon": "dashboard",
+      "url": "/d/ceph-cephfs/ceph-cephfs",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "Metadata servers",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph RGW",
+      "icon": "dashboard",
+      "url": "/d/ceph-rgw/ceph-rgw",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "S3 gateways",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph RGW instance",
+      "icon": "dashboard",
+      "url": "/d/ceph-rgw-detail/ceph-rgw-detail",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "One S3 gateway",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Servers",
+      "icon": "dashboard",
+      "url": "/d/servers/servers",
+      "includeVars": false,
+      "keepTime": true,
+      "tooltip": "Host metrics of the Ceph nodes (CPU, memory, disks, network)",
+      "targetBlank": false
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "ds",
+        "label": "Datasource",
+        "type": "datasource",
+        "query": "victoriametrics-metrics-datasource",
+        "refresh": 1,
+        "current": {},
+        "hide": 0
+      },
+      {
+        "name": "cluster",
+        "label": "Cluster",
+        "type": "query",
+        "datasource": {
+          "type": "victoriametrics-metrics-datasource",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "label_values(ceph_health_status, cluster)",
+          "refId": "cluster"
+        },
+        "definition": "label_values(ceph_health_status, cluster)",
+        "regex": "",
+        "refresh": 2,
+        "sort": 1,
+        "multi": false,
+        "includeAll": false,
+        "hide": 0,
+        "current": {}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "collapse": false,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "repeat": null,
+      "repeatIteration": null,
+      "repeatRowId": null,
+      "showTitle": true,
+      "title": "CLUSTER STATE",
+      "titleSize": "h6",
+      "type": "row",
+      "panels": []
+    },
+    {
+      "colors": null,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "The cluster's health. **Bad:** WARN or ERROR; see *Active health checks* below. **Fix:** per check, `ceph health detail`.",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "links": [],
+          "mappings": [
+            {
+              "id": 0,
+              "options": {
+                "0": {
+                  "text": "HEALTHY"
+                },
+                "1": {
+                  "text": "WARNING"
+                },
+                "2": {
+                  "text": "ERROR"
+                }
+              },
+              "type": "value"
+            },
+            {
+              "id": 1,
+              "options": {
+                "match": null,
+                "result": {
+                  "text": "N/A"
+                }
+              },
+              "type": "special"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#9ac48a"
+              },
+              {
+                "color": "rgba(237, 129, 40, 0.89)",
+                "value": 1
+              },
+              {
+                "color": "rgba(245, 54, 54, 0.9)",
+                "value": 2
+              }
+            ]
+          },
+          "unit": "none"
+        }
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 0,
+        "y": 1
+      },
+      "id": 2,
+      "interval": "1m",
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "ceph_health_status{cluster=~\"$cluster|\", }",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A",
+          "range": false
+        }
+      ],
+      "title": "Ceph health status",
+      "transparent": true,
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "Raw capacity not yet used. **Bad:** low; but a single full OSD blocks writes long before this reaches 0 (see *OSD fullness*). **Fix:** add OSDs or free data.",
+      "fieldConfig": {
+        "defaults": {
+          "links": [],
+          "mappings": [
+            {
+              "id": 0,
+              "options": {
+                "match": null,
+                "result": {
+                  "text": "N/A"
+                }
+              },
+              "type": "special"
+            }
+          ],
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "rgba(245, 54, 54, 0.9)"
+              },
+              {
+                "color": "rgba(237, 129, 40, 0.89)",
+                "value": 0.1
+              },
+              {
+                "color": "rgba(50, 172, 45, 0.97)",
+                "value": 0.3
+              }
+            ]
+          },
+          "unit": "percentunit"
+        }
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 3,
+        "x": 3,
+        "y": 1
+      },
+      "id": 3,
+      "interval": "1m",
+      "maxDataPoints": 100,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "(ceph_cluster_total_bytes{cluster=~\"$cluster|\", }-ceph_cluster_total_used_bytes{cluster=~\"$cluster|\", })/ceph_cluster_total_bytes{cluster=~\"$cluster|\", }",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A",
+          "range": false
+        }
+      ],
+      "title": "Available Capacity",
+      "transparent": false,
+      "type": "gauge"
+    },
+    {
+      "colors": null,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 2,
+          "links": [],
+          "mappings": [
+            {
+              "id": 0,
+              "options": {
+                "match": null,
+                "result": {
+                  "text": "N/A"
+                }
+              },
+              "type": "special"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "rgba(50, 172, 45, 0.97)"
+              },
+              {
+                "color": "rgba(237, 129, 40, 0.89)",
+                "value": 0.025
+              },
+              {
+                "color": "rgba(245, 54, 54, 0.9)",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "bytes"
+        }
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 6,
+        "y": 1
+      },
+      "id": 4,
+      "interval": "1m",
+      "options": {
+        "colorMode": "none",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "ceph_cluster_total_bytes{cluster=~\"$cluster|\", }",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A",
+          "range": false
+        }
+      ],
+      "title": "Cluster Capacity",
+      "transparent": false,
+      "type": "stat"
+    },
+    {
+      "colors": null,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 1,
+          "links": [],
+          "mappings": [
+            {
+              "id": 0,
+              "options": {
+                "match": null,
+                "result": {
+                  "text": "N/A"
+                }
+              },
+              "type": "special"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              }
+            ]
+          },
+          "unit": "Bps"
+        }
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 9,
+        "y": 1
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(rate(ceph_osd_op_w_in_bytes{cluster=~\"$cluster|\", }[$__rate_interval]))",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A",
+          "range": false
+        }
+      ],
+      "title": "Write Throughput",
+      "transparent": false,
+      "type": "stat"
+    },
+    {
+      "colors": null,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 1,
+          "links": [],
+          "mappings": [
+            {
+              "id": 0,
+              "options": {
+                "match": null,
+                "result": {
+                  "text": "N/A"
+                }
+              },
+              "type": "special"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#d44a3a"
+              },
+              {
+                "color": "rgba(237, 129, 40, 0.89)",
+                "value": 0
+              },
+              {
+                "color": "#9ac48a",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "Bps"
+        }
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 12,
+        "y": 1
+      },
+      "id": 6,
+      "options": {
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(rate(ceph_osd_op_r_out_bytes{cluster=~\"$cluster|\", }[$__rate_interval]))",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A",
+          "range": false
+        }
+      ],
+      "title": "Read Throughput",
+      "transparent": false,
+      "type": "stat"
+    },
+    {
+      "colorMode": "Panel",
+      "colors": {
+        "crit": "rgb(255, 0, 0)",
+        "disable": "rgba(128, 128, 128, 0.9)",
+        "ok": "rgba(50, 128, 45, 0.9)",
+        "warn": "rgba(237, 129, 40, 0.9)"
+      },
+      "cornerRadius": 0,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "OSD counts. **Bad:** Down or Out above 0. **Fix:** `ceph osd tree`; restart the daemon or check its disk and host.",
+      "displayName": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "links": [],
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "All"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Out"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Down"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "flipCard": false,
+      "flipTime": 5,
+      "fontFormat": "Regular",
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 15,
+        "y": 1
+      },
+      "id": 7,
+      "isAutoScrollOnOverflow": false,
+      "isGrayOnNoData": false,
+      "isHideAlertsOnDisable": false,
+      "isIgnoreOKColors": false,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "aggregation": "Last",
+          "alias": "All",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "decimals": 2,
+          "displayAliasType": "Always",
+          "displayType": "Regular",
+          "displayValueWithAlias": "When Alias Displayed",
+          "expr": "count(ceph_osd_metadata{cluster=~\"$cluster|\", })",
+          "legendFormat": "All",
+          "refId": "A",
+          "units": "none",
+          "valueHandler": "Number Threshold",
+          "range": true,
+          "instant": false
+        },
+        {
+          "aggregation": "Last",
+          "alias": "In",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "decimals": 2,
+          "displayAliasType": "Always",
+          "displayType": "Regular",
+          "displayValueWithAlias": "When Alias Displayed",
+          "expr": "sum(ceph_osd_in{cluster=~\"$cluster|\", })",
+          "legendFormat": "In",
+          "refId": "B",
+          "units": "none",
+          "valueHandler": "Number Threshold",
+          "range": true,
+          "instant": false
+        },
+        {
+          "aggregation": "Last",
+          "alias": "Out",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "decimals": 2,
+          "displayAliasType": "Warning / Critical",
+          "displayType": "Regular",
+          "displayValueWithAlias": "When Alias Displayed",
+          "expr": "sum(ceph_osd_in{cluster=~\"$cluster|\", } == bool 0)",
+          "interval": "",
+          "legendFormat": "Out",
+          "refId": "C",
+          "units": "none",
+          "valueHandler": "Number Threshold",
+          "warn": 1,
+          "range": true,
+          "instant": false
+        },
+        {
+          "aggregation": "Last",
+          "alias": "Up",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "decimals": 2,
+          "displayAliasType": "Always",
+          "displayType": "Regular",
+          "displayValueWithAlias": "When Alias Displayed",
+          "expr": "sum(ceph_osd_up{cluster=~\"$cluster|\", })",
+          "interval": "",
+          "legendFormat": "Up",
+          "refId": "D",
+          "units": "none",
+          "valueHandler": "Number Threshold",
+          "range": true,
+          "instant": false
+        },
+        {
+          "aggregation": "Last",
+          "alias": "Down",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "decimals": 2,
+          "displayAliasType": "Warning / Critical",
+          "displayType": "Regular",
+          "displayValueWithAlias": "When Alias Displayed",
+          "expr": "sum(ceph_osd_up{cluster=~\"$cluster|\", } == bool 0)",
+          "interval": "",
+          "legendFormat": "Down",
+          "refId": "E",
+          "units": "none",
+          "valueHandler": "Number Threshold",
+          "warn": 1,
+          "range": true,
+          "instant": false
+        }
+      ],
+      "title": "OSDs",
+      "transparent": false,
+      "type": "stat"
+    },
+    {
+      "colorMode": "Panel",
+      "colors": {
+        "crit": "rgba(245, 54, 54, 0.9)",
+        "disable": "rgba(128, 128, 128, 0.9)",
+        "ok": "rgba(50, 128, 45, 0.9)",
+        "warn": "rgba(237, 129, 40, 0.9)"
+      },
+      "cornerRadius": 1,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "Active and standby managers. **Bad:** no active, or no standby. **Fix:** `ceph orch ps --daemon-type mgr`.",
+      "displayName": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "links": [],
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "none"
+        }
+      },
+      "flipCard": false,
+      "flipTime": 5,
+      "fontFormat": "Regular",
+      "gridPos": {
+        "h": 6,
+        "w": 3,
+        "x": 21,
+        "y": 1
+      },
+      "id": 8,
+      "isAutoScrollOnOverflow": false,
+      "isGrayOnNoData": false,
+      "isHideAlertsOnDisable": false,
+      "isIgnoreOKColors": false,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "aggregation": "Last",
+          "alias": "Active",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "decimals": 2,
+          "displayAliasType": "Always",
+          "displayType": "Regular",
+          "displayValueWithAlias": "When Alias Displayed",
+          "expr": "count(ceph_mgr_status{cluster=~\"$cluster|\", } == 1) or vector(0)",
+          "instant": true,
+          "legendFormat": "Active",
+          "refId": "A",
+          "units": "none",
+          "valueHandler": "Number Threshold",
+          "range": false
+        },
+        {
+          "aggregation": "Last",
+          "alias": "Standby",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "decimals": 2,
+          "displayAliasType": "Always",
+          "displayType": "Regular",
+          "displayValueWithAlias": "When Alias Displayed",
+          "expr": "count(ceph_mgr_status{cluster=~\"$cluster|\", } == 0) or vector(0)",
+          "instant": true,
+          "legendFormat": "Standby",
+          "refId": "B",
+          "units": "none",
+          "valueHandler": "Number Threshold",
+          "range": false
+        }
+      ],
+      "title": "MGRs",
+      "transparent": false,
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "Active Ceph health checks by severity (`ceph_health_detail`). **Bad:** any error; read *Active health checks* below. **Fix:** each check's cause is in `ceph health detail`; the runbook is in the Grafana README.",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "links": [],
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Error"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Warning"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "#987d24",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 0,
+        "y": 4
+      },
+      "id": 9,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "count(ceph_health_detail{severity=\"HEALTH_ERR\", cluster=~\"$cluster|\"} == 1) or vector(0)",
+          "refId": "A",
+          "legendFormat": "Error",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "count(ceph_health_detail{severity=\"HEALTH_WARN\", cluster=~\"$cluster|\"} == 1) or vector(0)",
+          "refId": "B",
+          "legendFormat": "Warning",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "title": "Health checks",
+      "transparent": false,
+      "type": "stat"
+    },
+    {
+      "colors": null,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "displayName": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "links": [],
+          "mappings": [
+            {
+              "id": 0,
+              "options": {
+                "result": {
+                  "text": "N/A"
+                }
+              },
+              "type": "special"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "rgba(50, 172, 45, 0.97)",
+                "value": null
+              },
+              {
+                "color": "rgba(237, 129, 40, 0.89)",
+                "value": 0.025
+              },
+              {
+                "color": "rgba(245, 54, 54, 0.9)",
+                "value": 0.1
+              }
+            ]
+          },
+          "unit": "bytes"
+        }
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 6,
+        "y": 4
+      },
+      "id": 10,
+      "maxDataPoints": 100,
+      "options": {
+        "colorMode": "none",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "ceph_cluster_total_used_bytes{cluster=~\"$cluster|\", }",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A",
+          "range": false
+        }
+      ],
+      "title": "Used Capacity",
+      "transparent": false,
+      "type": "stat"
+    },
+    {
+      "colors": null,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "displayName": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "links": [],
+          "mappings": [
+            {
+              "id": 0,
+              "options": {
+                "result": {
+                  "text": "N/A"
+                }
+              },
+              "type": "special"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "ops"
+        }
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 9,
+        "y": 4
+      },
+      "id": 11,
+      "maxDataPoints": 100,
+      "options": {
+        "colorMode": "none",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(rate(ceph_osd_op_w{cluster=~\"$cluster|\", }[$__rate_interval]))",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A",
+          "range": false
+        }
+      ],
+      "title": "Write IOPS",
+      "transparent": false,
+      "type": "stat"
+    },
+    {
+      "colors": null,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "displayName": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "links": [],
+          "mappings": [
+            {
+              "id": 0,
+              "options": {
+                "result": {
+                  "text": "N/A"
+                }
+              },
+              "type": "special"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#d44a3a",
+                "value": null
+              },
+              {
+                "color": "rgba(237, 129, 40, 0.89)",
+                "value": 0
+              },
+              {
+                "color": "#9ac48a",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "ops"
+        }
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 12,
+        "y": 4
+      },
+      "id": 12,
+      "maxDataPoints": 100,
+      "options": {
+        "colorMode": "none",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(rate(ceph_osd_op_r{cluster=~\"$cluster|\", }[$__rate_interval]))",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A",
+          "range": false
+        }
+      ],
+      "title": "Read IOPS",
+      "transparent": false,
+      "type": "stat"
+    },
+    {
+      "colorMode": "Panel",
+      "colors": {
+        "crit": "rgba(245, 54, 54, 0.9)",
+        "disable": "rgba(128, 128, 128, 0.9)",
+        "ok": "rgba(50, 128, 45, 0.9)",
+        "warn": "rgba(237, 129, 40, 0.9)"
+      },
+      "cornerRadius": 1,
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "Monitors in quorum. **Bad:** fewer than total; below a majority the cluster stops. **Fix:** the monitor's host, clock sync (`MON_CLOCK_SKEW`), disk space.",
+      "displayName": "",
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "links": [],
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "none"
+        }
+      },
+      "flipCard": false,
+      "flipTime": 5,
+      "fontFormat": "Regular",
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 15,
+        "y": 4
+      },
+      "id": 13,
+      "isAutoScrollOnOverflow": false,
+      "isGrayOnNoData": false,
+      "isHideAlertsOnDisable": false,
+      "isIgnoreOKColors": false,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "aggregation": "Last",
+          "alias": "In Quorum",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "decimals": 2,
+          "displayAliasType": "Always",
+          "displayType": "Regular",
+          "displayValueWithAlias": "When Alias Displayed",
+          "expr": "sum(ceph_mon_quorum_status{cluster=~\"$cluster|\", })",
+          "legendFormat": "In Quorum",
+          "refId": "A",
+          "units": "none",
+          "valueHandler": "Text Only",
+          "range": true,
+          "instant": false
+        },
+        {
+          "aggregation": "Last",
+          "alias": "Total",
+          "crit": 1,
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "decimals": 2,
+          "displayAliasType": "Always",
+          "displayType": "Regular",
+          "displayValueWithAlias": "When Alias Displayed",
+          "expr": "count(ceph_mon_quorum_status{cluster=~\"$cluster|\", })",
+          "legendFormat": "Total",
+          "refId": "B",
+          "units": "none",
+          "valueHandler": "Text Only",
+          "warn": 2,
+          "range": true,
+          "instant": false
+        },
+        {
+          "aggregation": "Last",
+          "alias": "MONs out of Quorum",
+          "crit": 1.6,
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "decimals": 2,
+          "displayAliasType": "Warning / Critical",
+          "displayType": "Annotation",
+          "displayValueWithAlias": "Never",
+          "expr": "count(ceph_mon_quorum_status{cluster=~\"$cluster|\", }) - sum(ceph_mon_quorum_status{cluster=~\"$cluster|\", })",
+          "legendFormat": "MONs out of Quorum",
+          "range": true,
+          "refId": "C",
+          "units": "none",
+          "valueHandler": "Number Threshold",
+          "warn": 1.1,
+          "instant": false
+        }
+      ],
+      "title": "Monitors",
+      "transparent": false,
+      "type": "stat"
+    },
+    {
+      "type": "row",
+      "title": "HEALTH AND FULLNESS",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 7,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [],
+      "id": 14
+    },
+    {
+      "type": "table",
+      "title": "Active health checks",
+      "description": "Every Ceph health check that is raised now, from `ceph_health_detail`. `AUTH_INSECURE_*` are known and accepted. **Fix:** `ceph health detail` for the affected objects; the Grafana README maps checks to causes.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "severity"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "HEALTH_ERR": {
+                        "text": "error",
+                        "color": "red",
+                        "index": 0
+                      },
+                      "HEALTH_WARN": {
+                        "text": "warning",
+                        "color": "orange",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "severity",
+            "desc": false
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "ceph_health_detail{cluster=~\"$cluster|\"} == 1",
+          "refId": "A",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "Value": true,
+              "cluster": true,
+              "namespace": true,
+              "service": true,
+              "scope.name": true,
+              "scope.version": true,
+              "server.address": true,
+              "service.instance.id": true,
+              "service.name": true,
+              "url.scheme": true
+            },
+            "indexByName": {
+              "severity": 0,
+              "name": 1
+            }
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "id": 15
+    },
+    {
+      "type": "timeseries",
+      "title": "OSD fullness against the full ratios",
+      "description": "Fullest OSD and the cluster average against the `nearfull` and `full` ratios (`backfillfull` lies between and is not exported). **Bad:** the fullest OSD near `nearfull`: warnings; past `backfillfull` backfill stops; at `full` writes to its PGs stop. **Fix:** free space or add OSDs, then `ceph osd reweight-by-utilization`; raising the ratios only buys time.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "percentunit",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "max(ceph_osd_stat_bytes_used{cluster=~\"$cluster|\"} / ceph_osd_stat_bytes{cluster=~\"$cluster|\"})",
+          "refId": "A",
+          "legendFormat": "fullest OSD",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "avg(ceph_osd_stat_bytes_used{cluster=~\"$cluster|\"} / ceph_osd_stat_bytes{cluster=~\"$cluster|\"})",
+          "refId": "B",
+          "legendFormat": "average",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "scalar(max(ceph_osd_nearfull_ratio{cluster=~\"$cluster|\"}))",
+          "refId": "C",
+          "legendFormat": "nearfull",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "scalar(max(ceph_osd_full_ratio{cluster=~\"$cluster|\"}))",
+          "refId": "D",
+          "legendFormat": "full",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "id": 16
+    },
+    {
+      "type": "timeseries",
+      "title": "Fullest OSDs",
+      "description": "The ten fullest OSDs. A skewed distribution fills the cluster before the average says so.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "percentunit",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "topk(10, ceph_osd_stat_bytes_used{cluster=~\"$cluster|\"} / ceph_osd_stat_bytes{cluster=~\"$cluster|\"})",
+          "refId": "A",
+          "legendFormat": "{{ceph_daemon}} ({{hostname}})",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 24,
+        "h": 8
+      },
+      "id": 17
+    },
+    {
+      "collapse": false,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "id": 18,
+      "repeat": null,
+      "repeatIteration": null,
+      "repeatRowId": null,
+      "showTitle": true,
+      "title": "CLUSTER STATS",
+      "titleSize": "h6",
+      "type": "row",
+      "panels": []
+    },
+    {
+      "datasource": {
+        "type": "datasource",
+        "uid": "grafana"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 25
+      },
+      "id": 19,
+      "options": {
+        "alertInstanceLabelFilter": "{alertname=~\"Ceph.+\"}",
+        "alertName": "",
+        "groupBy": [],
+        "groupMode": "default",
+        "maxItems": 20,
+        "sortOrder": 1,
+        "stateFilter": {
+          "error": true,
+          "firing": true,
+          "noData": false,
+          "normal": false,
+          "pending": true
+        },
+        "viewMode": "list"
+      },
+      "title": "Grafana alerts",
+      "type": "alertlist",
+      "description": "The rules in the Ceph alert folder (rule group `ext-ceph`) that are firing or pending."
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 40,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 0,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 2,
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#c0921f",
+                "value": 75
+              },
+              {
+                "color": "#E02F44",
+                "value": 85
+              }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total Capacity"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Used"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.thresholdsStyle",
+                "value": {
+                  "mode": "dashed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 25
+      },
+      "id": 20,
+      "interval": "$interval",
+      "options": {
+        "legend": {
+          "calcs": [
+            "last"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "sortBy": "Last",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "ceph_cluster_total_bytes{cluster=~\"$cluster|\", }",
+          "instant": false,
+          "legendFormat": "Total Capacity",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "ceph_cluster_total_used_bytes{cluster=~\"$cluster|\", }",
+          "instant": false,
+          "legendFormat": "Used",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Capacity",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 85
+              }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 25
+      },
+      "id": 21,
+      "interval": "$interval",
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "lastNotNull",
+            "max",
+            "min"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(rate(ceph_osd_op_w_in_bytes{cluster=~\"$cluster|\", }[$__rate_interval]))",
+          "legendFormat": "Write",
+          "range": true,
+          "refId": "A",
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(rate(ceph_osd_op_r_out_bytes{cluster=~\"$cluster|\", }[$__rate_interval]))",
+          "legendFormat": "Read",
+          "range": true,
+          "refId": "B",
+          "instant": false
+        }
+      ],
+      "title": "Cluster Throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 33
+      },
+      "id": 22,
+      "interval": "$interval",
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "lastNotNull",
+            "max",
+            "min"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(rate(ceph_osd_op_w{cluster=~\"$cluster|\", }[$__rate_interval]))",
+          "legendFormat": "Write",
+          "range": true,
+          "refId": "A",
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(rate(ceph_osd_op_r{cluster=~\"$cluster|\", }[$__rate_interval]))",
+          "legendFormat": "Read",
+          "range": true,
+          "refId": "B",
+          "instant": false
+        }
+      ],
+      "title": "IOPS",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 33
+      },
+      "id": 23,
+      "interval": "$interval",
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "(ceph_pool_bytes_used{cluster=~\"$cluster|\", }) *on (pool_id) group_left(name)(ceph_pool_metadata{cluster=~\"$cluster|\", })",
+          "legendFormat": "{{name}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "title": "Pool Used Bytes",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "rbd Stored"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "transparent",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 33
+      },
+      "id": 24,
+      "interval": "$interval",
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "(ceph_pool_stored_raw{cluster=~\"$cluster|\", }) *on (pool_id) group_left(name)(ceph_pool_metadata{cluster=~\"$cluster|\", })",
+          "hide": false,
+          "interval": "",
+          "legendFormat": "{{name}}",
+          "range": true,
+          "refId": "A",
+          "instant": false
+        }
+      ],
+      "title": "Pool Used RAW Bytes",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 41
+      },
+      "id": 25,
+      "interval": "$interval",
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "(ceph_pool_quota_objects{cluster=~\"$cluster|\", }) *on (pool_id) group_left(name)(ceph_pool_metadata{cluster=~\"$cluster|\", })",
+          "interval": "",
+          "legendFormat": "{{name}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "title": "Pool Objects Quota",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 41
+      },
+      "id": 26,
+      "interval": "$interval",
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "(ceph_pool_quota_bytes{cluster=~\"$cluster|\", }) *on (pool_id) group_left(name)(ceph_pool_metadata{cluster=~\"$cluster|\", })",
+          "interval": "",
+          "legendFormat": "{{name}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "title": "Pool Quota Bytes",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 16,
+        "y": 41
+      },
+      "id": 27,
+      "interval": "$interval",
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "(ceph_pool_objects{cluster=~\"$cluster|\", }) * on (pool_id) group_left(name)(ceph_pool_metadata{cluster=~\"$cluster|\", })",
+          "interval": "",
+          "legendFormat": "{{name}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "title": "Objects Per Pool",
+      "type": "timeseries"
+    },
+    {
+      "collapse": false,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 48
+      },
+      "id": 28,
+      "repeat": null,
+      "repeatIteration": null,
+      "repeatRowId": null,
+      "showTitle": true,
+      "title": "OBJECTS",
+      "titleSize": "h6",
+      "type": "row",
+      "panels": []
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/^Total.*$/"
+            },
+            "properties": [
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": false,
+                  "mode": "normal"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 6,
+        "x": 0,
+        "y": 49
+      },
+      "id": 29,
+      "interval": "$interval",
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "asc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(ceph_pool_objects{cluster=~\"$cluster|\", })",
+          "legendFormat": "Total",
+          "range": true,
+          "refId": "A",
+          "instant": false
+        }
+      ],
+      "title": "Objects",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/^Total.*$/"
+            },
+            "properties": [
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": false,
+                  "mode": "normal"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 8,
+        "x": 6,
+        "y": 49
+      },
+      "id": 30,
+      "interval": "$interval",
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "asc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(ceph_pg_active{cluster=~\"$cluster|\", })",
+          "legendFormat": "Active",
+          "range": true,
+          "refId": "A",
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(ceph_pg_clean{cluster=~\"$cluster|\", })",
+          "legendFormat": "Clean",
+          "range": true,
+          "refId": "B",
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(ceph_pg_peering{cluster=~\"$cluster|\", })",
+          "legendFormat": "Peering",
+          "range": true,
+          "refId": "C",
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(ceph_pg_degraded{cluster=~\"$cluster|\", })",
+          "legendFormat": "Degraded",
+          "range": true,
+          "refId": "D",
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(ceph_pg_stale{cluster=~\"$cluster|\", })",
+          "legendFormat": "Stale",
+          "range": true,
+          "refId": "E",
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(ceph_pg_undersized{cluster=~\"$cluster|\", })",
+          "legendFormat": "Undersized",
+          "range": true,
+          "refId": "G",
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(ceph_pg_incomplete{cluster=~\"$cluster|\", })",
+          "legendFormat": "Incomplete",
+          "range": true,
+          "refId": "H",
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(ceph_pg_forced_backfill{cluster=~\"$cluster|\", })",
+          "legendFormat": "Forced Backfill",
+          "range": true,
+          "refId": "I",
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(ceph_pg_forced_recovery{cluster=~\"$cluster|\", })",
+          "legendFormat": "Forced Recovery",
+          "range": true,
+          "refId": "J",
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(ceph_pg_creating{cluster=~\"$cluster|\", })",
+          "legendFormat": "Creating",
+          "range": true,
+          "refId": "K",
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(ceph_pg_backfill_wait{cluster=~\"$cluster|\", })",
+          "legendFormat": "Wait Backfill",
+          "range": true,
+          "refId": "L",
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(ceph_pg_deep{cluster=~\"$cluster|\", })",
+          "legendFormat": "Deep",
+          "range": true,
+          "refId": "M",
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(ceph_pg_scrubbing{cluster=~\"$cluster|\", })",
+          "legendFormat": "Scrubbing",
+          "range": true,
+          "refId": "N",
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(ceph_pg_recovering{cluster=~\"$cluster|\", })",
+          "legendFormat": "Recovering",
+          "range": true,
+          "refId": "O",
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(ceph_pg_repair{cluster=~\"$cluster|\", })",
+          "legendFormat": "Repair",
+          "range": true,
+          "refId": "P",
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(ceph_pg_down{cluster=~\"$cluster|\", })",
+          "legendFormat": "Down",
+          "range": true,
+          "refId": "Q",
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(ceph_pg_peered{cluster=~\"$cluster|\", })",
+          "legendFormat": "Peered",
+          "range": true,
+          "refId": "R",
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(ceph_pg_backfilling{cluster=~\"$cluster|\", })",
+          "legendFormat": "Backfill",
+          "range": true,
+          "refId": "S",
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(ceph_pg_remapped{cluster=~\"$cluster|\", })",
+          "legendFormat": "Remapped",
+          "range": true,
+          "refId": "T",
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(ceph_pg_backfill_toofull{cluster=~\"$cluster|\", })",
+          "legendFormat": "Backfill Toofull",
+          "range": true,
+          "refId": "U",
+          "instant": false
+        }
+      ],
+      "title": "PGs State",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/^Total.*$/"
+            },
+            "properties": [
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "group": false,
+                  "mode": "normal"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 10,
+        "x": 14,
+        "y": 49
+      },
+      "id": 31,
+      "interval": "$interval",
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "asc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(ceph_pg_degraded{cluster=~\"$cluster|\", })",
+          "legendFormat": "Degraded",
+          "range": true,
+          "refId": "A",
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(ceph_pg_stale{cluster=~\"$cluster|\", })",
+          "legendFormat": "Stale",
+          "range": true,
+          "refId": "B",
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(ceph_pg_undersized{cluster=~\"$cluster|\", })",
+          "legendFormat": "Undersized",
+          "range": true,
+          "refId": "C",
+          "instant": false
+        }
+      ],
+      "title": "Stuck PGs",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 10,
+        "x": 14,
+        "y": 55
+      },
+      "id": 32,
+      "interval": "$interval",
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum(rate(ceph_osd_recovery_ops{cluster=~\"$cluster|\", }[$__rate_interval]))",
+          "legendFormat": "OPS",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "title": "Recovery Operations",
+      "type": "timeseries"
+    },
+    {
+      "collapse": false,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 61
+      },
+      "id": 33,
+      "repeat": null,
+      "repeatIteration": null,
+      "repeatRowId": null,
+      "showTitle": true,
+      "title": "LATENCY",
+      "titleSize": "h6",
+      "type": "row",
+      "panels": []
+    },
+    {
+      "cards": {
+        "cardPadding": null,
+        "cardRound": null
+      },
+      "color": {
+        "cardColor": "#b4ff00",
+        "colorScale": "sqrt",
+        "colorScheme": "interpolateOranges",
+        "exponent": 0.5,
+        "mode": "opacity"
+      },
+      "dataFormat": "timeseries",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "scaleDistribution": {
+              "type": "linear"
+            }
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 62
+      },
+      "heatmap": {},
+      "hideZeroBuckets": false,
+      "highlightCards": true,
+      "id": 34,
+      "legend": {
+        "show": true
+      },
+      "options": {
+        "calculate": true,
+        "calculation": {
+          "yBuckets": {
+            "mode": "count",
+            "scale": {
+              "log": 2,
+              "type": "log"
+            },
+            "value": "1"
+          }
+        },
+        "cellGap": 2,
+        "cellValues": {},
+        "color": {
+          "exponent": 0.5,
+          "fill": "#b4ff00",
+          "mode": "opacity",
+          "reverse": false,
+          "scale": "exponential",
+          "scheme": "Oranges",
+          "steps": 128
+        },
+        "exemplars": {
+          "color": "rgba(255,0,255,0.7)"
+        },
+        "filterValues": {
+          "le": 1e-09
+        },
+        "legend": {
+          "show": true
+        },
+        "rowsFrame": {
+          "layout": "auto"
+        },
+        "showValue": "never",
+        "tooltip": {
+          "show": true,
+          "yHistogram": false
+        },
+        "yAxis": {
+          "axisPlacement": "left",
+          "min": "0",
+          "reverse": false,
+          "unit": "ms"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "ceph_osd_apply_latency_ms{cluster=~\"$cluster|\", }",
+          "instant": false,
+          "legendFormat": "",
+          "refId": "A",
+          "range": true
+        }
+      ],
+      "title": "OSD Apply Latency Distribution",
+      "tooltip": {
+        "show": true,
+        "showHistogram": false
+      },
+      "type": "heatmap",
+      "xAxis": {
+        "show": true
+      },
+      "xBucketNumber": null,
+      "xBucketSize": "",
+      "yAxis": {
+        "decimals": null,
+        "format": "ms",
+        "logBase": 2,
+        "max": null,
+        "min": "0",
+        "show": true,
+        "splitFactor": 1
+      },
+      "yBucketBound": "auto",
+      "yBucketNumber": null,
+      "yBucketSize": 10
+    },
+    {
+      "cards": {
+        "cardPadding": null,
+        "cardRound": null
+      },
+      "color": {
+        "cardColor": "#65c5db",
+        "colorScale": "sqrt",
+        "colorScheme": "interpolateOranges",
+        "exponent": 0.5,
+        "mode": "opacity"
+      },
+      "dataFormat": "timeseries",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "scaleDistribution": {
+              "type": "linear"
+            }
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 62
+      },
+      "heatmap": {},
+      "hideZeroBuckets": false,
+      "highlightCards": true,
+      "id": 35,
+      "legend": {
+        "show": true
+      },
+      "options": {
+        "calculate": true,
+        "calculation": {
+          "yBuckets": {
+            "mode": "count",
+            "scale": {
+              "log": 2,
+              "type": "log"
+            }
+          }
+        },
+        "cellGap": 2,
+        "cellValues": {},
+        "color": {
+          "exponent": 0.5,
+          "fill": "#65c5db",
+          "mode": "opacity",
+          "reverse": false,
+          "scale": "exponential",
+          "scheme": "Oranges",
+          "steps": 128
+        },
+        "exemplars": {
+          "color": "rgba(255,0,255,0.7)"
+        },
+        "filterValues": {
+          "le": 1e-09
+        },
+        "legend": {
+          "show": true
+        },
+        "rowsFrame": {
+          "layout": "auto"
+        },
+        "showValue": "never",
+        "tooltip": {
+          "show": true,
+          "yHistogram": false
+        },
+        "yAxis": {
+          "axisPlacement": "left",
+          "min": "0",
+          "reverse": false,
+          "unit": "ms"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "ceph_osd_commit_latency_ms{cluster=~\"$cluster|\", }",
+          "instant": false,
+          "legendFormat": "",
+          "refId": "A",
+          "range": true
+        }
+      ],
+      "title": "OSD Commit Latency Distribution",
+      "tooltip": {
+        "show": true,
+        "showHistogram": false
+      },
+      "type": "heatmap",
+      "xAxis": {
+        "show": true
+      },
+      "xBucketNumber": null,
+      "xBucketSize": "",
+      "yAxis": {
+        "decimals": null,
+        "format": "ms",
+        "logBase": 2,
+        "max": null,
+        "min": "0",
+        "show": true,
+        "splitFactor": 1
+      },
+      "yBucketBound": "auto",
+      "yBucketNumber": null,
+      "yBucketSize": 10
+    },
+    {
+      "cards": {
+        "cardPadding": null,
+        "cardRound": null
+      },
+      "color": {
+        "cardColor": "#806eb7",
+        "colorScale": "sqrt",
+        "colorScheme": "interpolateOranges",
+        "exponent": 0.5,
+        "mode": "opacity"
+      },
+      "dataFormat": "timeseries",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "scaleDistribution": {
+              "type": "linear"
+            }
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 70
+      },
+      "heatmap": {},
+      "hideZeroBuckets": false,
+      "highlightCards": true,
+      "id": 36,
+      "legend": {
+        "show": true
+      },
+      "options": {
+        "calculate": true,
+        "calculation": {
+          "yBuckets": {
+            "mode": "count",
+            "scale": {
+              "log": 2,
+              "type": "log"
+            }
+          }
+        },
+        "cellGap": 2,
+        "cellValues": {},
+        "color": {
+          "exponent": 0.5,
+          "fill": "#806eb7",
+          "mode": "opacity",
+          "reverse": false,
+          "scale": "exponential",
+          "scheme": "Oranges",
+          "steps": 128
+        },
+        "exemplars": {
+          "color": "rgba(255,0,255,0.7)"
+        },
+        "filterValues": {
+          "le": 1e-09
+        },
+        "legend": {
+          "show": true
+        },
+        "rowsFrame": {
+          "layout": "auto"
+        },
+        "showValue": "never",
+        "tooltip": {
+          "show": true,
+          "yHistogram": false
+        },
+        "yAxis": {
+          "axisPlacement": "left",
+          "decimals": 2,
+          "min": "0",
+          "reverse": false,
+          "unit": "ms"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "rate(ceph_osd_op_r_latency_sum{cluster=~\"$cluster|\", }[$__rate_interval]) / rate(ceph_osd_op_r_latency_count{cluster=~\"$cluster|\", }[$__rate_interval]) >= 0",
+          "instant": false,
+          "legendFormat": "",
+          "refId": "A",
+          "range": true
+        }
+      ],
+      "title": "OSD Read Op Latency Distribution",
+      "tooltip": {
+        "show": true,
+        "showHistogram": false
+      },
+      "type": "heatmap",
+      "xAxis": {
+        "show": true
+      },
+      "xBucketNumber": null,
+      "xBucketSize": "",
+      "yAxis": {
+        "decimals": null,
+        "format": "ms",
+        "logBase": 2,
+        "max": null,
+        "min": "0",
+        "show": true,
+        "splitFactor": 1
+      },
+      "yBucketBound": "auto",
+      "yBucketNumber": null,
+      "yBucketSize": null
+    },
+    {
+      "cards": {
+        "cardPadding": null,
+        "cardRound": null
+      },
+      "color": {
+        "cardColor": "#f9934e",
+        "colorScale": "sqrt",
+        "colorScheme": "interpolateOranges",
+        "exponent": 0.5,
+        "mode": "opacity"
+      },
+      "dataFormat": "timeseries",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "scaleDistribution": {
+              "type": "linear"
+            }
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 70
+      },
+      "heatmap": {},
+      "hideZeroBuckets": false,
+      "highlightCards": true,
+      "id": 37,
+      "legend": {
+        "show": true
+      },
+      "options": {
+        "calculate": true,
+        "calculation": {
+          "yBuckets": {
+            "mode": "count",
+            "scale": {
+              "log": 2,
+              "type": "log"
+            }
+          }
+        },
+        "cellGap": 2,
+        "cellValues": {},
+        "color": {
+          "exponent": 0.5,
+          "fill": "#f9934e",
+          "mode": "opacity",
+          "reverse": false,
+          "scale": "exponential",
+          "scheme": "Oranges",
+          "steps": 128
+        },
+        "exemplars": {
+          "color": "rgba(255,0,255,0.7)"
+        },
+        "filterValues": {
+          "le": 1e-09
+        },
+        "legend": {
+          "show": true
+        },
+        "rowsFrame": {
+          "layout": "auto"
+        },
+        "showValue": "never",
+        "tooltip": {
+          "show": true,
+          "yHistogram": false
+        },
+        "yAxis": {
+          "axisPlacement": "left",
+          "decimals": 2,
+          "min": "0",
+          "reverse": false,
+          "unit": "ms"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "rate(ceph_osd_op_w_latency_sum{cluster=~\"$cluster|\", }[$__rate_interval]) / rate(ceph_osd_op_w_latency_count{cluster=~\"$cluster|\", }[$__rate_interval]) >= 0",
+          "instant": false,
+          "legendFormat": "",
+          "refId": "A",
+          "range": true
+        }
+      ],
+      "title": "OSD Write Op Latency Distribution",
+      "tooltip": {
+        "show": true,
+        "showHistogram": false
+      },
+      "type": "heatmap",
+      "xAxis": {
+        "show": true
+      },
+      "xBucketNumber": null,
+      "xBucketSize": "",
+      "yAxis": {
+        "decimals": null,
+        "format": "ms",
+        "logBase": 2,
+        "max": null,
+        "min": "0",
+        "show": true,
+        "splitFactor": 1
+      },
+      "yBucketBound": "auto",
+      "yBucketNumber": null,
+      "yBucketSize": null
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 78
+      },
+      "id": 38,
+      "interval": "$interval",
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "avg(rate(ceph_osd_op_r_latency_sum{cluster=~\"$cluster|\", }[$__rate_interval]) / rate(ceph_osd_op_r_latency_count{cluster=~\"$cluster|\", }[$__rate_interval]) >= 0)",
+          "legendFormat": "Read",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "avg(rate(ceph_osd_op_w_latency_sum{cluster=~\"$cluster|\", }[$__rate_interval]) / rate(ceph_osd_op_w_latency_count{cluster=~\"$cluster|\", }[$__rate_interval]) >= 0)",
+          "legendFormat": "Write",
+          "refId": "B",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "title": "Average op latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 78
+      },
+      "id": 39,
+      "interval": "$interval",
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "avg(ceph_osd_apply_latency_ms{cluster=~\"$cluster|\", })",
+          "legendFormat": "apply",
+          "metric": "ceph_osd_perf_apply_latency_seconds",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "avg(ceph_osd_commit_latency_ms{cluster=~\"$cluster|\", })",
+          "legendFormat": "commit",
+          "metric": "ceph_osd_perf_commit_latency_seconds",
+          "refId": "B",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "title": "AVG OSD Apply + Commit Latency",
+      "type": "timeseries"
+    },
+    {
+      "collapse": true,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 85
+      },
+      "id": 40,
+      "repeat": null,
+      "repeatIteration": null,
+      "repeatRowId": null,
+      "showTitle": true,
+      "title": "VERSIONS",
+      "titleSize": "h6",
+      "type": "row",
+      "panels": []
+    },
+    {
+      "columns": [],
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "left",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": false,
+            "inspect": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 86
+      },
+      "id": 41,
+      "options": {
+        "footer": {
+          "countRows": false,
+          "enablePagination": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "frameIndex": 1,
+        "showHeader": true
+      },
+      "styles": [],
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "exemplar": false,
+          "expr": "count by (ceph_version)(ceph_osd_metadata{cluster=~\"$cluster|\", })",
+          "format": "table",
+          "hide": false,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "OSD Services",
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "exemplar": false,
+          "expr": "count by (ceph_version)(ceph_mon_metadata{cluster=~\"$cluster|\", })",
+          "format": "table",
+          "hide": false,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "Mon Services",
+          "range": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "exemplar": false,
+          "expr": "count by (ceph_version)(ceph_mds_metadata{cluster=~\"$cluster|\", })",
+          "format": "table",
+          "hide": false,
+          "instant": true,
+          "legendFormat": "MDS Services",
+          "range": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "exemplar": false,
+          "expr": "count by (ceph_version)(ceph_rgw_metadata{cluster=~\"$cluster|\", })",
+          "format": "table",
+          "hide": false,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "RGW Services",
+          "range": false,
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "exemplar": false,
+          "expr": "count by (ceph_version)(ceph_mgr_metadata{cluster=~\"$cluster|\", })",
+          "format": "table",
+          "hide": false,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "MGR Services",
+          "range": false,
+          "refId": "E"
+        }
+      ],
+      "timeFrom": null,
+      "timeShift": null,
+      "title": "Ceph Versions",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {},
+            "renameByName": {
+              "Time": "",
+              "Value #A": "OSD Services",
+              "Value #B": "Mon Services",
+              "Value #C": "MDS Services",
+              "Value #D": "RGW Services",
+              "Value #E": "MGR Services",
+              "ceph_version": "Ceph Version"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    }
+  ]
+}

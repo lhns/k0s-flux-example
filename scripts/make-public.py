@@ -23,6 +23,7 @@ and kept in memory only so the denylist can prove they are gone.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -235,6 +236,115 @@ def _rewriter(keeps: list[str], substitutions, patterns, extra=None):
     return rewrite
 
 
+# A home-LAN address as the repo writes it: the host, `.x` prose, a `-C` range end, and the
+# `/N` suffixes that follow (a CIDR prefix, or shorthand host lists like `.101/102/103`).
+# Shared by the rewrite and by verify_lan, so what one cannot rewrite the other reports.
+# Built from the config's prefix: this script is published, the real prefix must not be.
+def lan_rx(prefix: str) -> re.Pattern:
+    return re.compile(rf"(?<![\d.]){re.escape(prefix)}\.(\d{{1,3}}|x)\.(\d{{1,3}}|x)(?!\d)"
+                      r"(?:-(\d{1,3})(?![\d.]))?((?:/\.?\d{1,3}(?!\d))*)")
+
+
+def build_lan_mapper(cfg: dict):
+    """Rewrite home-LAN addresses from the explicit `ip_map` table; None without one.
+
+    A pattern that keeps the octets would leave every real address recognisable, so each /24
+    and each host has its own fake number, drawn once at random and committed in the config.
+    An address with no entry is left untouched, and verify_lan then fails the build.
+    """
+    spec = cfg.get("ip_map")
+    if not spec:
+        return None
+    real_pfx, fake_pfx = spec["prefix"]
+    cidr = re.compile(r"^(\d+)\.(\d+)\.(\d+)\.0/24$")
+    ip = re.compile(r"^(\d+)\.(\d+)\.(\d+)\.(\d+)$")
+    subnets: dict[str, str] = {}
+    for real, fake in spec["subnets"].items():
+        m, f = cidr.match(real), cidr.match(fake)
+        if not (m and f and f"{m[1]}.{m[2]}" == real_pfx and f"{f[1]}.{f[2]}" == fake_pfx):
+            sys.exit(f"ip_map.subnets: bad entry (need {real_pfx}.N.0/24 -> {fake_pfx}.M.0/24)")
+        subnets[m[3]] = f[3]
+    hosts: dict[tuple[str, str], tuple[str, str]] = {}
+    for real, fake in spec["hosts"].items():
+        m, f = ip.match(real), ip.match(fake)
+        if not (m and f and f"{m[1]}.{m[2]}" == real_pfx and f"{f[1]}.{f[2]}" == fake_pfx):
+            sys.exit(f"ip_map.hosts: bad entry '{real}' -> '{fake}'")
+        if subnets.get(m[3]) != f[3]:
+            sys.exit(f"ip_map.hosts: '{fake}' is not in the fake subnet of '{real}'")
+        hosts[(m[3], m[4])] = (f[3], f[4])
+    # A second real address landing on one fake would merge two machines; a fake octet that
+    # equals any real one would keep a real number visible.
+    if len(set(subnets.values())) != len(subnets) or len(set(hosts.values())) != len(hosts):
+        sys.exit("ip_map: two real subnets or hosts share one fake value")
+    real_thirds = {t for t, _ in hosts} | set(subnets)
+    real_fourths = {f for _, f in hosts}
+    for (rt, rf), (ft, ff) in hosts.items():
+        if ft in real_thirds or ff in real_fourths:
+            sys.exit(f"ip_map: fake {fake_pfx}.{ft}.{ff} reuses a real octet")
+    if set(subnets.values()) & real_thirds:
+        sys.exit("ip_map: a fake subnet number equals a real one")
+
+    def host(third: str, fourth: str):
+        return hosts.get((third, fourth))
+
+    def one(m: re.Match) -> str:
+        third, fourth, rng_end, tail = m.groups()
+        elems = re.findall(r"/(\.?)(\d+)", tail)
+        # `/N` with N <= 32 and no dot is a prefix length; everything else is a host number.
+        cut = next((i for i, (dot, n) in enumerate(elems) if not dot and int(n) <= 32), len(elems))
+        out_tail = ""
+        prefix_len = None
+        if cut < len(elems):
+            prefix_len = int(elems[cut][1])
+            out_tail = "".join(f"/{d}{n}" for d, n in elems[cut:])
+        if third == "x":
+            return f"{fake_pfx}.x.x{out_tail}" if fourth == "x" and not elems and not rng_end else m.group(0)
+        if fourth == "x":
+            return f"{fake_pfx}.{subnets[third]}.x{out_tail}" if third in subnets and not rng_end and not cut else m.group(0)
+        if fourth == "0" and prefix_len in (8, 16, 24) and cut == 0 and not rng_end:
+            if prefix_len == 24 and third in subnets:
+                return f"{fake_pfx}.{subnets[third]}.0{out_tail}"
+            if prefix_len <= 16 and third == "0":
+                return f"{fake_pfx}.0.0{out_tail}"
+            return m.group(0)
+        h = host(third, fourth)
+        if h is None:
+            return m.group(0)
+        res = f"{fake_pfx}.{h[0]}.{h[1]}"
+        if rng_end:
+            e = host(third, rng_end)
+            # A range stays a range only if the fake end sits the same distance away.
+            if e is None or int(e[1]) - int(h[1]) != int(rng_end) - int(fourth):
+                return m.group(0)
+            res += f"-{e[1]}"
+        for dot, n in elems[:cut]:
+            e = host(third, n)
+            if e is None:
+                return m.group(0)
+            res += f"/{dot}{e[1]}"
+        return res + out_tail
+
+    rx = lan_rx(real_pfx)
+    return lambda text: rx.sub(one, text)
+
+
+def verify_lan(root: Path, cfg: dict) -> int:
+    """Fail on any home-LAN address that survived: it had no entry in `ip_map`."""
+    spec = cfg.get("ip_map")
+    if not spec:
+        return 0
+    rx = lan_rx(spec["prefix"][0])
+    failures = 0
+    for p in iter_files(root):
+        if not is_text(p):
+            continue
+        for n, line in enumerate(read_text_any(p).splitlines(), 1):
+            for m in rx.finditer(line):
+                print(f"  FAIL {p.relative_to(root)}:{n}  [LAN address without ip_map entry] {m.group(0)}")
+                failures += 1
+    return failures
+
+
 def build_substituter(cfg: dict):
     """The global rewrite: substitutions, then substitution_patterns, then the redactions."""
     redact_pats = [(re.compile(r["pattern"]), r["replacement"])
@@ -248,8 +358,9 @@ def build_substituter(cfg: dict):
             text = re.sub(rf'(^\s*{re.escape(key)}\s*:\s*)\S.*$', r'\1CHANGEME', text, flags=re.M)
         return text
 
+    lan = build_lan_mapper(cfg) or (lambda text: text)
     return _rewriter(cfg.get("keep") or [], cfg.get("substitutions"),
-                     cfg.get("substitution_patterns"), extra=redact)
+                     cfg.get("substitution_patterns"), extra=lambda text: redact(lan(text)))
 
 
 def _glob_rx(glob: str) -> re.Pattern:
@@ -354,51 +465,77 @@ def convert_sops(path: Path) -> bool:
 
 # ---------------------------------------------------------------- verification
 
+# Pinned: a mutable tag would change the gate's behaviour unreviewed, and the image is mounted
+# over the whole tree. Bump version and digest together by hand (scripts/ is not scanned by Renovate).
+GITLEAKS_IMAGE = "zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f"
+
+
 def run_gitleaks(root: Path, cfg: dict) -> int:
-    """Independent secret scan, containerised. Returns failure count (0 if unavailable).
+    """Independent secret scan, containerised. Returns the failure count.
+
+    Fails closed: no docker, a crashed container, a missing or unparseable report all count
+    as a failure, never as a pass (--skip-gitleaks opts out explicitly).
 
     Worth the extra step: the hand-written config only removes what someone thought of,
     and gitleaks is what found the MapTiler API key hiding in a URL query parameter.
     """
     if not shutil.which("docker"):
-        print("   docker not found - SKIPPED (run gitleaks manually before publishing)")
-        return 0
+        print("  FAIL docker not found: gitleaks did not run (install docker, or pass --skip-gitleaks)")
+        return 1
 
-    allow = {a["fingerprint"]: a.get("reason", "") for a in (cfg.get("gitleaks_allowlist") or [])}
+    # Keyed on file, rule and a hash of the matched secret: a finding of the same rule in the
+    # same file but with another value is NOT admitted, and a shifting line number does not matter.
+    allow = {(a["file"], a["rule"], a["secret_sha256"]): a.get("reason", "")
+             for a in (cfg.get("gitleaks_allowlist") or [])}
 
     # `-r /dev/stdout` produces nothing in this image, so the report goes to a file. It is
-    # written to the scratch parent, not into the tree, so it can never reach the branch.
-    # MSYS_NO_PATHCONV stops Git Bash rewriting /repo into a Windows path.
+    # written to the scratch parent, not into the tree, so it can never reach the branch. It is
+    # not redacted (the hash needs the value) and is deleted below. MSYS_NO_PATHCONV stops Git
+    # Bash rewriting /repo into a Windows path.
     report = root.parent / "gitleaks.json"
-    subprocess.run(
-        ["docker", "run", "--rm", "-v", f"{root}:/repo", "-v", f"{root.parent}:/out",
-         "zricethezav/gitleaks:latest", "detect", "--source=/repo", "--no-git",
-         "--redact", "-f", "json", "-r", "/out/gitleaks.json"],
-        capture_output=True, text=True,
-        env={**os.environ, "MSYS_NO_PATHCONV": "1"},
-    )
-    if not report.exists():
-        print("   gitleaks produced no report - SKIPPED (run it manually before publishing)")
-        return 0
+    report.unlink(missing_ok=True)
     try:
-        findings = json.loads(report.read_text(encoding="utf-8") or "[]") or []
-    except json.JSONDecodeError:
-        print("   could not parse gitleaks report - SKIPPED")
-        return 0
+        r = subprocess.run(
+            ["docker", "run", "--rm", "-v", f"{root}:/repo", "-v", f"{root.parent}:/out",
+             GITLEAKS_IMAGE, "detect", "--source=/repo", "--no-git",
+             "-f", "json", "-r", "/out/gitleaks.json"],
+            capture_output=True, text=True,
+            env={**os.environ, "MSYS_NO_PATHCONV": "1"},
+        )
+        # 0: clean. 1: findings (gitleaks' default --exit-code). Anything else is a failure to scan.
+        if r.returncode not in (0, 1):
+            print(f"  FAIL gitleaks exited {r.returncode}: {(r.stderr or r.stdout).strip()[-300:]}")
+            return 1
+        if not report.exists():
+            print("  FAIL gitleaks produced no report")
+            return 1
+        try:
+            findings = json.loads(report.read_text(encoding="utf-8") or "null")
+        except json.JSONDecodeError:
+            print("  FAIL could not parse the gitleaks report")
+            return 1
+        if not isinstance(findings, list):
+            print("  FAIL the gitleaks report is not a list")
+            return 1
     finally:
         report.unlink(missing_ok=True)
+    if (r.returncode == 1) != bool(findings):
+        print(f"  FAIL gitleaks exit code {r.returncode} disagrees with its report ({len(findings)} finding(s))")
+        return 1
 
-    failures = 0
+    failures, used = 0, set()
     for f in findings:
-        fp = f.get("Fingerprint", "")
-        # allowlist keyed on file:rule, so a line number shifting does not silently
-        # re-admit a real finding under a stale fingerprint
-        key = f"{f.get('File','')}:{f.get('RuleID','')}"
+        name = f.get("File", "").removeprefix("/repo/")
+        digest = hashlib.sha256(f.get("Secret", "").encode()).hexdigest()
+        key = (name, f.get("RuleID", ""), digest)
         if key in allow:
-            print(f"   allowed  {key}  ({allow[key]})")
+            used.add(key)
+            print(f"   allowed  {name}:{key[1]}  ({allow[key]})")
             continue
-        print(f"  FAIL {f.get('File')}:{f.get('StartLine')}  [gitleaks {f.get('RuleID')}]")
+        print(f"  FAIL {name}:{f.get('StartLine')}  [gitleaks {f.get('RuleID')}]  secret_sha256 {digest}")
         failures += 1
+    for key in sorted(set(allow) - used):
+        print(f"   note: allowlist entry {key[0]}:{key[1]} matched nothing; remove it")
     if not failures:
         print(f"   clean: {len(findings)} finding(s), all allowlisted")
     return failures
@@ -410,6 +547,7 @@ def verify(root: Path, cfg: dict, secrets: list[str]) -> int:
     needles += [(a, "substitution source") for a, _ in (cfg.get("substitutions") or [])]
     needles += [(n, "must_not_appear") for n in (cfg.get("must_not_appear") or [])]
     needles += [(s, "extracted secret") for s in secrets]
+    needles.append((SOPS_MARKER + ",data:", "SOPS ciphertext"))  # convert_sops promises none survives
 
     keeps = cfg.get("keep") or []
     failures = 0
@@ -439,7 +577,12 @@ def verify(root: Path, cfg: dict, secrets: list[str]) -> int:
             for line_no, line in enumerate(text.splitlines(), 1):
                 if needle.lower() not in line.lower():
                     continue
-                if any(k in line for k in keeps):
+                # Mask each kept API group / finalizer, then look again: a real hostname or
+                # secret sharing the line with one must still be reported.
+                masked = line.lower()
+                for k in keeps:
+                    masked = masked.replace(k.lower(), "<kept>")
+                if needle.lower() not in masked:
                     continue
                 shown = needle if kind != "extracted secret" else f"<{kind}, {len(needle)} chars>"
                 print(f"  FAIL {p.relative_to(root)}:{line_no}  [{kind}] {shown}")
@@ -456,6 +599,8 @@ def main() -> int:
     ap.add_argument("--branch", default="public-template")
     ap.add_argument("--keep-scratch", action="store_true",
                     help="leave the scratch tree in place for inspection")
+    ap.add_argument("--skip-gitleaks", action="store_true",
+                    help="do not run the gitleaks gate (it otherwise fails when docker is missing)")
     ap.add_argument("--no-commit", action="store_true",
                     help="build and verify only; do not create the branch")
     args = ap.parse_args()
@@ -532,8 +677,14 @@ def main() -> int:
         print("== verify: denylist")
         failures = verify(tree, cfg, secrets)
 
+        print("== verify: LAN addresses")
+        failures += verify_lan(tree, cfg)
+
         print("== verify: gitleaks")
-        failures += run_gitleaks(tree, cfg)
+        if args.skip_gitleaks:
+            print("   SKIPPED (--skip-gitleaks): run gitleaks manually before publishing")
+        else:
+            failures += run_gitleaks(tree, cfg)
         if failures:
             print(f"\n{failures} leak(s) found — nothing was committed.")
             print(f"Scratch tree kept for inspection: {tree}")

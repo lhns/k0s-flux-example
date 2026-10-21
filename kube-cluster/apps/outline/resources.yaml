@@ -33,7 +33,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: redis
-          image: redis:8-alpine
+          image: redis:8.8.1-alpine@sha256:8096655e437712b07503796fb64d81359256cfcff0ab29d95a7da72863786efb
           resources:
             requests:
               memory: 32Mi
@@ -42,6 +42,7 @@ spec:
           ports:
             - {name: redis, containerPort: 6379}
           readinessProbe:
+            timeoutSeconds: 5
             exec: {command: ["redis-cli", "ping"]}
             initialDelaySeconds: 5
             periodSeconds: 10
@@ -115,10 +116,16 @@ spec:
         fsGroup: 1001               # Outline runs as nodejs (uid/gid 1001)
       containers:
         - name: outline
-          image: outlinewiki/outline:1.10.1
+          image: outlinewiki/outline:1.11.0
           ports:
             - {name: http, containerPort: 3000}
+          resources:
+            requests:
+              memory: 384Mi
+            limits:
+              memory: 1Gi
           readinessProbe:
+            timeoutSeconds: 5
             httpGet: {path: /_health, port: http}
             initialDelaySeconds: 15
             periodSeconds: 10

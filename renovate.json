@@ -1,7 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
-  "ignorePaths": ["templates/**", "scripts/**"],
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigestsToSemver"],
+  "ignorePaths": ["templates/**", "scripts/**", "tests/**"],
   "platformAutomerge": false,
   "description": [
     "rebaseWhen=conflicted, not the default auto: platformAutomerge is off, so Renovate merges only during its own run (every 3h), and under auto each merge leaves the others behind base and costs them another cycle."
@@ -30,11 +30,11 @@
       "versioningTemplate": "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)\\+k0s\\.(?<build>\\d+)$"
     },
     {
-      "description": "Kubernetes image volumes. The built-in kubernetes manager looks for `image: <string>`, but an image volume spells it `image: {reference: repo:tag}` — a mapping — so it sees nothing and the reference would silently stop being bumped. Anchored on an explicit `# renovate: datasource=docker` comment rather than matching every `reference:` in the repo, because composed artifacts (apps/freshrss) use that same key for a ${...} ref substituted at apply time, which must NOT be tracked.",
+      "description": "Kubernetes image volumes. The built-in kubernetes manager looks for `image: <string>`, but an image volume spells it `image: {reference: repo:tag}` — a mapping — an ImageComposition layer `image: {ref: ...}` and a Grafana CR `version:` (apps/grafana) likewise, so it sees nothing and the reference would silently stop being bumped. Anchored on an explicit `# renovate: datasource=docker` comment rather than matching every `reference:` in the repo, because composed artifacts (apps/freshrss) use that same key for a ${...} ref substituted at apply time, which must NOT be tracked.",
       "customType": "regex",
       "managerFilePatterns": ["/(kube-cluster|kube-test-cluster|shared)/.*\\.ya?ml$/"],
       "matchStrings": [
-        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+reference:\\s*[\"']?(?<depName>[^\"'\\s:]+):(?<currentValue>[^\"'\\s@]+)"
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+(?:reference|ref|version):\\s*[\"']?(?<depName>[^\"'\\s:]+):(?<currentValue>[^\"'\\s@]+)(?:@(?<currentDigest>sha256:[a-f0-9]+))?"
       ]
     },
     {
@@ -68,13 +68,14 @@
       ]
     },
     {
-      "description": "PyPI pins in an ImageBuild's inline Dockerfile (apps/matrix/artifacts/). Same blind spot as the FROM manager above: a pip command inside a YAML string is invisible to every built-in manager, so these pins would silently never move. The package name is read off the install line rather than a depName= in the comment, so one package per RUN. They are pinned at all so the Dockerfile says what is deployed: unpinned, a rebuild silently ships whatever PyPI serves that day.",
+      "description": "PyPI and npm pins in an ImageBuild's inline Dockerfile (apps/matrix/artifacts/, apps/hermes/artifacts/). Same blind spot as the FROM manager above: a pip command inside a YAML string is invisible to every built-in manager, so these pins would silently never move. The package name is read off the install line rather than a depName= in the comment, so one package per RUN. They are pinned at all so the Dockerfile says what is deployed: unpinned, a rebuild silently ships whatever PyPI serves that day.",
       "customType": "regex",
       "managerFilePatterns": [
         "/(kube-cluster|kube-test-cluster|shared)/.*\\.ya?ml$/"
       ],
       "matchStrings": [
-        "#\\s*renovate:\\s*datasource=(?<datasource>pypi)\\s+RUN pipx? install[^\\n]*?\\s(?<depName>[A-Za-z0-9._-]+)==(?<currentValue>[^\\s\"']+)"
+        "#\\s*renovate:\\s*datasource=(?<datasource>pypi)\\s+RUN pipx? install[^\\n]*?\\s(?<depName>[A-Za-z0-9._-]+)==(?<currentValue>[^\\s\"']+)",
+        "#\\s*renovate:\\s*datasource=(?<datasource>npm)\\s+RUN npm install[^\\n]*?\\s(?<depName>@?[A-Za-z0-9._/-]+)@(?<currentValue>[^\\s\"']+)"
       ]
     },
     {
@@ -85,6 +86,14 @@
         "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)\\s+version:\\s*\"(?<currentValue>[^\"]+)\""
       ],
       "extractVersionTemplate": "^v(?<version>.+)$"
+    },
+    {
+      "description": "The collector image in the cephadm spec (external/ceph/cephadm). Not a Kubernetes object, so the kubernetes manager skips it; anchored on the `# renovate:` comment above `image:`. Keep the tag equal to the cluster collectors': the receiver version is a label on every series.",
+      "customType": "regex",
+      "managerFilePatterns": ["/^kube-cluster/external/ceph/cephadm/otel-collector\\.yaml$/"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)\\s+image:\\s*docker\\.io/[^:\\s]+:(?<currentValue>[^@\\s]+)(?:@(?<currentDigest>sha256:[a-f0-9]+))?"
+      ]
     },
     {
       "description": "A version held in a workflow's env: (RENOVATE_VERSION in renovate.yml). The github-actions manager reads uses:, not env values. Anchored on a `# renovate: datasource= depName=` comment on the preceding line.",
@@ -279,6 +288,13 @@
       "automerge": false
     },
     {
+      "description": "The Paperclip image is pinned twice and the two must move together: the Deployment, and the ImageComposition in apps/hermes/artifacts from which Hermes loads the server's own task-bridge skill (so the skill always matches the server).",
+      "matchFileNames": ["kube-cluster/apps/paperclip/*.yaml", "kube-cluster/apps/hermes/artifacts/*.yaml"],
+      "matchPackageNames": ["ghcr.io/paperclipai/paperclip"],
+      "groupName": "paperclip",
+      "automerge": false
+    },
+    {
       "description": "One PR for all VictoriaMetrics images. Mixed versions across the cluster are unsupported.",
       "matchPackageNames": [
         "victoriametrics/vminsert",
@@ -316,6 +332,11 @@
       "dependencyDashboardApproval": true,
       "automerge": false,
       "addLabels": ["mariadb-datadir"]
+    },
+    {
+      "description": "A merged bump of the cephadm spec changes nothing on Ceph until the owner applies it and runs `ceph orch redeploy`, so it is never automerged (external/ceph/README.md).",
+      "matchFileNames": ["kube-cluster/external/ceph/cephadm/otel-collector.yaml"],
+      "automerge": false
     }
   ]
 }

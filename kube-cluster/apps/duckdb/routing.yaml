@@ -10,7 +10,7 @@ metadata:
   namespace: duckdb
 spec:
   redirectRegex:
-    regex: "^https://duckdb.kube.example.com/(.*)"
+    regex: "^https?://[^/]+/(.*)"
     replacement: "https://duckdb.example.com/${1}"
     permanent: true
 ---
@@ -25,8 +25,8 @@ spec:
     - kind: Rule
       match: Host(`duckdb.kube.example.com`)
       services:
-        - name: duckdb
-          port: 4214
+        - name: noop@internal
+          kind: TraefikService
       middlewares:
         - name: duckdb-kube-redirect
   tls: {}

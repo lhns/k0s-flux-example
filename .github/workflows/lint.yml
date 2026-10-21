@@ -25,82 +25,94 @@ jobs:
     # which spends Actions minutes.
     runs-on: ${{ inputs.runner == 'github-hosted' && 'ubuntu-latest' || 'k0s-flux' }}
     steps:
-      - uses: actions/checkout@v7
-      # A cached schema is never refetched: bump the prefix (here and at the save) when an
-      # upstream CRD gains a field this repo starts using.
-      - name: Restore schema cache
-        uses: actions/cache/restore@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # kubeconform's schemas, check-fetch-digests.py's verified pairs and the apt .debs. A
+      # cached schema is never refetched: a Flux upgrade (gotk-components.yaml) starts a fresh
+      # cache; bump the prefix (here and at the save) for any other CRD that gains a field.
+      - name: Restore cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: .cache/kubeconform
-          key: kubeconform-schemas-v2-${{ github.run_id }}
-          restore-keys: kubeconform-schemas-v2-
-      - name: Restore fetch-digest cache
-        uses: actions/cache/restore@v6
-        with:
-          path: .cache/fetch-digests
-          key: fetch-digests-${{ github.run_id }}
-          restore-keys: fetch-digests-
-      # Keyed on this file, so a version bump below fetches once and is cached again.
-      - name: Restore tool cache
-        id: tool-cache
-        uses: actions/cache/restore@v6
-        with:
-          path: .cache/ci-tools
-          key: ci-tools-${{ runner.os }}-${{ hashFiles('.github/workflows/lint.yml') }}
+          path: |
+            .cache/kubeconform
+            .cache/fetch-digests
+            .cache/debs
+          key: lint-cache-v1-${{ hashFiles('*/flux-system/gotk-components.yaml') }}-${{ github.run_id }}
+          restore-keys: lint-cache-v1-${{ hashFiles('*/flux-system/gotk-components.yaml') }}-
       - name: Install tools
+        id: tools
         run: |
           set -euo pipefail
-          # ubuntu-latest and the k0s-flux runner base both ship yamllint.
-          sudo apt-get update -qq
-          # python3-yaml: scripts/check-substitution.py parses kustomize output; yamllint's
-          # PyYAML is not necessarily the system interpreter's.
-          sudo apt-get install -y -qq python3-yaml
-          t=.cache/ci-tools; mkdir -p "$t"
+          echo "cache=${{ hashFiles('.cache/kubeconform/*', '.cache/fetch-digests', '.cache/debs/*') }}" >> "$GITHUB_OUTPUT"
+          bin="$RUNNER_TEMP/bin"; mkdir -p "$bin"; echo "$bin" >> "$GITHUB_PATH"
           fetch() { curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 "$1"; }
+          # <url> <tar member> <version command...>: download unless the command on PATH already
+          # reports the url's version. The k0s-flux runner image ships kustomize and helm at
+          # these pins (apps/github-runner); ubuntu-latest does not.
+          get() {
+            local url="$1" member="$2" v have; shift 2
+            v="$(grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' <<<"$url" | head -1)"
+            have="$("$@" 2>/dev/null || true)"
+            if grep -q "^$v\b" <<<"$have"; then echo "$1 $v: preinstalled"; return; fi
+            echo "$1 $v: downloading"
+            fetch "$url" | tar -xz -C "$bin" --strip-components="$(tr -cd / <<<"$member" | wc -c)" "$member"
+          }
           # renovate: datasource=github-releases depName=kubernetes-sigs/kustomize
           url=https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.8.3/kustomize_v5.8.3_linux_amd64.tar.gz
-          [ -x "$t/kustomize" ] || fetch "$url" | tar -xz -C "$t" kustomize
+          get "$url" kustomize kustomize version
           # renovate: datasource=github-releases depName=yannh/kubeconform
           url=https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz
-          [ -x "$t/kubeconform" ] || fetch "$url" | tar -xz -C "$t" kubeconform
+          get "$url" kubeconform kubeconform -v
           # Pinned, not tracked by Renovate: the golden file is rendered helm output, so a
           # version whose sprig formats differently reads as a behaviour change.
-          [ -x "$t/helm" ] || fetch "https://get.helm.sh/helm-v3.16.4-linux-amd64.tar.gz" | tar -xz -C "$t" --strip-components=1 linux-amd64/helm
-          sudo install -m 0755 "$t/kustomize" "$t/kubeconform" "$t/helm" /usr/local/bin/
-      - name: Save tool cache
-        if: steps.tool-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: .cache/ci-tools
-          key: ci-tools-${{ runner.os }}-${{ hashFiles('.github/workflows/lint.yml') }}
-      - name: Install per-component test tools
-        # Read from the components' tests/tools manifests rather than a list kept here, so
-        # adding a component test cannot leave CI silently missing its tool. Format is
-        # `executable [apt-package]`; the package defaults to the executable name, and `-`
-        # means the step above already installed it -- apt has no package for it.
-        run: |
-          set -euo pipefail
-          pkgs=$( (cat */*/*/tests/tools 2>/dev/null || true) | sed 's/#.*//' | awk 'NF && $2 != "-" { print ($2 == "" ? $1 : $2) }' | sort -u)
-          echo "packages: $pkgs"
-          if [ -n "$pkgs" ]; then sudo apt-get install -y -qq $pkgs; fi
+          get https://get.helm.sh/helm-v3.16.4-linux-amd64.tar.gz linux-amd64/helm helm version --short
+
+          # apt only for what is missing; both runners ship yamllint, curl and python3.
+          # python3-yaml: the check scripts parse YAML; yamllint's PyYAML is not necessarily the
+          # system interpreter's.
+          pkgs="$(python3 -c 'import yaml' 2>/dev/null || echo python3-yaml)"
+          # Per-component test tools, read from the components' tests/tools manifests rather than
+          # a list kept here, so adding a component test cannot leave CI silently missing its
+          # tool. Format is `executable [apt-package]`; the package defaults to the executable
+          # name, and `-` means it is installed above -- apt has no package for it.
+          while read -r exe pkg; do
+            command -v "$exe" >/dev/null || pkgs="$pkgs ${pkg:-$exe}"
+          done < <( (cat */*/*/tests/tools 2>/dev/null || true) | sed 's/#.*//' | awk 'NF && $2 != "-"')
+          pkgs="$(tr ' ' '\n' <<<"$pkgs" | sort -u | xargs)"
+          echo "apt packages: ${pkgs:-none}"
+          # The .debs are cached with the list they were fetched for: `apt-get update` alone takes
+          # ~10s here. Without an index apt installs only from those files and what is installed,
+          # so a changed list or runner image fails here and falls through to the network.
+          debs="$PWD/.cache/debs"
+          if [ -z "$pkgs" ]; then
+            :
+          elif [ "$(cat "$debs/packages" 2>/dev/null)" = "$pkgs" ] &&
+              sudo apt-get install -y -qq --no-install-recommends "$debs"/*.deb; then
+            echo "installed from the cached .debs"
+          else
+            sudo apt-get update -qq
+            sudo rm -rf "$debs"; mkdir -p "$debs/partial"
+            sudo apt-get install -y -qq --no-install-recommends --download-only -o Dir::Cache::Archives="$debs" $pkgs
+            # apt leaves a root-only lock there, which the cache save cannot read.
+            sudo rm -rf "$debs/lock" "$debs/partial"; sudo chown -R "$(id -u):$(id -g)" "$debs"
+            sudo apt-get install -y -qq --no-install-recommends "$debs"/*.deb
+            echo "$pkgs" > "$debs/packages"
+          fi
       - name: Validate
         id: validate
         # ALLOW_SKIP=0: a missing tool must fail CI, never print a skip and go green.
         env:
           ALLOW_SKIP: "0"
         run: bash scripts/validate.sh
-      - name: Save schema cache
-        if: always()
-        uses: actions/cache/save@v6
+      # Only when this run added to it: an unchanged upload still costs seconds.
+      - name: Save cache
+        if: always() && hashFiles('.cache/kubeconform/*', '.cache/fetch-digests', '.cache/debs/*') != steps.tools.outputs.cache
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: .cache/kubeconform
-          key: kubeconform-schemas-v2-${{ github.run_id }}
-      - name: Save fetch-digest cache
-        if: always()
-        uses: actions/cache/save@v6
-        with:
-          path: .cache/fetch-digests
-          key: fetch-digests-${{ github.run_id }}
+          path: |
+            .cache/kubeconform
+            .cache/fetch-digests
+            .cache/debs
+          key: lint-cache-v1-${{ hashFiles('*/flux-system/gotk-components.yaml') }}-${{ github.run_id }}
       # Mirror the validate result to a commit status Renovate can read (see top-of-file
       # note). Posted to the PR head SHA so it lands on the branch tip Renovate checks.
       - name: Report lint status for Renovate
@@ -113,5 +125,5 @@ jobs:
           gh api -X POST "repos/${{ github.repository }}/statuses/$SHA" \
             -f state="$STATE" \
             -f context="lint" \
-            -f description="kubeconform + yamllint" \
+            -f description="scripts/validate.sh" \
             -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

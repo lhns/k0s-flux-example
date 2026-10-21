@@ -1,0 +1,32 @@
+# Comments here are shipped config: editing them restarts the pod.
+# No models yet. Add one under model_list; keys come from env vars (README, "Add a provider").
+#
+# OpenAI-compatible hosted provider:
+#   - model_name: gpt-x
+#     litellm_params:
+#       model: openai/<model-id>
+#       api_key: os.environ/OPENAI_API_KEY
+#
+# Self-hosted Ollama / vLLM (OpenAI-compatible endpoint; the key may be any string):
+#   - model_name: local-llama
+#     litellm_params:
+#       model: openai/<served-model-name>
+#       api_base: http://vllm.vllm.svc:8000/v1
+#       api_key: os.environ/VLLM_API_KEY
+#
+# OpenRouter:
+#   - model_name: or-llama
+#     litellm_params:
+#       model: openrouter/meta-llama/llama-3.3-70b-instruct
+#       api_key: os.environ/OPENROUTER_API_KEY
+model_list: []
+
+litellm_settings:
+  # Seconds per upstream call; slow self-hosted models may need more.
+  request_timeout: 600
+  # Leave false: silently dropping unsupported params hides a bad client request.
+  drop_params: false
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL

@@ -4,12 +4,13 @@ metadata:
   annotations:
     # Read by the root generator; inert to kustomize.
     #
-    # MetalLB for the cheogram-sip-lb VIP (10.20.2.81); reflector because prosody in the
+    # MetalLB for the cheogram-sip-lb VIP (10.20.176.150); reflector because prosody in the
     # snikket ns reads the same two component secrets; reloader for the annotation on the
-    # Deployment; app-snikket because the gateway is useless without the prosody components
-    # it connects to; app-matrix-substitution-secrets because it owns livekit-sip-trunk,
+    # Deployment; app-matrix-substitution-secrets because it owns livekit-sip-trunk,
     # which reflector mirrors here and render-config exits non-zero without.
-    flux-component-generator/dependsOn: infra-metallb,infra-reflector,infra-reloader,app-snikket,app-matrix-substitution-secrets
+    # NOT app-snikket: snikket's pod needs cheogram-sip-components, which this component
+    # creates, so that dependsOn deadlocks a fresh cluster. wait-prosody orders the start.
+    flux-component-generator/dependsOn: infra-metallb,infra-reflector,infra-reloader,app-matrix-substitution-secrets
 resources:
 - resources.yaml
 - routing-release.yaml

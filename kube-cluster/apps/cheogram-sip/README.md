@@ -98,7 +98,7 @@ both trunks -- SIP/UDP 5060 outbound REGISTER only, no inbound forward
     |
 [pod: asterisk + cheogram-sip] --XEP-0114 x2, plaintext, pod network--> snikket pod, :5347
     |
-    cheogram-sip-lb, MetalLB 10.20.2.81, externalTrafficPolicy: Local, 50 UDP ports
+    cheogram-sip-lb, MetalLB 10.20.176.150, externalTrafficPolicy: Local, 50 UDP ports
 ```
 
 Two containers in one pod, from two different images: Asterisk from our fork, and the
@@ -273,9 +273,10 @@ Asterisk wants its own config syntax. The TSV is the shell half — `name`, `use
 `host`, `contact_user`, `peer_secret_file`, TAB separated, one `while read` away. `peer_secret_file` is last because TAB is IFS whitespace, so
 `read` collapses a run of them and only the last field may be empty.
 
-`routing-release.yaml` is the HelmRelease, pointing at a path in this repo against the
-`flux-system` GitRepository — the same arrangement as `flux-system/generators.yaml`, and
-`reconcileStrategy: Revision` for the same reason: editing the values bumps no chart version.
+`routing-release.yaml` is the HelmRelease plus an ArtifactGenerator that packs `routing/` into
+its own ExternalArtifact, the same arrangement as the generator charts (ADR 0047). Its revision
+is a hash of `routing/`, so editing the values re-renders without a chart version bump, and a
+commit elsewhere does not.
 Three ConfigMaps because their readers reload differently. `pbx_lua` gives each channel its own
 `lua_State` and re-executes `extensions.lua` per call, so `load_routing`'s `loadfile` re-reads
 the mount every call: a routing edit is live once kubelet refreshes the volume, with no
@@ -431,7 +432,7 @@ not route anywhere, and would put a resolver in the call path.
 | `203.0.113.10` | `routing/values.yaml` `external_address`, `rtp.conf` `ice_host_candidates`, `coturn/turnserver.conf`, and `matrix/livekit-config.yaml` `node_ip` | The static tunnel address, duplicated across three apps with no single source of truth. Wrong value means one-way audio in SIP, dead TURN relays and silent Element Call phone calls from off the LAN at once. |
 | `10.20.0.0/16`, `172.18.0.0/16`, `172.19.0.0/16` | `routing/values.yaml` `local_nets` | LAN, podCIDR, serviceCIDR. Only change on a cluster rebuild. |
 | `matrix-sip-bridge.matrix.svc.cluster.local` | the `[matrixbridge]` AOR contact and `extensions.lua`'s `bridge_host` | A MESSAGE's Request-URI is routed as written, so the dialplan needs the name too; `tests/check-routing.py` holds the two together. |
-| `10.20.2.81` | `metallb/pool.yaml` and the Service | Ours. |
+| `10.20.176.150` | `metallb/pool.yaml` and the Service | Ours. |
 
 eventpbx's SBC is deliberately **not** pinned; it is resolved from `voip.example.org`.
 
@@ -441,9 +442,9 @@ healthy pre-registration answer, and proves reachability plus that the source is
 ```bash
 python3 -c '
 import socket
-m=("OPTIONS sip:sip.example.net SIP/2.0\r\nVia: SIP/2.0/UDP 10.20.5.15:5064;branch=z9hG4bKp;rport\r\n"
+m=("OPTIONS sip:sip.example.net SIP/2.0\r\nVia: SIP/2.0/UDP 10.20.150.84:5064;branch=z9hG4bKp;rport\r\n"
    "Max-Forwards: 70\r\nFrom: <sip:p@sip.example.net>;tag=p\r\nTo: <sip:sip.example.net>\r\n"
-   "Call-ID: probe\r\nCSeq: 1 OPTIONS\r\nContact: <sip:p@10.20.5.15:5064>\r\nContent-Length: 0\r\n\r\n")
+   "Call-ID: probe\r\nCSeq: 1 OPTIONS\r\nContact: <sip:p@10.20.150.84:5064>\r\nContent-Length: 0\r\n\r\n")
 s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.settimeout(8); s.bind(("",5064))
 s.sendto(m.encode(),("10.21.27.11",5060)); print(s.recvfrom(4096)[0].decode().split("\r\n")[0])'
 ```
@@ -453,7 +454,7 @@ while UDP 5060 works perfectly.
 
 ## Router
 
-Forward to `10.20.2.81`:
+Forward to `10.20.176.150`:
 
 | port | protocol | why |
 | --- | --- | --- |
@@ -479,7 +480,7 @@ The RouterOS SIP helper (`/ip firewall service-port sip`) is disabled: a SIP ALG
 Contact and SDP conflicts with Asterisk setting its own `external_*_address`.
 
 Separately, and unrelated to this app, **Snikket itself needs TCP 5222 and TCP 5269 forwarded
-to `10.20.2.15`**. 5269 is what carries push notifications, and push is what wakes a
+to `10.20.176.210`**. 5269 is what carries push notifications, and push is what wakes a
 backgrounded phone for an incoming call, so without it a call does not ring even while the
 gateway works.
 

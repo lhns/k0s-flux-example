@@ -4,7 +4,7 @@
 that mirrors Traefik "policy" CRDs (`Middleware`, `MiddlewareTCP`, `TLSOption`,
 `ServersTransport`, `ServersTransportTCP`) across namespaces based on a per-resource
 annotation. It lets routers reference those objects **locally**, so Traefik's global
-`allowCrossNamespace` / `crossProviderNamespaces` can eventually be turned off.
+`allowCrossNamespace` / `crossProviderNamespaces` are turned off.
 
 - `release.yaml` — Flux `OCIRepository` + `HelmRelease` off the chart at
   `oci://ghcr.io/lhns/charts/kube-traefik-reflector`.

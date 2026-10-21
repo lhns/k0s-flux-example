@@ -1,8 +1,5 @@
 ---
-# MetalLB L2 address pool for the traefik LoadBalancer VIP.
-# MetalLB itself is installed via the k0s helm extension (k0sctl.yaml); only its
-# address config lives here (same split as cert-manager/traefik: operator in
-# k0sctl, config in Flux). Adopts the previously hand-applied CRs.
+# Address pools; each comment names the VIP's owner.
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
@@ -10,7 +7,7 @@ metadata:
   namespace: metallb-system
 spec:
   addresses:
-    - 10.20.2.15/32
+    - 10.20.176.210/32
 ---
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
@@ -31,7 +28,7 @@ metadata:
   namespace: metallb-system
 spec:
   addresses:
-    - 10.20.2.16/32
+    - 10.20.176.90/32
 ---
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
@@ -52,7 +49,7 @@ metadata:
   namespace: metallb-system
 spec:
   addresses:
-    - 10.20.2.17/32
+    - 10.20.176.224/32
 ---
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
@@ -73,7 +70,7 @@ metadata:
   namespace: metallb-system
 spec:
   addresses:
-    - 10.20.2.18/32
+    - 10.20.176.138/32
 ---
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
@@ -94,7 +91,7 @@ metadata:
   namespace: metallb-system
 spec:
   addresses:
-    - 10.20.2.8/32
+    - 10.20.176.66/32
 ---
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
@@ -116,7 +113,7 @@ metadata:
   namespace: metallb-system
 spec:
   addresses:
-    - 10.20.2.19/32
+    - 10.20.176.222/32
 ---
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
@@ -139,7 +136,7 @@ metadata:
   namespace: metallb-system
 spec:
   addresses:
-    - 10.20.2.9/32
+    - 10.20.176.236/32
 ---
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
@@ -162,7 +159,7 @@ metadata:
   namespace: metallb-system
 spec:
   addresses:
-    - 10.20.2.14/32
+    - 10.20.176.58/32
 ---
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
@@ -187,7 +184,7 @@ metadata:
   namespace: metallb-system
 spec:
   addresses:
-    - 10.20.2.80/32
+    - 10.20.176.75/32
 ---
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
@@ -212,7 +209,7 @@ metadata:
   namespace: metallb-system
 spec:
   addresses:
-    - 10.20.2.81/32
+    - 10.20.176.150/32
 ---
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
@@ -232,7 +229,7 @@ metadata:
   namespace: metallb-system
 spec:
   addresses:
-    - 10.20.2.82/32
+    - 10.20.176.159/32
 ---
 apiVersion: metallb.io/v1beta1
 kind: L2Advertisement

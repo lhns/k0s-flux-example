@@ -12,8 +12,7 @@ resources:
 - resources.yaml
 - vnet.yaml
 configMapGenerator:
-# The launcher OTBR_RADIO_URL forkpty's into. Keyed socat.sh because that is the filename the
-# URL names; the old initContainer wrote the identical script into an emptyDir at every start.
+# The launcher RADIO_URL forkpty's into; keyed socat.sh because the URL names that filename.
 - name: otbr-socat-launcher
   namespace: otbr
   files:

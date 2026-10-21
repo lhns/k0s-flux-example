@@ -1,0 +1,60 @@
+---
+# No forwardAuth on this host: the RDP client cannot follow a redirect (README, "Decisions").
+# Only the paths below are routed, so /metrics and /tokeninfo stay cluster-internal.
+#
+# Per-IP limits. depth: 1 takes the client from X-Forwarded-For (Traefik trusts only the swarm
+# edge); the default keys on the peer, which is the edge, and shares one bucket across the internet.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: rdpgw-signin
+  namespace: rdpgw
+spec:
+  rateLimit:
+    average: 20
+    period: 1m
+    burst: 10
+    sourceCriterion:
+      ipStrategy:
+        depth: 1
+---
+# Looser than sign-in: one RDP connect is a handful of requests. Password guessing over Basic is
+# throttled by rdpgw's lockout, not by this limit.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: rdpgw-gateway
+  namespace: rdpgw
+spec:
+  rateLimit:
+    average: 60
+    period: 1m
+    burst: 20
+    sourceCriterion:
+      ipStrategy:
+        depth: 1
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: rdpgw
+  namespace: rdpgw
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      # Sign-in plus rdpgw's web UI (host list, .rdp download), which needs / and its assets and API.
+      match: Host(`rdp.example.com`) && (Path(`/connect`) || Path(`/callback`) || Path(`/`) || PathPrefix(`/static/`) || PathPrefix(`/assets/`) || PathPrefix(`/api/v1/`))
+      services:
+        - name: rdpgw
+          port: 8080
+      middlewares:
+        - name: rdpgw-signin
+    - kind: Rule
+      match: Host(`rdp.example.com`) && PathPrefix(`/remoteDesktopGateway/`)
+      services:
+        - name: rdpgw
+          port: 8080
+      middlewares:
+        - name: rdpgw-gateway
+  tls: {}

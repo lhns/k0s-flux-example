@@ -685,6 +685,10 @@ access_control:
         - 'dashy.example.com'
         - 'outline.example.com'
       policy: 'one_factor'
+    # Temporary, with the Authelia middleware on apps/nextcloud (php2shell); Nextcloud
+    # still does its own login and authorization.
+    - domain: 'nextcloud.example.com'
+      policy: 'one_factor'
 
     #- domain:
     #    - 'jellyfin.example.com'
@@ -719,12 +723,6 @@ access_control:
         - 'group:arr_admin'
       policy: 'two_factor'
 
-    - domain:
-        - 'traefik.example.com'
-        - 'traefik.kube.example.com'
-      networks:
-        - 'internal'
-      policy: 'bypass'
     - domain:
         - 'traefik.example.com'
         - 'traefik.kube.example.com'
@@ -1538,6 +1536,15 @@ identity_providers:
             subject:
               - 'group:admin'
               - 'group:portainer'
+      # Only this policy gates who can get a gateway token: rdp.example.com has no forwardAuth, so
+      # access_control never sees it.
+      rdpgw:
+        default_policy: 'deny'
+        rules:
+          - policy: 'two_factor'
+            subject:
+              - 'group:admin'
+              - 'group:rdp'
       immich:
         default_policy: 'deny'
         rules:
@@ -1570,6 +1577,11 @@ identity_providers:
             subject:
               - 'group:admin'
               - 'group:homeassistant'
+      hermes-dashboard:
+        default_policy: 'deny'
+        rules:
+          - policy: 'two_factor'
+            subject: 'group:admin'
       grafana:
         default_policy: 'deny'
         rules:
@@ -1816,6 +1828,24 @@ identity_providers:
         authorization_policy: 'portainer'
         consent_mode: 'implicit'
         #claims_policy: 'default'
+      # rdpgw (apps/rdpgw). It requests openid/profile/email only. The username comes from the
+      # id_token's preferred_username, so claims_policy 'default' is required: without it rdpgw
+      # fails the login with "no oidc claim for username found".
+      - client_id: 'rdpgw'
+        client_name: 'Remote Desktop Gateway'
+        client_secret: 'CHANGEME-password-hash'
+        public: false
+        redirect_uris:
+          - 'https://rdp.example.com/callback'
+        scopes:
+          - 'openid'
+          - 'profile'
+          - 'email'
+        userinfo_signed_response_alg: 'none'
+        token_endpoint_auth_method: 'client_secret_basic'
+        authorization_policy: 'rdpgw'
+        consent_mode: 'implicit'
+        claims_policy: 'default'
       # spliit-cloud, via better-auth's genericOAuth plugin.
       #
       # The redirect URI is not guessable from the docs and is the single most likely thing to
@@ -1868,6 +1898,27 @@ identity_providers:
         userinfo_signed_response_alg: 'none'
         token_endpoint_auth_method: 'client_secret_basic'
         authorization_policy: 'grafana'
+        consent_mode: 'implicit'
+        claims_policy: 'default'
+      - client_id: 'hermes-dashboard'
+        client_name: 'Hermes Dashboard'
+        public: true
+        require_pkce: true
+        pkce_challenge_method: 'S256'
+        redirect_uris:
+          - 'https://hermes.example.com/auth/callback'
+        scopes:
+          - 'openid'
+          - 'profile'
+          - 'email'
+          - 'groups'
+        grant_types:
+          - 'authorization_code'
+        response_types:
+          - 'code'
+        userinfo_signed_response_alg: 'none'
+        token_endpoint_auth_method: 'none'
+        authorization_policy: 'hermes-dashboard'
         consent_mode: 'implicit'
         claims_policy: 'default'
       - client_id: 'homeassistant'
@@ -2006,8 +2057,8 @@ identity_providers:
         client_secret: "CHANGEME-password-hash"
         public: false
         redirect_uris:
-          - https://mas.example.com/upstream/callback/01K9APM3HFCHNVCGRXSHPVHYFQ
-          - https://mas.kube.example.com/upstream/callback/01K9APM3HFCHNVCGRXSHPVHYFQ
+          - https://mas.example.com/upstream/callback/01H00000000000000000000001
+          - https://mas.kube.example.com/upstream/callback/01H00000000000000000000001
         scopes:
           - openid
           - groups

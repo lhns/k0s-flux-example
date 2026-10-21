@@ -30,7 +30,7 @@ spec:
     spec:
       containers:
         - name: miniflux
-          image: miniflux/miniflux:2.3.3
+          image: miniflux/miniflux:2.3.4
           env:
             # Canonical host — drives generated links, the PWA manifest, and the API.
             - name: BASE_URL
@@ -54,12 +54,15 @@ spec:
             - name: http
               containerPort: 8080
           readinessProbe:
+            timeoutSeconds: 5
             httpGet:
               path: /healthcheck
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
             failureThreshold: 6
+          resources:
+            limits: {memory: 128Mi}
 ---
 apiVersion: v1
 kind: Service

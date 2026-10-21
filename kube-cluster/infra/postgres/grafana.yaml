@@ -1,0 +1,33 @@
+# Grafana Operator objects of this component (README.md, "Grafana objects"). Each opts out of Flux
+# substitution: rule templates and dashboard JSON are full of ${...}.
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: infra-postgres-postgres
+  namespace: grafana
+spec:
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: cg1t0rly9yuioe # Postgres
+  configMapRef:
+    name: infra-postgres-dashboards
+    key: postgres.json
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: infra-postgres-postgres-database
+  namespace: grafana
+spec:
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: cg1t0rly9yuioe # Postgres
+  configMapRef:
+    name: infra-postgres-dashboards
+    key: postgres-database.json

@@ -44,7 +44,7 @@ spec:
           # a Xeon E5-2680 v2 = Ivy Bridge: has AVX but not AVX2, so x86-64-v3 won't
           # work; IvyBridge is migration-safe across all hosts). If a worker ever
           # shows AVX-NO, mongo will crash-loop -> fix the VM CPU type, not the image.
-          image: mongo:8.3.11
+          image: mongo:8.3.13
           resources:
             requests:
               memory: 256Mi
@@ -114,6 +114,7 @@ spec:
           ports:
             - {name: http, containerPort: 8264}
           readinessProbe:
+            timeoutSeconds: 5
             httpGet: {path: /health, port: http}
             initialDelaySeconds: 10
             periodSeconds: 10
@@ -136,6 +137,9 @@ spec:
             - {name: SMTP_PORT, value: "2500"}
             - {name: SMTP_USERNAME, valueFrom: {secretKeyRef: {name: notesnook, key: SMTP_USERNAME}}}
             - {name: SMTP_PASSWORD, valueFrom: {secretKeyRef: {name: notesnook, key: SMTP_PASSWORD}}}
+          resources:
+            requests: {memory: 192Mi}
+            limits: {memory: 384Mi}
 ---
 apiVersion: v1
 kind: Service
@@ -181,6 +185,7 @@ spec:
           ports:
             - {name: http, containerPort: 5264}
           readinessProbe:
+            timeoutSeconds: 5
             httpGet: {path: /health, port: http}
             initialDelaySeconds: 10
             periodSeconds: 10
@@ -204,11 +209,14 @@ spec:
             - {name: S3_SERVICE_URL, value: https://s3.example.com}
             - {name: S3_INTERNAL_SERVICE_URL, value: https://s3.example.com}
             - {name: S3_REGION, value: us-east-1}
-            - {name: S3_BUCKET_NAME, value: notesbook}
-            - {name: S3_INTERNAL_BUCKET_NAME, value: notesbook}
+            - {name: S3_BUCKET_NAME, value: notes-attachments}
+            - {name: S3_INTERNAL_BUCKET_NAME, value: notes-attachments}
             - {name: ATTACHMENTS_SERVER_PUBLIC_URL, value: https://s3.example.com}
             - {name: S3_ACCESS_KEY_ID, valueFrom: {secretKeyRef: {name: notesnook, key: S3_ACCESS_KEY_ID}}}
             - {name: S3_ACCESS_KEY, valueFrom: {secretKeyRef: {name: notesnook, key: S3_ACCESS_KEY}}}
+          resources:
+            requests: {memory: 192Mi}
+            limits: {memory: 384Mi}
 ---
 apiVersion: v1
 kind: Service
@@ -252,6 +260,7 @@ spec:
           ports:
             - {name: http, containerPort: 7264}
           readinessProbe:
+            timeoutSeconds: 5
             httpGet: {path: /health, port: http}
             initialDelaySeconds: 10
             periodSeconds: 10
@@ -266,6 +275,8 @@ spec:
             - {name: IDENTITY_SERVER_URL, value: https://notes-auth.example.com}
             - {name: NOTESNOOK_APP_HOST, value: https://notes.example.com}
             - {name: NOTESNOOK_API_SECRET, valueFrom: {secretKeyRef: {name: notesnook, key: NOTESNOOK_API_SECRET}}}
+          resources:
+            limits: {memory: 256Mi}
 ---
 apiVersion: v1
 kind: Service
@@ -324,9 +335,12 @@ spec:
           ports:
             - {name: http, containerPort: 80}
           readinessProbe:
+            timeoutSeconds: 5
             httpGet: {path: /, port: http}
             initialDelaySeconds: 10
             periodSeconds: 10
+          resources:
+            limits: {memory: 128Mi}
 ---
 apiVersion: v1
 kind: Service

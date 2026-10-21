@@ -1,0 +1,1553 @@
+{
+  "uid": "ceph-pools",
+  "title": "Ceph pools",
+  "description": "All pools: capacity, compression, client IOPS and bandwidth. Derived from ceph-mixin v20.2.4; provisioned from git (kube-cluster/apps/grafana/dashboards/ceph).",
+  "tags": [
+    "ceph"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "1m",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "links": [
+    {
+      "type": "link",
+      "title": "Ceph cluster",
+      "icon": "dashboard",
+      "url": "/d/ceph-cluster/ceph-cluster",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "Health, capacity, throughput and PGs",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph OSDs",
+      "icon": "dashboard",
+      "url": "/d/ceph-osds/ceph-osds",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "All OSDs",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph OSD device",
+      "icon": "dashboard",
+      "url": "/d/ceph-osd-device/ceph-osd-device",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "One OSD and its device",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph pool",
+      "icon": "dashboard",
+      "url": "/d/ceph-pool/ceph-pool",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "One pool",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph CephFS",
+      "icon": "dashboard",
+      "url": "/d/ceph-cephfs/ceph-cephfs",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "Metadata servers",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph RGW",
+      "icon": "dashboard",
+      "url": "/d/ceph-rgw/ceph-rgw",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "S3 gateways",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph RGW instance",
+      "icon": "dashboard",
+      "url": "/d/ceph-rgw-detail/ceph-rgw-detail",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "One S3 gateway",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Servers",
+      "icon": "dashboard",
+      "url": "/d/servers/servers",
+      "includeVars": false,
+      "keepTime": true,
+      "tooltip": "Host metrics of the Ceph nodes (CPU, memory, disks, network)",
+      "targetBlank": false
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "ds",
+        "label": "Datasource",
+        "type": "datasource",
+        "query": "victoriametrics-metrics-datasource",
+        "refresh": 1,
+        "current": {},
+        "hide": 0
+      },
+      {
+        "name": "cluster",
+        "label": "Cluster",
+        "type": "query",
+        "datasource": {
+          "type": "victoriametrics-metrics-datasource",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "label_values(ceph_health_status, cluster)",
+          "refId": "cluster"
+        },
+        "definition": "label_values(ceph_health_status, cluster)",
+        "regex": "",
+        "refresh": 2,
+        "sort": 1,
+        "multi": false,
+        "includeAll": false,
+        "hide": 0,
+        "current": {}
+      },
+      {
+        "name": "topk",
+        "label": "Top N",
+        "type": "custom",
+        "query": "5,10,15,25",
+        "current": {
+          "text": "15",
+          "value": "15"
+        },
+        "options": [
+          {
+            "text": "5",
+            "value": "5",
+            "selected": false
+          },
+          {
+            "text": "10",
+            "value": "10",
+            "selected": false
+          },
+          {
+            "text": "15",
+            "value": "15",
+            "selected": true
+          },
+          {
+            "text": "25",
+            "value": "25",
+            "selected": false
+          }
+        ],
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Pools",
+      "description": "",
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "targets": [
+        {
+          "expr": "count(ceph_pool_metadata{cluster=~\"$cluster|\", })",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A",
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "N/A",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Pools with Compression",
+      "description": "Count of the pools that have compression enabled",
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 3,
+        "y": 0
+      },
+      "id": 2,
+      "targets": [
+        {
+          "expr": "count(ceph_pool_metadata{compression_mode!=\"none\", cluster=~\"$cluster|\", })",
+          "format": "",
+          "legendFormat": "",
+          "refId": "A",
+          "range": true,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "N/A",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Total Raw Capacity",
+      "description": "Total raw capacity available to the cluster",
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 6,
+        "y": 0
+      },
+      "id": 3,
+      "targets": [
+        {
+          "expr": "sum(ceph_osd_stat_bytes{cluster=~\"$cluster|\", })",
+          "format": "",
+          "legendFormat": "",
+          "refId": "A",
+          "range": true,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "N/A",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Raw Capacity Consumed",
+      "description": "Total raw capacity consumed by user data and associated overheads (metadata + redundancy)",
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 9,
+        "y": 0
+      },
+      "id": 4,
+      "targets": [
+        {
+          "expr": "sum(ceph_pool_bytes_used{cluster=~\"$cluster|\", })",
+          "format": "",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A",
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "N/A",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Logical Stored",
+      "description": "Total of client data stored in the cluster",
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 12,
+        "y": 0
+      },
+      "id": 5,
+      "targets": [
+        {
+          "expr": "sum(ceph_pool_stored{cluster=~\"$cluster|\", })",
+          "format": "",
+          "instant": true,
+          "legendFormat": "",
+          "refId": "A",
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "N/A",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Compression Savings",
+      "description": "A compression saving is determined as the data eligible to be compressed minus the capacity used to store the data after compression",
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 15,
+        "y": 0
+      },
+      "id": 6,
+      "targets": [
+        {
+          "expr": "sum(\n  ceph_pool_compress_under_bytes{cluster=~\"$cluster|\", } -\n    ceph_pool_compress_bytes_used{cluster=~\"$cluster|\", }\n)\n",
+          "format": "",
+          "legendFormat": "",
+          "refId": "A",
+          "range": true,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "N/A",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Compression Eligibility",
+      "description": "Indicates how suitable the data is within the pools that are/have been enabled for compression - averaged across all pools holding compressed data",
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 18,
+        "y": 0
+      },
+      "id": 7,
+      "targets": [
+        {
+          "expr": "(\n  sum(ceph_pool_compress_under_bytes{cluster=~\"$cluster|\", } > 0) /\n    sum(ceph_pool_stored_raw{cluster=~\"$cluster|\", } and ceph_pool_compress_under_bytes{cluster=~\"$cluster|\", } > 0)\n) * 100\n",
+          "format": "table",
+          "legendFormat": "",
+          "refId": "A",
+          "range": true,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "N/A",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Compression Factor",
+      "description": "This factor describes the average ratio of data eligible to be compressed divided by the data actually stored. It does not account for data written that was ineligible for compression (too small, or compression yield too low)",
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 21,
+        "y": 0
+      },
+      "id": 8,
+      "targets": [
+        {
+          "expr": "sum(\n  ceph_pool_compress_under_bytes{cluster=~\"$cluster|\", } > 0)\n    / sum(ceph_pool_compress_bytes_used{cluster=~\"$cluster|\", } > 0\n)\n",
+          "format": "",
+          "legendFormat": "",
+          "refId": "A",
+          "range": true,
+          "instant": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "N/A",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      }
+    },
+    {
+      "columns": [],
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "instance"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "job"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "name"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Pool Name"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "pool_id"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Pool ID"
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Compression Factor"
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #D"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "% Used"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "rgba(245, 54, 54, 0.9)",
+                      "value": null
+                    },
+                    {
+                      "color": "rgba(237, 129, 40, 0.89)",
+                      "value": 70
+                    },
+                    {
+                      "color": "rgba(50, 172, 45, 0.97)",
+                      "value": 85
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Usable Free"
+              },
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #C"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Compression Eligibility"
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #E"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Compression Savings"
+              },
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #F"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Growth (5d)"
+              },
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "rgba(245, 54, 54, 0.9)",
+                      "value": null
+                    },
+                    {
+                      "color": "rgba(237, 129, 40, 0.89)",
+                      "value": 70
+                    },
+                    {
+                      "color": "rgba(50, 172, 45, 0.97)",
+                      "value": 85
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #G"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "IOPS"
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #H"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Bandwidth"
+              },
+              {
+                "id": "unit",
+                "value": "Bps"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "__name__"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "type"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "compression_mode"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "description"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Type"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #J"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Stored"
+              },
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #I"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #K"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Compression"
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 3
+      },
+      "id": 9,
+      "options": {
+        "footer": {
+          "countRows": false,
+          "enablePagination": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "frameIndex": 1,
+        "showHeader": true
+      },
+      "styles": [],
+      "targets": [
+        {
+          "expr": "(\n  ceph_pool_compress_under_bytes{cluster=~\"$cluster|\", } /\n    ceph_pool_compress_bytes_used{cluster=~\"$cluster|\", } > 0\n) and on(pool_id) (\n  (\n    (ceph_pool_compress_under_bytes{cluster=~\"$cluster|\", } > 0) /\n      ceph_pool_stored_raw{cluster=~\"$cluster|\", }\n  ) * 100 > 0.5\n)\n",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "A",
+          "refId": "A",
+          "range": false
+        },
+        {
+          "expr": "ceph_pool_max_avail{cluster=~\"$cluster|\", } *\n  on(pool_id) group_left(name) ceph_pool_metadata{cluster=~\"$cluster|\", }\n",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "B",
+          "refId": "B",
+          "range": false
+        },
+        {
+          "expr": "(\n  (ceph_pool_compress_under_bytes{cluster=~\"$cluster|\", } > 0) /\n    ceph_pool_stored_raw{cluster=~\"$cluster|\", }\n) * 100\n",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "C",
+          "refId": "C",
+          "range": false
+        },
+        {
+          "expr": "ceph_pool_percent_used{cluster=~\"$cluster|\", } *\n  on(pool_id) group_left(name) ceph_pool_metadata{cluster=~\"$cluster|\", }\n",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "D",
+          "refId": "D",
+          "range": false
+        },
+        {
+          "expr": "ceph_pool_compress_under_bytes{cluster=~\"$cluster|\", } -\n  ceph_pool_compress_bytes_used{cluster=~\"$cluster|\", } > 0\n",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "E",
+          "refId": "E",
+          "range": false
+        },
+        {
+          "expr": "delta(ceph_pool_stored{cluster=~\"$cluster|\", }[5d])",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "F",
+          "refId": "F",
+          "range": false
+        },
+        {
+          "expr": "rate(ceph_pool_rd{cluster=~\"$cluster|\", }[$__rate_interval])\n  + rate(ceph_pool_wr{cluster=~\"$cluster|\", }[$__rate_interval])\n",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "G",
+          "refId": "G",
+          "range": false
+        },
+        {
+          "expr": "rate(ceph_pool_rd_bytes{cluster=~\"$cluster|\", }[$__rate_interval]) +\n  rate(ceph_pool_wr_bytes{cluster=~\"$cluster|\", }[$__rate_interval])\n",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "H",
+          "refId": "H",
+          "range": false
+        },
+        {
+          "expr": "ceph_pool_metadata{cluster=~\"$cluster|\", }",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "I",
+          "refId": "I",
+          "range": false
+        },
+        {
+          "expr": "ceph_pool_stored{cluster=~\"$cluster|\", } * on(pool_id) group_left ceph_pool_metadata{cluster=~\"$cluster|\", }",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "J",
+          "refId": "J",
+          "range": false
+        },
+        {
+          "expr": "ceph_pool_metadata{compression_mode!=\"none\", cluster=~\"$cluster|\", }",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "K",
+          "refId": "K",
+          "range": false
+        }
+      ],
+      "timeFrom": null,
+      "timeShift": null,
+      "title": "Pool Overview",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "seriesToRows",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Value #A": true,
+              "Value #B": false,
+              "Value #C": true,
+              "Value #D": false,
+              "Value #E": true,
+              "Value #I": true,
+              "Value #K": true,
+              "__name__": true,
+              "cluster": true,
+              "compression_mode": true,
+              "instance": true,
+              "job": true,
+              "pool_id": true,
+              "type": true
+            },
+            "includeByName": {},
+            "indexByName": {},
+            "renameByName": {}
+          }
+        }
+      ],
+      "type": "table",
+      "description": "One row per pool: free space (`max_avail`), usage, growth over 5 days, client IOPS and bandwidth, compression. **Bad:** a pool with high *Used* or a short time to full; `max_avail` is shared by pools on the same device class and rule."
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "IOPS",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 0,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": []
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "topk($topk,\n  round(\n    (\n      rate(ceph_pool_rd{cluster=~\"$cluster|\", }[$__rate_interval]) +\n      rate(ceph_pool_wr{cluster=~\"$cluster|\", }[$__rate_interval])\n    ), 1\n  ) * on(pool_id) group_left(name) ceph_pool_metadata{cluster=~\"$cluster|\", }\n)\n",
+          "legendFormat": "{{name}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        },
+        {
+          "expr": "topk($topk,\n  rate(ceph_pool_wr{cluster=~\"$cluster|\", }[$__rate_interval]) +\n  on(pool_id) group_left(name) ceph_pool_metadata{cluster=~\"$cluster|\", }\n)\n",
+          "legendFormat": "{{name}} - write",
+          "refId": "B",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "title": "Top $topk Client IOPS by Pool",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Throughput",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 0,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": []
+          },
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "topk($topk,\n  (\n    rate(ceph_pool_rd_bytes{cluster=~\"$cluster|\", }[$__rate_interval]) +\n    rate(ceph_pool_wr_bytes{cluster=~\"$cluster|\", }[$__rate_interval])\n  ) * on(pool_id) group_left(name) ceph_pool_metadata{cluster=~\"$cluster|\", }\n)\n",
+          "legendFormat": "{{name}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "title": "Top $topk Client Bandwidth by Pool",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "Capacity Used",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 8,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 0,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "",
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": []
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 17
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "expr": "ceph_pool_bytes_used{cluster=~\"$cluster|\", } * on(pool_id) group_right ceph_pool_metadata{cluster=~\"$cluster|\", }",
+          "legendFormat": "{{name}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "title": "Pool Capacity Usage (RAW)",
+      "type": "timeseries"
+    }
+  ]
+}

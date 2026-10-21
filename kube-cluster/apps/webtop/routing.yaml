@@ -30,7 +30,7 @@ metadata:
   namespace: webtop
 spec:
   redirectRegex:
-    regex: "^https://webtop.kube.example.com/(.*)"
+    regex: "^https?://[^/]+/(.*)"
     replacement: "https://webtop.example.com/${1}"
     permanent: true
 ---
@@ -45,8 +45,8 @@ spec:
     - kind: Rule
       match: Host(`webtop.kube.example.com`)
       services:
-        - name: webtop
-          port: 3000
+        - name: noop@internal
+          kind: TraefikService
       middlewares:
         - name: webtop-kube-redirect
   tls: {}

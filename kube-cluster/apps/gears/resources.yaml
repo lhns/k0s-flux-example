@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gears
+  namespace: gears
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gears
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gears
+        app.kubernetes.io/instance: gears
+        kube-vnet/net.traefik.traefik: ingress
+    spec:
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      containers:
+        - name: gears
+          image: ghcr.io/lhns/compoundplanetarygearcalculator:1.0.4@sha256:2a6a8cf004aa5daf437d5a7ef877862284bfdcdff407925fca23e0d5ce34f6e8
+          ports:
+            - name: http
+              containerPort: 80
+          securityContext:
+            allowPrivilegeEscalation: false
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          readinessProbe:
+            timeoutSeconds: 5
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gears
+  namespace: gears
+spec:
+  selector:
+    app.kubernetes.io/name: gears
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

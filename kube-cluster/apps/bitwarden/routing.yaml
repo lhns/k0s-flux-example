@@ -48,7 +48,7 @@ metadata:
   namespace: bitwarden
 spec:
   redirectRegex:
-    regex: "^https://bitwarden.kube.example.com/(.*)"
+    regex: "^https?://[^/]+/(.*)"
     replacement: "https://bitwarden.example.com/${1}"
     permanent: true
 ---
@@ -63,8 +63,8 @@ spec:
     - kind: Rule
       match: Host(`bitwarden.kube.example.com`)
       services:
-        - name: bitwarden
-          port: 80
+        - name: noop@internal
+          kind: TraefikService
       middlewares:
         - name: bitwarden-kube-redirect
   tls: {}

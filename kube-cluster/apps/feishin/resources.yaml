@@ -53,12 +53,18 @@ spec:
             - name: http
               containerPort: 9180
           readinessProbe:
+            timeoutSeconds: 5
             httpGet:
               path: /
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
             failureThreshold: 6
+          resources:
+            requests:
+              memory: 64Mi
+            limits:
+              memory: 64Mi
 ---
 apiVersion: v1
 kind: Service

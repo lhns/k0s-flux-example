@@ -88,7 +88,7 @@ metadata:
   name: rustdesk-lb
   namespace: rustdesk
   annotations:
-    metallb.io/loadBalancerIPs: 10.20.2.82
+    metallb.io/loadBalancerIPs: 10.20.176.159
 spec:
   type: LoadBalancer
   externalTrafficPolicy: Local

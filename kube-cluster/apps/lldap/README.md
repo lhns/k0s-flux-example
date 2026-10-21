@@ -18,5 +18,5 @@ from Docker Swarm into its own namespace. Web UI at `lldap.example.com` (behind 
 
 ## One-time migration
 1. Deploy at `replicas: 0` (db/role + secrets come up).
-2. `pg_dump` the `lldap` db from the old Swarm Postgres (`10.20.2.10:5437`) into the CNPG `lldap` db.
+2. `pg_dump` the `lldap` db from the old Swarm Postgres (`10.20.176.187:5437`) into the CNPG `lldap` db.
 3. Flip to `replicas: 1`; verify LDAP + the web UI list the migrated users.

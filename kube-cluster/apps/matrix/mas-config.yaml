@@ -1,0 +1,90 @@
+# MAS config without secrets. MAS deep-merges /secrets/secrets.yaml (Secret `mas`) over it,
+# and appends lists, so a list must live whole in one file. See README, "MAS config".
+http:
+  listeners:
+    - name: web
+      resources:
+        - name: discovery
+        - name: human
+        - name: oauth
+        - name: compat
+        - name: graphql
+        - name: assets
+        # Blocked at the edge (routing.yaml); used in-cluster only.
+        - name: adminapi
+      binds:
+        - address: 0.0.0.0:8080
+      proxy_protocol: false
+    - name: internal
+      resources:
+        - name: health
+      binds:
+        - host: localhost
+          port: 8081
+      proxy_protocol: false
+  trusted_proxies:
+    - 192.168.0.0/16
+    - 172.16.0.0/12
+    - 10.0.0.0/10
+    - 127.0.0.1/8
+    - fd00::/8
+    - ::1/128
+  public_base: https://mas.example.com/
+  issuer: https://mas.example.com/
+database:
+  max_connections: 10
+  min_connections: 0
+  connect_timeout: 30
+  idle_timeout: 600
+  max_lifetime: 1800
+email:
+  from: '"Authentication Service" <mas@example.com>'
+  reply_to: '"Authentication Service" <mas@example.com>'
+  transport: blackhole
+passwords:
+  enabled: true
+  schemes:
+    - version: 1
+      algorithm: bcrypt
+      unicode_normalization: true
+    - version: 2
+      algorithm: argon2id
+  minimum_complexity: 3
+matrix:
+  kind: synapse
+  homeserver: example.com
+  endpoint: http://synapse:8008/
+upstream_oauth2:
+  providers:
+    - id: 01H00000000000000000000001
+      synapse_idp_id: oidc-authelia
+      issuer: https://auth.example.com
+      human_name: Authelia
+      client_id: mas
+      client_secret_file: /secrets/upstream-client-secret
+      token_endpoint_auth_method: client_secret_basic
+      scope: openid profile email
+      discovery_mode: insecure
+      fetch_userinfo: false
+      claims_imports:
+        localpart:
+          action: require
+          template: '{{ user.preferred_username }}'
+          on_conflict: add
+        displayname:
+          action: suggest
+          template: '{{ user.name }}'
+        email:
+          action: suggest
+          template: '{{ user.email }}'
+      forward_login_hint: false
+      registration_token_required: false
+# Admin API client (client_credentials); its secret is the Secret `mas-admin-client`.
+clients:
+  - client_id: 01H00000000000000000000002
+    client_auth_method: client_secret_basic
+    client_secret_file: /admin-client/client_secret
+policy:
+  data:
+    admin_clients:
+      - 01H00000000000000000000002

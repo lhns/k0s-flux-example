@@ -8,7 +8,7 @@ spec:
   interval: 1h0m0s
   url: oci://ghcr.io/piraeusdatastore/helm-charts/snapshot-controller
   ref:
-    tag: "5.3.0"
+    tag: "5.4.0"
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -25,5 +25,9 @@ spec:
   # v1-only install, so it's disabled to avoid the extra cert + pod.
   values:
     installCRDs: true
+    controller:
+      resources:
+        limits:
+          memory: 192Mi
     webhook:
       enabled: false

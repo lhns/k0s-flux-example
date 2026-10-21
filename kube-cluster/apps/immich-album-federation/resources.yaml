@@ -9,8 +9,8 @@ metadata:
   name: immich-album-federation
   namespace: immich-album-federation
   annotations:
-    # The worker reads its config only at startup and the config is a plain SOPS
-    # secret (not a hashed ConfigMap), so a config change won't roll the pod on
+    # The worker reads its config only at startup and the config is a plaintext
+    # as-secret config (not a hashed ConfigMap), so a config change won't roll the pod on
     # its own. Reloader restarts it when immich-album-federation-config changes.
     reloader.stakater.com/auto: "true"
 spec:
@@ -78,7 +78,7 @@ spec:
               mountPath: /config
               readOnly: true
       volumes:
-        # peers + apiKey (SOPS-encrypted). Mounted as /config/config.yaml.
+        # peers + apiKey (substituted into the as-secret config). Mounted as /config/config.yaml.
         - name: config
           secret:
             secretName: immich-album-federation-config

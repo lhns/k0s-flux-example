@@ -36,6 +36,11 @@ spec:
         # stage inherits node_modules from the packages stage, so the Prisma CLI is present.
         - name: migrate
           image: ${JETKVM_CLOUD_API_REF}
+          resources:
+            requests:
+              memory: 128Mi
+            limits:
+              memory: 256Mi
           command: [npm, run, prisma-migrate]
           env:
             - name: JETKVM_DB_PASSWORD
@@ -94,7 +99,7 @@ spec:
             # lower-cases every header key -- so "X-Real-IP", which upstream's own .env.example
             # suggests, can never match and silently falls back to req.socket.remoteAddress,
             # i.e. Traefik's pod IP. x-forwarded-for would match but is a LIST behind our two
-            # proxies ("1.2.3.4, 10.20.2.31"); the value is used whole, so parsing it as an
+            # proxies ("1.2.3.4, 10.20.176.125"); the value is used whole, so parsing it as an
             # address fails. This is the device's own observed source address, echoed back to
             # it as its srflx candidate, so getting it wrong yields a useless candidate.
             - name: REAL_IP_HEADER
@@ -126,6 +131,7 @@ spec:
             - name: http
               containerPort: 3000
           readinessProbe:
+            timeoutSeconds: 5
             # /healthz returns {ready:true} unconditionally and never touches the database, so
             # this means "the process is listening", not "the app works". A pod whose Prisma
             # client cannot reach CNPG passes this probe.
@@ -135,6 +141,8 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 10
             failureThreshold: 6
+          resources:
+            limits: {memory: 192Mi}
 ---
 apiVersion: v1
 kind: Service
@@ -181,11 +189,14 @@ spec:
             - name: http
               containerPort: 8080
           readinessProbe:
+            timeoutSeconds: 5
             httpGet:
               path: /
               port: http
             initialDelaySeconds: 2
             periodSeconds: 10
+          resources:
+            limits: {memory: 128Mi}
 ---
 apiVersion: v1
 kind: Service

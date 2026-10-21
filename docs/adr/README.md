@@ -4,10 +4,11 @@ One record per decision about the cluster or the repo's structure. An app gets o
 deviates from a cluster-wide rule or sets a precedent others follow; ordinary app setup belongs in
 the component's README.
 
-All records were reconstructed in October 2026, from the commit and PR history and the owner's
-working conversations (cited as "conversation <date>"), and are numbered by decision date: the
-deciding commit, merge or conversation. The owner filled in the reasons the history did not show.
-Where neither shows why, a record says "not recorded" rather than guessing.
+Records 0001-0051 were reconstructed in October 2026, from the commit and PR history and the
+owner's working conversations (cited as "conversation <date>"), and are numbered by decision date:
+the deciding commit, merge or conversation. The owner filled in the reasons the history did not
+show. Where neither shows why, a record says "not recorded" rather than guessing. Later records
+are written in the PR that makes the decision.
 
 ## Index
 
@@ -65,13 +66,20 @@ Where neither shows why, a record says "not recorded" rather than guessing.
 | [0050](0050-arc-scale-sets-for-per-job-runners.md) | ARC scale sets for per-job runners | Accepted | 2026-10-05 | a pod per job; Docker through ephemeral remote-docker clients |
 | [0051](0051-notesnook-mongodb-held-at-8.md) | Notesnook's MongoDB stays on 8 (exception) | Accepted | 2026-10-05 | its C# drivers do not support MongoDB 9; Renovate's PR is held |
 | [0052](0052-flux-alerts-go-to-matrix.md) | Flux alerts go to Matrix | Accepted | 2026-10-08 | error events post to an unencrypted room; generator renders the Alert |
-| [0053](0053-grafana-dashboards-provisioned-from-git.md) | Grafana dashboards provisioned from git | Accepted | 2026-10-08 | file provider, read-only in the UI; edit the JSON in git |
+| [0053](0053-grafana-dashboards-provisioned-from-git.md) | Grafana dashboards provisioned from git | Superseded by 0058 | 2026-10-08 | file provider, read-only in the UI; edit the JSON in git |
 | [0054](0054-descheduler-respreads-replicas.md) | The descheduler re-spreads replicas | Accepted | 2026-10-08 | spread-only plugins every 15 min; PVC, system-critical, DaemonSet pods and kube-system protected |
+| [0055](0055-anubis-forwardauth-for-public-apps.md) | Anubis as a shared forwardAuth for public apps | Accepted | 2026-10-13 | one Anubis behind a reflected middleware; opt-in per route, client paths excluded |
+| [0056](0056-external-group-for-systems-outside-the-cluster.md) | A fourth group, `external`, for systems outside the cluster | Accepted | 2026-10-20 | selectorless Services and static EndpointSlices for routes to hosts outside the cluster, prefix `ext-`; a system is scraped by a collector it runs itself |
+| [0057](0057-probe-timeout-default.md) | Probe timeouts default to 5s | Accepted | 2026-10-20 | a MutatingAdmissionPolicy raises `timeoutSeconds` 1 to 5 on Pod CREATE; fail-open |
+| [0058](0058-grafana-operator-manages-grafana-and-its-content.md) | The Grafana Operator runs Grafana; components own dashboards and rules as CRs | Accepted | 2026-10-21 | managed `Grafana` CR on the same DB and PVC; CRs in `grafana`, by folder uid; contact points and policies stay central |
+| [0059](0059-grafana-objects-dir.md) | `grafana-objects/`: Grafana CRs get their own Kustomization | Superseded by 0060 | 2026-10-21 | own `kustomization.yaml` and artifact; nothing depends on it; no postBuild; health from `*Synchronized` |
+| [0060](0060-grafana-objects-in-the-component.md) | Grafana CRs live in the component itself; reserved directories are for apply ordering | Accepted | 2026-10-21 | `grafana.yaml` + `dashboards/` in the component; per-object `substitute: disabled`; no `dependsOn` on the operator (only `app-grafana`), whose Roles are manifests; supersedes 0059 |
+| [0061](0061-redirect-routes-answer-from-noop.md) | Redirect routes answer from `noop@internal` and match any Host | Accepted | 2026-10-21 | redirect-only routes use `noop@internal`; `redirectRegex` uses `[^/]+`, never a literal host; `scripts/check-redirects.py` |
 
 ## Adding a record
 
-Write one when a change decides something about the cluster or the repo's structure, or when an
-app deliberately departs from a rule here.
+Write one when a change decides something about the cluster or the repo's structure. A decision
+about one app, including how it departs from a rule here, goes in that component's README.
 
 1. Copy the shape of an existing record: `NNNN-short-title.md`, the next number.
 2. Header: `Status` (Proposed, Accepted, Superseded by NNNN, or Accepted with "amended by"), `Date`,

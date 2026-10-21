@@ -13,4 +13,6 @@ spec:
       services:
         - name: flip7
           port: 80
+      middlewares:
+        - name: anubis
   tls: {}

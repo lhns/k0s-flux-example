@@ -19,9 +19,11 @@
 */ -}}
 {{- if hasKey .Values "generate" }}
 {{- $gen := .Values.generate | default dict }}
+{{- /* How often the gen- HelmReleases reconcile: each re-renders only when its artifact changes. */}}
 {{- $interval := $gen.interval | default "30m" }}
 {{- $all := list }}
 {{- range $group := $.Values.groups }}
+{{- if empty $group.prefix }}{{- fail (printf "%s: generate needs a group prefix: the control namespace is gen-<prefix>-<name>" $group.base) }}{{- end }}
 {{- range $kustPath, $_ := $.Files.Glob (printf "%s/*/kustomization.yaml" $group.base) }}
 {{- $all = append $all (ternary (printf "%s-%s" $group.prefix (base (dir $kustPath))) (base (dir $kustPath)) (not (empty $group.prefix))) }}
 {{- end }}

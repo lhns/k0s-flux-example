@@ -81,7 +81,7 @@ spec:
       "cniVersion": "0.3.1", "type": "macvlan",
       "master": "ens18", "mode": "bridge",
       "ipam": {"type": "static",
-               "addresses": [{"address": "10.20.3.8/16", "gateway": "10.20.1.2"}]}
+               "addresses": [{"address": "10.20.37.108/16", "gateway": "10.20.62.56"}]}
     }
 ```
 
@@ -108,7 +108,7 @@ gains `net1` on the LAN.
   `fdb4:9bf5:7a48:17d0:…` address marked `proto kernel_ra`, i.e. from a Router Advertisement,
   with no extra configuration. If that ever regresses to link-local only, chain the `tuning`
   plugin to set `net.ipv6.conf.net1.accept_ra=2`.
-- **The LAN is a `/16`** (`10.20.0.0/16`, gateway `10.20.1.2`) — a `/24` mask will look like it
+- **The LAN is a `/16`** (`10.20.0.0/16`, gateway `10.20.62.56`) — a `/24` mask will look like it
   works and then fail to reach half the estate.
 
 ## Upgrading

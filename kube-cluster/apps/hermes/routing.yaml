@@ -1,0 +1,18 @@
+# Dashboard: Anubis, then Authelia forward-auth, then Hermes's own OIDC login (README, "Dashboard").
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: hermes
+  namespace: hermes
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`hermes.example.com`)
+      services:
+        - name: hermes
+          port: 9119
+      middlewares:
+        - name: anubis
+        - name: authelia
+  tls: {}

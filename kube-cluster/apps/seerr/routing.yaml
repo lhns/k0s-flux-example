@@ -17,8 +17,8 @@ spec:
     - kind: Rule
       match: Host(`jellyseerr.example.com`)
       services:
-        - name: seerr
-          port: 5055
+        - name: noop@internal
+          kind: TraefikService
       middlewares:
         - name: seerr-legacy-redirect
   tls: {}
@@ -30,6 +30,6 @@ metadata:
   namespace: seerr
 spec:
   redirectRegex:
-    regex: "^https://jellyseerr.example.com/(.*)"
+    regex: "^https?://[^/]+/(.*)"
     replacement: "https://seerr.example.com/${1}"
     permanent: true

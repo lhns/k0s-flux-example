@@ -7,6 +7,9 @@
                                                component's Kustomizations, e.g. into namespaces/
     verify-done <name>... --snapshot FILE      after pruneDisabled is removed again
 
+--renamed-from OLD (verify-moved/-done, one name): the snapshot was taken under OLD, before a
+move between groups renamed the component (README.md, "Moving a component between groups").
+
 <name> is the generated Kustomization name, e.g. app-freshrss. The procedure is in README.md,
 "Control namespaces and risky changes". Run it from a checkout of the commit that is live: the
 expected substitution sources are read from the working tree.
@@ -14,7 +17,7 @@ expected substitution sources are read from the working tree.
 --cluster names the repo directory the components are read from, default kube-cluster; point
 $JUMPHOST at a host whose kubectl talks to that cluster.
 
-Only `kubectl get` runs, through the jumphost ($JUMPHOST, default admin@10.20.5.15). Secret and
+Only `kubectl get` runs, through the jumphost ($JUMPHOST, default admin@10.20.150.84). Secret and
 ConfigMap contents, annotations and managedFields are dropped on the jumphost, before
 anything leaves it. Exit 0: every check passed. 1: a deviation, listed. 2: could not check.
 """
@@ -478,14 +481,16 @@ def verify_prune_disabled(cluster, names):
     return rep, origins(sources, ks)
 
 
-def verify_after(cluster, names, snap, *, prune):
+def verify_after(cluster, names, snap, *, prune, renamed_from=None):
     rep = Report()
-    ks = read_kustomizations(cluster, names)
+    ks = read_kustomizations(cluster, names + ([renamed_from] if renamed_from else []))
     sources = read_sources(cluster, ks)
+    if renamed_from:
+        check_renamed(rep, cluster, renamed_from, names[0], ks, snap)
     for name in names:
-        before = snap["components"].get(name)
+        before = snap["components"].get(renamed_from or name)
         if before is None:
-            rep.bad(f"{name}: not in the snapshot")
+            rep.bad(f"{renamed_from or name}: not in the snapshot")
             continue
         ns = control_namespace(name)
         suffixes = list(before["suffixes"])
@@ -502,6 +507,22 @@ def verify_after(cluster, names, snap, *, prune):
         compare_workloads(rep, name, before["workloads"], read_workloads(cluster, before["workloadNamespaces"]))
         check_control(rep, name, read_control(cluster, ns), expected_sources(name))
     return rep, origins(sources, ks)
+
+
+def check_renamed(rep, cluster, old, new, ks, snap):
+    """The old name is gone entirely. Objects in the old control namespace go with it, so a
+    component that had any cannot be compared by UID."""
+    before = snap["components"].get(old) or {}
+    held = sorted(k for k in before.get("objects", {}) if k.split("/")[-2] == control_namespace(old))
+    if held:
+        raise CannotCheck(f"{old}: the snapshot holds objects in {control_namespace(old)}, which the rename "
+                          f"recreates in {control_namespace(new)}: {', '.join(held)}; check those by hand")
+    for k in ks:
+        if k["name"] in {f"{old}{s}" for s in SUFFIXES}:
+            rep.bad(f"{new}: Kustomization {k['namespace']}/{k['name']} of the old name still exists"
+                    + (" (being deleted)" if k["deleting"] else ""))
+    if read_release(cluster, old) is not None:
+        rep.bad(f"{new}: HelmRelease flux-system/{gen_release(old)} of the old name still exists")
 
 
 def snapshot_ids(comp):
@@ -522,12 +543,16 @@ def main(argv=None, cluster=None):
     ap.add_argument("--snapshot", help="verify-moved/-done: the snapshot taken before")
     ap.add_argument("--commit", help="also require every live source's commit to contain this one")
     ap.add_argument("--cluster", default="kube-cluster", help="the cluster's repo directory")
+    ap.add_argument("--renamed-from", metavar="OLD",
+                    help="verify-moved/-done: the name the snapshot was taken under, before a group move")
     a = ap.parse_args(argv)
+    if a.renamed_from and (a.command not in ("verify-moved", "verify-done") or len(a.names) != 1):
+        ap.error("--renamed-from takes verify-moved or verify-done and exactly one name")
     global CLUSTER
     CLUSTER = a.cluster
     if not (ROOT / CLUSTER / "flux-system/kustomization.yaml").is_file():
         ap.error(f"--cluster {CLUSTER}: no {CLUSTER}/flux-system/kustomization.yaml")
-    cluster = cluster or Live(os.environ.get("JUMPHOST", "admin@10.20.5.15"))
+    cluster = cluster or Live(os.environ.get("JUMPHOST", "admin@10.20.150.84"))
     try:
         if a.command == "snapshot":
             if not a.out:
@@ -543,7 +568,8 @@ def main(argv=None, cluster=None):
             if not a.snapshot:
                 ap.error(f"{a.command} needs --snapshot")
             snap = json.loads(pathlib.Path(a.snapshot).read_text(encoding="utf-8"))
-            rep, revisions = verify_after(cluster, a.names, snap, prune=a.command == "verify-done")
+            rep, revisions = verify_after(cluster, a.names, snap, prune=a.command == "verify-done",
+                                          renamed_from=a.renamed_from)
         if a.commit:
             if not revisions:
                 rep.bad(f"no live source names its commit; cannot confirm {a.commit}")

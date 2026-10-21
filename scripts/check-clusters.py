@@ -6,7 +6,8 @@ A cluster is any top-level <dir>/flux-system/kustomization.yaml (scripts/cluster
 1. gotk-sync.yaml syncs ./<dir>/flux-system. Pointing at another cluster's path makes this
    cluster apply that cluster's bootstrap.
 2. Every group base and k0sUpgrade path is under <dir>/. A group in another cluster's tree
-   deploys that cluster's components here.
+   deploys that cluster's components here. No component (<dir>/*/*/kustomization.yaml) sits
+   outside every group base, where nothing would ever render it.
 3. The root ArtifactGenerator copies only Chart.yaml, templates/ and paths under <dir>/. A
    `*/...` wildcard would put every cluster's files into each root release.
 4. .sops.yaml has a rule for <dir>/ that matches no other cluster's path, with recipients no
@@ -20,8 +21,6 @@ And for shared/:
 """
 import pathlib, re, sys
 
-import yaml
-
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import clusters
 
@@ -30,7 +29,7 @@ RESERVED = ("namespaces", "artifacts", "substitution-secrets")
 failures = []
 
 names = clusters.clusters()
-rules = (yaml.safe_load((ROOT / ".sops.yaml").read_text(encoding="utf-8")) or {}).get("creation_rules") or []
+rules = (clusters.load((ROOT / ".sops.yaml").read_text(encoding="utf-8")) or {}).get("creation_rules") or []
 
 
 def rule_for(rel):
@@ -63,6 +62,13 @@ for c in names:
     for g in values.get("groups") or []:
         if not g["base"].startswith(f"{c}/"):
             failures.append(f"  {rel_path}: group base {g['base']} is outside {c}/")
+    # A component directory outside every group is never rendered, and nothing else notices.
+    bases = {g["base"] for g in values.get("groups") or []}
+    for k in sorted((ROOT / c).glob("*/*/kustomization.yaml")):
+        parent = k.parent.parent.relative_to(ROOT).as_posix()
+        if parent not in bases:
+            failures.append(f"  {k.parent.relative_to(ROOT).as_posix()}: {parent} is no group base in {rel_path}, "
+                            f"so this component is never deployed")
     for key in ("k0sctlPath", "path"):
         p = (values.get("k0sUpgrade") or {}).get(key)
         if p and not p.startswith(f"{c}/"):

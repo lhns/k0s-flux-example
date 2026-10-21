@@ -7,7 +7,7 @@ Migrated from Docker Swarm.
 - **Stateless** — no volume, no database, and **no inbound ports** (no Service, no Traefik routing). It
   only makes outbound connections: MQTT to mosquitto, and OTLP to the collector. Single Deployment,
   start-first rolling updates (matches the Swarm `order:start-first`).
-- **MQTT** — repointed from the old Swarm broker (`10.20.2.10:1883`) to the **in-cluster mosquitto**
+- **MQTT** — repointed from the old Swarm broker (`10.20.176.187:1883`) to the **in-cluster mosquitto**
   (`mosquitto.mosquitto.svc.cluster.local:1883`). Auth is the `mqtt_monitoring` LDAP user (mosquitto
   authenticates against the in-cluster lldap). Reachability: the pod carries
   `kube-vnet/net.mosquitto.mosquitto: egress` and joins the new `mosquitto` VirtualNetwork
@@ -18,7 +18,7 @@ Migrated from Docker Swarm.
   file directly, not with `sops`.
 - **OTLP** — exports to the in-cluster gateway
   (`opentelemetry-gateway.opentelemetry-gateway.svc.cluster.local:4317`). It was the Swarm
-  collector at `10.20.2.10:4317`.
+  collector at `10.20.176.187:4317`.
 - **kube-vnet**: egress-only membership in **two** vnets — `mosquitto` (the broker) and
   `opentelemetry-gateway.otel-gateway` (the OTLP endpoint). The latter is needed because a
   ClusterIP is isolated where the old external address was not: drop that label and telemetry

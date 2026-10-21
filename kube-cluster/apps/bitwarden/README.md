@@ -11,7 +11,7 @@ Swarm. Public at `bitwarden.example.com` (its own vault login **plus** OpenID SS
   SOPS/Reflector password. `DATABASE_URL` is assembled with `$(VW_DB_PASSWORD)` + `sslmode=disable`.
 - **Data**: `/data` (attachments, sends, icon cache, `config.json`, and `rsa_key` — the JWT signing
   key) lives on a **CephFS RWX** volume (`bitwarden-data`), copied once from the old Swarm volume
-  `fastappdata:/docker/bitwarden` **excluding the nested `db/`** (the source Postgres data dir).
+  `fastdata:/docker/bitwarden` **excluding the nested `db/`** (the source Postgres data dir).
   Copying `rsa_key` keeps issued tokens/sessions valid.
 - **Updates**: `strategy: RollingUpdate` with `maxUnavailable: 0` / `maxSurge: 1` = **start-first**
   (matches the Swarm `order: start-first`) — new pod up before old down, zero-downtime. RWX CephFS
@@ -24,16 +24,9 @@ Swarm. Public at `bitwarden.example.com` (its own vault login **plus** OpenID SS
   callback + generated links. Nothing to change on Authelia — just be in `group:bitwarden`/`admin`.
 - **/admin** panel: no `ADMIN_TOKEN` set; the panel is protected by the reflected `authelia`
   forwardAuth middleware on a higher-priority `PathPrefix(/admin)` route (see `routing.yaml`).
+  No Authelia rule names `bitwarden.example.com`, so the `*.example.com` catch-all applies: `group:admin`
+  only, two-factor. `group:bitwarden` members cannot reach it.
 - **kube-vnet**: `net.traefik.traefik: ingress` + `net.postgres.postgres: egress` (OIDC to
   auth.example.com, the push relay, and icon fetches are external egress).
 - The Swarm `smtp` postfix relay is dropped (Vaultwarden had no SMTP config); wire to `msmtpd` later
   if mail is wanted.
-
-## One-time migration
-1. Deploy with the Deployment at `replicas: 0` (db/role + secrets come up; PVC binds).
-2. **DB**: `pg_dump` the old Swarm Postgres (`10.20.2.10:5436`, db/user `vaultwarden`) into the CNPG
-   `vaultwarden` db (as the `vaultwarden` role), `postgres-rw.postgres.svc.cluster.local:5432`,
-   `sslmode=disable`. Same major (PG 18 both sides).
-3. **Data**: copy `fastappdata:/docker/bitwarden/*` into the `bitwarden-data` PVC, **excluding `db/`**.
-4. Flip the Deployment to `replicas: 1`.
-5. Point `bitwarden.example.com` (+ `bitwarden.kube.example.com`) DNS at the Traefik LB `10.20.2.15`.

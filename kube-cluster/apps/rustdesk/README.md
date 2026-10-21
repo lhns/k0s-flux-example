@@ -1,7 +1,7 @@
 # rustdesk
 
 Self-hosted RustDesk server (the OSS `rustdesk/rustdesk-server`): ID/rendezvous (`hbbs`) and
-relay (`hbbr`) on MetalLB VIP **`10.20.2.82`**, websockets via Traefik at `rustdesk.example.com`.
+relay (`hbbr`) on MetalLB VIP **`10.20.176.159`**, websockets via Traefik at `rustdesk.example.com`.
 No user accounts or web console; that is Pro. Access control is the server key.
 
 ## Shape
@@ -51,7 +51,7 @@ LAN clients use the same public name and rely on the router's hairpin NAT.
 
 ## Router
 
-Forward on `203.0.113.10` to `10.20.2.82`:
+Forward on `203.0.113.10` to `10.20.176.159`:
 
 | port | protocol |
 | --- | --- |

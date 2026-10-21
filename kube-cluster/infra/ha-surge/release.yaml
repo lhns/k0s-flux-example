@@ -12,13 +12,13 @@ spec:
     # 0.0.0-dev.<short-sha> tag to trial an unreleased commit.
     tag: "0.1.0"
 ---
-# ha-surge: make-before-break HA for opted-in single-replica Deployments during
+# ha-surge: make-before-break HA for single-replica Deployments during
 # node drains. On an eviction it detaches the doomed pod from its ReplicaSet (the
 # RS makes a real replacement) while the old pod keeps serving, then allows the
 # eviction once the replacement is Ready. Never touches spec.replicas, so Flux
 # doesn't fight it; never creates a pod, so no admission-policy interaction.
 # The eviction webhook is apiserver-dialed, so kube-vnet auto-allows it (no
-# vnet.yaml). Cert issued by cert-manager (dependsOn: infra-cert-manager). Enroll
+# vnet.yaml). Cert issued by cert-manager (dependsOn: infra-cert-manager).
 # Cluster-wide by default (`defaultEnabled` below); opt a namespace or workload
 # out with `ha-surge.lhns.de/enabled: "false"`.
 apiVersion: helm.toolkit.fluxcd.io/v2
@@ -34,20 +34,9 @@ spec:
   values:
     webhook:
       certSource: cert-manager
-    # How long an eviction is held waiting for the replacement to become Ready before failing open
-    # and allowing it uncovered. The 120s default is too small HERE, measured rather than guessed:
-    # a clean pod on this cluster has a 34s median container-create but a 419s p90 (image pull, on
-    # Ceph), against an 11s median for app-start -> Ready. So a healthy pod is Ready in ~45s and the
-    # default would be fine; it is the pull tail that blows through it.
-    #
-    # Raising it is cheap: the gate is readiness, not the clock, so a 45s handoff still takes 45s.
-    # The budget only costs time for workloads that are genuinely stuck, and a drain evicts in
-    # parallel, so the cost is the slowest pod rather than the sum. k0sctl's options.drain.timeout
-    # is kept ABOVE this (k0sctl.yaml) so a `k0sctl apply` cannot hit its own timeout and
-    # force-delete a pod that ha-surge is still covering - that would be worse than no coverage.
-    #
-    # This is a workaround for slow image pulls; re-measure the timeout/covered ratio on the next
-    # drain. See kube-cluster/TODO.md.
+    # Eviction hold before failing open uncovered. Above the image-pull p90, which the 120s
+    # default is not. k0sctl's options.drain.timeout stays above it (ADR 0029), or a
+    # `k0sctl apply` force-deletes a pod ha-surge is still covering.
     maxSurgeSeconds: 600
     # Cover the whole cluster: every single-replica RollingUpdate Deployment gets
     # make-before-break on drain without any per-namespace/-workload label.

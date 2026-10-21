@@ -3,10 +3,6 @@
 # config at all: the ROOT (non-rootless) image keeps Gitea's layout, so
 # [repository] ROOT is /data/git/repositories and APP_DATA_PATH is /data/gitea.
 # Two mounts, two classes.
-#
-# Both were originally dynamically provisioned. forgejo-git's PV is now spelled
-# out below — see the comment on it — but it is still the same CSI subvolume the
-# provisioner created; nothing here was pre-created by hand on the filesystem.
 # ===========================================================================
 # The repositories and LFS objects — the bulk, and the tier that matters. On
 # the HDD filesystem via `cephfs-appdata`, which is where Gitea's 27G already
@@ -15,14 +11,10 @@
 # `cephfs-appdata` is served by its own CSI driver (cephfs-appdata.csi.ceph.com,
 # infra/ceph-csi-cephfs-appdata) rather than the shared one, so a hang on the
 # `appdata` filesystem can no longer kill the node plugin that also serves
-# `fastappdata`. This volume is what forced that split.
+# `fastdata`. This volume is what forced that split.
 #
-# !!! Do NOT try to move a volume between drivers by deleting its PV. !!!
-# PV.spec.csi.driver is immutable, so that looks like the obvious route, and
-# reclaimPolicy: Retain looks like it makes deletion safe. It does not: deleting
-# the PV is what reclaims the subvolume. Provision a new PVC on the target driver
-# and copy into it. Scaling pv-reaper to 0 does NOT make a PV delete safe -- see
-# AGENTS.md, which has the whole procedure.
+# Never move a volume between drivers by deleting its PV: that reclaims the
+# subvolume even with Retain. See AGENTS.md.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -93,11 +85,8 @@ spec:
       enableServiceLinks: false
       containers:
         - name: forgejo
-          # v16 is the quarterly stable line — superseded roughly every three
-          # months, so this needs a deliberate major bump to stay supported.
-          # (v15 is the LTS, patched to 2027-07, if that trade ever looks wrong.)
           # Not on Docker Hub: codeberg.org is the project's own registry.
-          image: codeberg.org/forgejo/forgejo:16.0.5
+          image: codeberg.org/forgejo/forgejo:17.0.0
           env:
             - name: TZ
               value: Europe/Berlin
@@ -159,7 +148,7 @@ spec:
             # ENABLE_REVERSE_PROXY_AUTHENTICATION — but every client address in
             # the logs and in rate-limiting would be a Traefik pod. The pod /16,
             # and only that: every proxy in front of this is a Traefik pod, and
-            # real clients arrive from 10.20.2.0/24.
+            # real clients arrive from 10.20.176.0/24.
             - name: FORGEJO__security__REVERSE_PROXY_TRUSTED_PROXIES
               value: 172.18.0.0/16
 
@@ -286,18 +275,8 @@ spec:
             - name: FORGEJO__actions__DEFAULT_ACTIONS_URL
               value: https://data.forgejo.org
 
-            # Clone timeout for repository migration, raised from the 600s default.
-            #
-            # Not speculative: migrating `Ryujinx` (189 MB) and `citra` (63 MB) from Gitea both
-            # failed with HTTP 500 and "Clone timed out. Consider increasing [git.timeout]
-            # MIGRATE", after 661s and 616s. The repositories being cloned live on the `appdata`
-            # HDD tier, which is at 92 % with 148 pgs backfill_toofull, so a clone that would be
-            # seconds on healthy storage takes ten minutes here.
-            #
-            # 3600s is chosen against the largest repository still to move (`yuzu-downloads`,
-            # 403 MB) with a wide margin for the tier getting slower rather than faster. The cost
-            # of it being too high is a migration that hangs instead of failing; the cost of too
-            # low is what already happened, which is worse because it half-creates a repository.
+            # Clone timeout for repository migration; the 600s default is too short for large
+            # repositories on the HDD tier. A too-low value half-creates the repository.
             #
             # `_0X2E_` is how environment-to-ini encodes a DOT in a section name: the section is
             # [git.timeout], not [git]. Writing FORGEJO__git__TIMEOUT__MIGRATE would silently
@@ -331,13 +310,8 @@ spec:
               port: http
             initialDelaySeconds: 20
             periodSeconds: 15
-            # /api/healthz PINGS THE DATABASE, so this timeout is a budget for a
-            # round trip to CNPG, not for Forgejo answering an HTTP request. The
-            # implicit default of 1s is far too tight for that: during the k0s
-            # upgrade on 2026-08-09 the probe timed out through a CNPG switchover
-            # and Forgejo was pulled from its Service for ~14 minutes while the
-            # pod itself was fine — hitting the endpoint inside the pod returned
-            # `"status": "pass"` throughout. The 503s were entirely self-inflicted.
+            # /api/healthz pings the database, so this budgets a round trip to CNPG; the 1s
+            # default pulled Forgejo out of its Service during a CNPG switchover.
             timeoutSeconds: 5
             # ~5 minutes. Nothing like gitea's 27G chown to wait for, but the
             # first boot still runs the full xorm migration set against an empty

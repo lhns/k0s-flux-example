@@ -10,3 +10,4 @@ resources:
 - issuers.yaml
 patches:
 - path: version.yaml
+- path: resources.yaml

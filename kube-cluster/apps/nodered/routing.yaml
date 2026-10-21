@@ -26,7 +26,7 @@ metadata:
   namespace: nodered
 spec:
   redirectRegex:
-    regex: "^https://nodered.example.com/app/(.*)"
+    regex: "^https?://[^/]+/app/(.*)"
     replacement: "https://app.example.com/${1}"
     permanent: true
 ---
@@ -59,8 +59,8 @@ spec:
       priority: 100
       match: Host(`nodered.example.com`) && PathPrefix(`/app/`)
       services:
-        - name: nodered
-          port: 1880
+        - name: noop@internal
+          kind: TraefikService
       middlewares:
         - name: nodered-app-redirect
   tls: {}

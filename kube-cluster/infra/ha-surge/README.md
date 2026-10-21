@@ -1,7 +1,8 @@
 # ha-surge
 
 [ha-surge](https://github.com/lhns/kube-ha-surge) — make-before-break HA for
-opted-in **single-replica Deployments** during node drains (manual `kubectl
+**single-replica Deployments** (cluster-wide, opt out per namespace or workload; see
+Coverage) during node drains (manual `kubectl
 drain`, k0s upgrades, autoscaler reclaim), without permanently running a second
 replica.
 
@@ -47,5 +48,4 @@ dropped `guacd` takes live sessions with it regardless.
 
 **Fail-open includes a detach timeout.** Under a busy drain the log shows
 `detach timeout, failing open` — the eviction proceeds uncovered rather than stalling the drain.
-Seen for bitwarden, mealie, headlamp, reflector and standardnotes-web on a three-node cluster
-draining one node, where the replacement had nowhere roomy to land.
+`maxSurgeSeconds` in `release.yaml` is the wait; it must exceed the image-pull tail.

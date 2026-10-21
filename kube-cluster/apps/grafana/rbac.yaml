@@ -1,0 +1,108 @@
+# The operator's access to this namespace, the rules the grafana-operator chart rendered for it
+# (5.25.0, namespaceScope). Here rather than in the chart so infra-grafana-operator does not wait for
+# this namespace, which would put it behind infra-postgres.
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: grafana-operator-access
+  namespace: grafana
+rules:
+- apiGroups:
+  - ''
+  resources:
+  - configmaps
+  - persistentvolumeclaims
+  - secrets
+  - serviceaccounts
+  - services
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ''
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - gateway.networking.k8s.io
+  resources:
+  - httproutes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - grafana.integreatly.org
+  resources:
+  - '*'
+  verbs:
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - grafana.integreatly.org
+  resources:
+  - '*/finalizers'
+  verbs:
+  - patch
+  - update
+- apiGroups:
+  - grafana.integreatly.org
+  resources:
+  - '*/status'
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: grafana-operator-access
+  namespace: grafana
+subjects:
+- kind: ServiceAccount
+  name: grafana-operator
+  namespace: grafana-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: grafana-operator-access

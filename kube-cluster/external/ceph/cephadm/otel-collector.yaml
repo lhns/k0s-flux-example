@@ -1,0 +1,326 @@
+# A cephadm service spec, not a Kubernetes object: Flux ignores it, the owner applies it by hand.
+# cephadm does not act on a changed spec by itself; after any edit run both:
+#   ceph orch apply -i otel-collector.yaml
+#   ceph orch redeploy container.otelcol
+#   ceph orch redeploy container.otelcol-mgr
+# Two services: otelcol (every host: logs, ceph-exporter) and otelcol-mgr (mgr label: the mgr scrape).
+# Validate the config first (README.md, "cephadm collector"): a config error fails the unit
+# five times and parks it for 30 minutes.
+service_type: container
+service_id: otelcol
+placement:
+  host_pattern: '*'
+# Podman flags. cephadm puts custom containers on the bridge network; the scrapes are local.
+extra_container_args:
+  - --net=host
+  - --user=167:167          # ceph: reads the 0600 cluster logs
+  - --memory=512m
+spec:
+  # Same version as the cluster collectors (infra/opentelemetry-monitoring/release.yaml); the
+  # receiver version is part of every series (scope.version).
+  # renovate: datasource=docker depName=otel/opentelemetry-collector-contrib
+  image: docker.io/otel/opentelemetry-collector-contrib:0.163.1@sha256:1175b03003053962012f5a231f5567f66a3e8fdb960c7835c0e48f7aa1555806
+  # Owner of `dirs`/`files`. cephadm also chowns /var/lib/ceph/<fsid> and its crash/ to it on
+  # every deploy, so anything but ceph breaks crash dumps on that host.
+  uid: 167
+  gid: 167
+  envs:
+    - GOMEMLIMIT=400MiB
+    # The two cluster-specific values; cephadm passes neither. Keep both services equal.
+    - CEPH_FSID=00000000-0000-4000-8000-0000000000ce
+    - OTLP_ENDPOINT=10.20.176.58:4317
+  dirs: [etc, data]
+  # Relative sources are under /var/lib/ceph/<fsid>/container.otelcol.<host>/. Never relabel the
+  # log dir (:z/:Z): it is shared with every Ceph daemon and already readable as container_file_t:s0.
+  # The parent is mounted so the spec names no fsid; the globs below match its one fsid dir.
+  volume_mounts:
+    etc: /etc/otelcol-contrib:ro,Z
+    data: /var/lib/otelcol:Z
+    /var/log/ceph: /var/log/ceph:ro
+  files:
+    etc/config.yaml: |
+      extensions:
+        # Checkpoints of the filelog receivers; the dir is the spec's `dirs: [data]`.
+        file_storage:
+          directory: /var/lib/otelcol
+
+      receivers:
+        # Daemon logs of this host. The ceph.*.log channel files are below; ceph-volume.log is
+        # cephadm's device scan output.
+        file_log/daemons:
+          include: [/var/log/ceph/*/ceph-*.log]
+          exclude: [/var/log/ceph/*/ceph-volume*.log, /var/log/ceph/*/ceph-client.ceph-exporter.*.log]
+          include_file_path: true
+          start_at: end
+          storage: file_storage
+          multiline:
+            # Tracebacks and RocksDB stats dumps carry no timestamp: they join their header line.
+            line_start_pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}'
+          resource:
+            service.name: ceph
+          operators:
+            # A line that does not parse (the tail of an entry cut at start-up) is sent as is.
+            - type: regex_parser
+              on_error: send_quiet
+              regex: '^(?P<time>\S+) (?P<thread>[0-9a-f]+) +(?P<level>-?\d+) (?P<msg>(?s:.*))'
+              timestamp: {parse_from: attributes.time, layout_type: gotime, layout: '2006-01-02T15:04:05.000-0700'}
+              # Ceph's level, not syslog's: -1 is derr, 0 "always", 1 the default file level.
+              severity:
+                parse_from: attributes.level
+                mapping:
+                  error: '-1'
+                  info: ['0', '1']
+                  debug: [{min: 2, max: 99}]
+            # mgr modules log every Python level as Ceph level 0.
+            - type: regex_parser
+              if: 'attributes.msg != nil and attributes.msg matches "^\\[\\S+ (DEBUG|INFO|WARNING|ERROR|CRITICAL) "'
+              parse_from: attributes.msg
+              regex: '^\[\S+ (?P<pylevel>DEBUG|INFO|WARNING|ERROR|CRITICAL) '
+              severity:
+                parse_from: attributes.pylevel
+                mapping: {debug: DEBUG, info: INFO, warn: WARNING, error: ERROR, fatal: CRITICAL}
+            - type: move
+              if: 'attributes.msg != nil'
+              from: attributes.msg
+              to: body
+            # ceph-osd.24.log -> osd.24; a resource attribute, so VictoriaLogs keeps a stream per daemon.
+            - type: regex_parser
+              parse_from: attributes["log.file.name"]
+              regex: '^ceph-(?P<daemon>.+)\.log$'
+            - type: move
+              from: attributes.daemon
+              to: resource["ceph.daemon"]
+            # /var/log/ceph/<fsid>/ceph-osd.24.log -> the fsid, so the spec need not name it.
+            - type: regex_parser
+              parse_from: attributes["log.file.path"]
+              regex: '^/var/log/ceph/(?P<fsid>[^/]+)/'
+            - type: move
+              from: attributes.fsid
+              to: resource["ceph.fsid"]
+            - type: remove
+              field: attributes
+        # Cluster log channels. Every mon writes them in full, so each line arrives once per mon host;
+        # host.name tells the copies apart (as cephadm's promtail does, minus the host label).
+        file_log/cluster:
+          include: [/var/log/ceph/*/ceph.log, /var/log/ceph/*/ceph.audit.log, /var/log/ceph/*/ceph.cephadm.log]
+          include_file_path: true
+          start_at: end
+          storage: file_storage
+          multiline:
+            line_start_pattern: '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}'
+          resource:
+            service.name: ceph
+          operators:
+            - type: regex_parser
+              on_error: send_quiet
+              regex: '^(?P<time>\S+) (?P<who>\S+) \((?P<rank>[^)]+)\) (?P<seq>\d+) : (?P<channel>\S+) \[(?P<prio>[A-Z]+)\] (?P<msg>(?s:.*))'
+              timestamp: {parse_from: attributes.time, layout_type: gotime, layout: '2006-01-02T15:04:05.000000-0700'}
+              severity:
+                parse_from: attributes.prio
+                mapping: {debug: DBG, info: INF, warn: [WRN, SEC], error: ERR}
+            - type: move
+              if: 'attributes.msg != nil'
+              from: attributes.msg
+              to: body
+            - type: move
+              if: 'attributes.channel != nil'
+              from: attributes.channel
+              to: resource["ceph.channel"]
+            - type: move
+              if: 'attributes.who != nil'
+              from: attributes.who
+              to: attributes["ceph.daemon"]
+            - type: regex_parser
+              parse_from: attributes["log.file.path"]
+              regex: '^/var/log/ceph/(?P<fsid>[^/]+)/'
+            - type: move
+              from: attributes.fsid
+              to: resource["ceph.fsid"]
+            - type: retain
+              fields: ['attributes["ceph.daemon"]']
+
+        # Local ceph-exporter. `instance` and `hostname` as the in-cluster collector set them, so the
+        # series keep their identity (service.instance.id, server.address) across the move.
+        prometheus/ceph:
+          config:
+            scrape_configs:
+              - job_name: ceph-exporter
+                scheme: https
+                tls_config:
+                  insecure_skip_verify: true   # cephadm's cert names the host IP, not loopback
+                scrape_interval: 30s
+                static_configs:
+                  - targets: ['127.0.0.1:9926']
+                    labels:
+                      hostname: '${env:NODE_NAME}'   # set by cephadm in every container
+                      instance: '${env:NODE_NAME}'
+                relabel_configs:
+                  - {target_label: namespace, replacement: ceph}
+                  - {target_label: service, replacement: ceph-exporter}
+                  - {target_label: cluster, replacement: '${env:CEPH_FSID}'}
+                metric_relabel_configs:
+                  - source_labels: [__name__]
+                    regex: 'ceph_(AsyncMessenger_Worker|bluestore_pricache|prioritycache|mds_client_metrics)[_:].*'
+                    action: drop
+
+      processors:
+        # Of the container's --memory limit.
+        memory_limiter:
+          check_interval: 1s
+          limit_percentage: 80
+          spike_limit_percentage: 20
+        batch: {}
+        # host.name from the hostname, which podman sets to the host's under --net=host.
+        resource_detection/system:
+          detectors: [system]
+          system:
+            hostname_sources: [os]
+        filter/ceph-noise:
+          error_mode: ignore
+          logs:
+            log_record:
+              # Levels >= 2 are RocksDB/BlueFS chatter; their stats dumps went with them in multiline.
+              - 'log.severity_number >= SEVERITY_NUMBER_TRACE and log.severity_number < SEVERITY_NUMBER_INFO and resource.attributes["ceph.channel"] == nil'
+              # Echo of the cluster channels, which file_log/cluster ships once.
+              - 'IsMatch(log.body, "^log_channel\\(")'
+              # mon: every command it handles (the audit log has them) and its 5s cache resize.
+              - 'IsMatch(log.body, " handle_command mon_command\\(| _set_new_cache_sizes ")'
+              # mon: a line per osdmap epoch and a full MDS map dump per fsmap epoch.
+              - 'IsMatch(log.body, "\\.osd e[0-9]+ e[0-9]+: [0-9]+ total, |\\.mds e[0-9]+ (print_map|new map)|do_prune osdmap full prune enabled")'
+              # mgr: per-tick module chatter and dashboard polling.
+              - 'IsMatch(log.body, "^\\[(pg_autoscaler|insights) INFO|^\\[mgr INFO mgr_util\\]|^\\[prometheus INFO prometheus\\] Processing SMB share|^\\[rbd_support INFO rbd_support\\] (load_schedules|MirrorSnapshotScheduleHandler: load_schedules)|\\[GET\\] \\[200\\]|cmdtag +not found")'
+              # rgw: request start lines, haproxy health checks, scrapes.
+              - 'IsMatch(log.body, "====== starting new request|\"HEAD / HTTP/1\\.[01]\" 200|GET /metrics HTTP|op=list_buckets bucket= status=0 |bucket=localhost ")'
+              # Cluster log: pgmap/osdmap digests and read-only audit dispatches. Audit [INF] stays.
+              - 'log.severity_number == SEVERITY_NUMBER_DEBUG and resource.attributes["ceph.channel"] != nil'
+              # The mon's per-item health detail, repeated every few minutes; the check lines stay and
+              # ceph_health_detail has the state. And the mgr's config-key writes, logged without the command.
+              - 'resource.attributes["ceph.channel"] != nil and IsMatch(log.body, "^    |^from=.mgr\\.[0-9]+ . entity=.mgr\\.[^ ]+. *$")'
+
+      exporters:
+        # The gateway's MetalLB VIP (infra/opentelemetry-gateway README); no auth inside the LAN.
+        otlp_grpc:
+          endpoint: ${env:OTLP_ENDPOINT}
+          tls: {insecure: true}
+          retry_on_failure: {enabled: true}
+          sending_queue: {enabled: true}
+
+      service:
+        extensions: [file_storage]
+        # 8888 is the Ansible collector's on the OSD hosts while both run.
+        telemetry:
+          metrics:
+            readers:
+              - pull:
+                  exporter:
+                    prometheus: {host: 127.0.0.1, port: 8889}
+        pipelines:
+          logs/daemons:
+            receivers: [file_log/daemons]
+            processors: [memory_limiter, filter/ceph-noise, resource_detection/system, batch]
+            exporters: [otlp_grpc]
+          logs/cluster:
+            receivers: [file_log/cluster]
+            processors: [memory_limiter, resource_detection/system, filter/ceph-noise, batch]
+            exporters: [otlp_grpc]
+          # No resourcedetection: host.name/os.type would change the series' identity.
+          metrics/ceph:
+            receivers: [prometheus/ceph]
+            processors: [memory_limiter, batch]
+            exporters: [otlp_grpc]
+---
+# The mgr prometheus module, scraped on each mgr host (the cephadm `mgr` label). Only the active mgr
+# serves HTTPS; the standby's scrape fails and filter/ceph-mgr-scrape drops its up/scrape_*
+# (README.md, Decisions).
+service_type: container
+service_id: otelcol-mgr
+placement:
+  label: mgr
+extra_container_args:
+  - --net=host
+  - --user=167:167
+  - --memory=128m
+spec:
+  # Keep equal to otelcol above.
+  # renovate: datasource=docker depName=otel/opentelemetry-collector-contrib
+  image: docker.io/otel/opentelemetry-collector-contrib:0.163.1@sha256:1175b03003053962012f5a231f5567f66a3e8fdb960c7835c0e48f7aa1555806
+  uid: 167
+  gid: 167
+  envs:
+    - GOMEMLIMIT=100MiB
+    - CEPH_FSID=00000000-0000-4000-8000-0000000000ce
+    - OTLP_ENDPOINT=10.20.176.58:4317
+  dirs: [etc]
+  volume_mounts:
+    etc: /etc/otelcol-contrib:ro,Z
+  files:
+    etc/config.yaml: |
+      receivers:
+        prometheus/ceph-mgr:
+          config:
+            scrape_configs:
+              - job_name: ceph-mgr
+                scheme: https
+                tls_config:
+                  insecure_skip_verify: true   # cephadm's cert names the host IP, not loopback
+                scrape_interval: 15s
+                static_configs:
+                  - targets: ['127.0.0.1:9283']
+                    labels:
+                      instance: ceph_cluster
+                relabel_configs:
+                  - {target_label: namespace, replacement: ceph}
+                  - {target_label: service, replacement: ceph-mgr}
+                  - {target_label: cluster, replacement: '${env:CEPH_FSID}'}
+                metric_relabel_configs:
+                  - source_labels: [__name__]
+                    regex: 'ceph_(AsyncMessenger_Worker|bluestore_pricache|prioritycache|mds_client_metrics)[_:].*'
+                    action: drop
+                  # Per-daemon counters are the exporters' job, except where ceph-exporter skips the
+                  # daemon (any name containing `mgr`). RE2 has no negation: mark what to keep, drop the rest.
+                  - source_labels: [__name__]
+                    regex: ceph_(osd_(up|in|weight|metadata|apply_latency_ms|commit_latency_ms)|disk_occupation(_human)?|daemon_health_metrics|mds_metadata)
+                    target_label: __tmp_keep
+                    replacement: "1"
+                  - source_labels: [ceph_daemon]
+                    regex: '.*mgr.*'
+                    target_label: __tmp_keep
+                    replacement: "1"
+                  - source_labels: [ceph_daemon, __tmp_keep]
+                    regex: '(osd|mds)\..*;'
+                    action: drop
+                  - regex: __tmp_keep
+                    action: labeldrop
+
+      processors:
+        memory_limiter:
+          check_interval: 1s
+          limit_percentage: 80
+          spike_limit_percentage: 20
+        batch: {}
+        filter/ceph-mgr-scrape:
+          error_mode: ignore
+          metrics:
+            datapoint:
+              - 'attributes["service"] == "ceph-mgr" and (metric.name == "up" or IsMatch(metric.name, "^scrape_"))'
+
+      exporters:
+        otlp_grpc:
+          endpoint: ${env:OTLP_ENDPOINT}
+          tls: {insecure: true}
+          retry_on_failure: {enabled: true}
+          sending_queue: {enabled: true}
+
+      service:
+        # 8889 is otelcol's, 8888 the Ansible collector's.
+        telemetry:
+          metrics:
+            readers:
+              - pull:
+                  exporter:
+                    prometheus: {host: 127.0.0.1, port: 8890}
+        pipelines:
+          metrics/ceph-mgr:
+            receivers: [prometheus/ceph-mgr]
+            processors: [memory_limiter, filter/ceph-mgr-scrape, batch]
+            exporters: [otlp_grpc]

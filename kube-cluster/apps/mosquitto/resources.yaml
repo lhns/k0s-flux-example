@@ -43,7 +43,7 @@ spec:
         # LDAP auth now against the in-cluster lldap (join its vnet as egress).
         kube-vnet/net.lldap.lldap: egress
         # OTLP traces to the in-cluster gateway. Was the Swarm collector at
-        # 10.20.2.10:4317, which was external egress and needed no label; a ClusterIP
+        # 10.20.176.187:4317, which was external egress and needed no label; a ClusterIP
         # does. Drop this and traces stop, silently.
         kube-vnet/net.opentelemetry-gateway.otel-gateway: egress
     spec:
@@ -74,18 +74,10 @@ spec:
             # 3s, not the 1s default. A 1s budget makes this flap under node load, and a flap
             # here empties the Service's endpoints — which takes every MQTT client down with it.
             timeoutSeconds: 3
-          # Liveness, added after a real outage: the broker stopped answering on 1883 while the
-          # process stayed alive, so the container remained Running and READINESS alone just
-          # marked it 0/1 forever. Nothing restarted it. Every MQTT client — zigbee2mqtt, Home
-          # Assistant, the inverter, mqtt-monitoring — was down for ~13 minutes until a human
-          # noticed and deleted the pod.
-          #
-          # Readiness answers "should traffic go here"; only liveness answers "is this worth
-          # keeping". Without it a wedged broker is invisible to Kubernetes.
-          #
-          # Deliberately slacker than readiness: 30s period and 3 failures, so recovery takes
-          # ~90s but a transient stall under load cannot cause a restart loop. mosquitto is
-          # single-instance, so an unnecessary restart is itself an outage.
+          # Liveness, not just readiness: a broker that stops answering on 1883 while the
+          # process lives would sit 0/1 forever with nothing restarting it.
+          # Slacker than readiness (30s x 3) so a load stall cannot cause a restart loop;
+          # mosquitto is single-instance, so an unnecessary restart is itself an outage.
           livenessProbe:
             tcpSocket:
               port: mqtt
@@ -93,8 +85,10 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 3
+          resources:
+            limits: {memory: 128Mi}
       volumes:
-        # mosquitto.conf (with the LDAP bind password) — SOPS-encrypted.
+        # mosquitto.conf (LDAP bind password substituted in; as-secret config).
         - name: config
           secret:
             secretName: mosquitto-config

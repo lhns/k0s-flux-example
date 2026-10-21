@@ -33,7 +33,7 @@ against each other — see that README for what to test. **One of the two gets d
   entrypoint for ownership.
 - **`/dev/shm` is a 1Gi tmpfs `emptyDir`.** Not optional — the default 64Mi makes Chromium and
   Firefox crash on startup, and upstream document `shm_size: 1gb` for every desktop image.
-- **Memory request/limit**, which is unusual in this repo. A browser grows until something stops
+- **Memory request/limit.** A browser grows until something stops
   it, and this pod should not be what evicts its neighbours. Memory only — a CPU limit would
   throttle an interactive desktop, which is worse than the bursty CPU it costs while encoding.
 - **Version**: pinned by **digest**. LinuxServer publish no version tags for webtop, only rolling

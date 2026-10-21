@@ -1,0 +1,122 @@
+---
+# One shared Anubis behind Traefik forwardAuth (docs/adr/0055). Both replicas must use the same
+# signing key, or a cookie issued by one is rejected by the other.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: anubis
+  namespace: anubis
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: anubis
+  template:
+    metadata:
+      # Scraped by the otel `cluster` collector; `anubis` must also be in its `namespaces.names`
+      # (infra/opentelemetry-monitoring/release.yaml).
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: /metrics
+      labels:
+        app.kubernetes.io/name: anubis
+        app.kubernetes.io/instance: anubis
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.valkey: egress
+        kube-vnet/net.opentelemetry.otel-scrape: ingress
+    spec:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: anubis
+      containers:
+        - name: anubis
+          image: ghcr.io/techarohq/anubis:v1.28.1@sha256:1744c03a918160a28b0d2e8c1656de6585f4071b30b4c3b0d51d02282c9b7c25
+          # Empty disables the cookie's binding to the client IP (default header X-Real-IP). It must
+          # be a flag: Anubis ignores empty env vars. Trade-off: a stolen cookie works from any IP
+          # on every protected host until it expires. Rotating IPs (Private Relay, mobile) otherwise
+          # clear the cookie and break SPAs' background calls (ADR 0055).
+          args: ["-jwt-restriction-header="]
+          env:
+            - name: BIND
+              value: ":8080"
+            # A single space: selects subrequest (forwardAuth) mode instead of reverse proxying.
+            - name: TARGET
+              value: " "
+            - name: PUBLIC_URL
+              value: https://anubis.example.com
+            - name: COOKIE_DOMAIN
+              value: example.com
+            # Hosts the challenge may send a solved client back to (glob). A host outside example.com
+            # must be added.
+            - name: REDIRECT_DOMAINS
+              value: "*.example.com"
+            - name: POLICY_FNAME
+              value: /policy/botPolicies.yaml
+            - name: ED25519_PRIVATE_KEY_HEX_FILE
+              value: /key/key
+          ports:
+            - {name: http, containerPort: 8080}
+            - {name: metrics, containerPort: 9090}
+          # /healthz is served on the metrics port, not on BIND.
+          readinessProbe:
+            httpGet: {path: /healthz, port: metrics}
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet: {path: /healthz, port: metrics}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 3
+          # Every protected route's forwardAuth goes through this Service; keep serving until
+          # the endpoint is gone everywhere, or a roll answers a few requests with 500.
+          lifecycle:
+            preStop:
+              sleep: {seconds: 5}
+          resources:
+            requests: {cpu: 25m, memory: 64Mi}
+            limits: {memory: 256Mi}
+          volumeMounts:
+            - {name: policy, mountPath: /policy, readOnly: true}
+            - {name: key, mountPath: /key, readOnly: true}
+      volumes:
+        - name: policy
+          configMap:
+            name: anubis-policy
+        - name: key
+          secret:
+            secretName: anubis-key
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: anubis
+  namespace: anubis
+spec:
+  selector:
+    app.kubernetes.io/name: anubis
+  ports:
+    - {name: http, port: 8080, targetPort: http}
+---
+# Protected routes depend on Anubis, so a drain must never take both replicas.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: anubis
+  namespace: anubis
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: anubis

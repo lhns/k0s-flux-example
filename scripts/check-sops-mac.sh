@@ -12,7 +12,7 @@
 #
 # The key lives on the jumphost, with a clone at ~/k0s-flux:
 #
-#     ssh admin@10.20.5.15 'cd k0s-flux && git pull --ff-only && bash scripts/check-sops-mac.sh'
+#     ssh admin@10.20.150.84 'cd k0s-flux && git pull --ff-only && bash scripts/check-sops-mac.sh'
 #
 # Checks one cluster's directory, kube-cluster unless named: each cluster has its own key.
 #

@@ -1,0 +1,45 @@
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  namespace: grafana
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: app-observed-overview
+spec:
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: fg0li6dpvfitce
+  configMapRef:
+    name: app-observed-overview
+    key: overview.json
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaAlertRuleGroup
+metadata:
+  namespace: grafana
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: app-observed-alerts
+spec:
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  name: app-observed-alerts
+  folderUID: fg0li6dpvfitce
+  interval: 1m
+  rules:
+    - uid: app-observed-down
+      title: Observed is down
+      condition: C
+      for: 5m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc
+          model: {refId: A, instant: true, expr: 'sum(up{job="observed"})'}
+        - refId: C
+          datasourceUid: __expr__
+          model: {refId: C, type: threshold, expression: A, conditions: [{evaluator: {type: lt, params: [1]}}]}

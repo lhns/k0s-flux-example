@@ -39,6 +39,6 @@ executable per line, optionally followed by the apt package that provides it:
 
 The runner checks the executables before running the test, so a missing one is a named
 FAIL or SKIP instead of a `command not found`. `.github/workflows/lint.yml` installs the
-packages from these manifests, so a new component test needs no edit there — unless apt
-has no package for it, which is what `-` says: the workflow must then install it in its own
-step, and an entry lacking the `-` fails that step for the whole repo.
+packages from these manifests whose executable is missing, so a new component test needs no
+edit there — unless apt has no package for it, which is what `-` says: the workflow must then
+install it itself, and an entry lacking the `-` fails that step for the whole repo.

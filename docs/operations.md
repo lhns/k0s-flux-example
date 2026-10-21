@@ -43,7 +43,7 @@ scratch; without it the drain aborts on the first such pod and does nothing.
 first returns `429 TooManyRequests`, because the `postgres-primary` PDB is `minAvailable: 1` on
 `cnpg.io/instanceRole=primary`. CNPG reacts by switching over and demoting the old primary in
 place; its role label leaves the selector, and the second eviction is accepted. Expect Postgres
-back to `2/2` in about a minute.
+back to `3/3` in about a minute.
 
 **Do not uncordon a node that is still `NotReady`.** Check it has rejoined and its CSI node
 plugins are Running first, or pods land on a node that cannot mount their volumes:
@@ -56,6 +56,23 @@ kubectl get pods -A -o wide | grep -E "<node>.*(nodeplugin|Crash|Error)"
 On nodes with CephFS volumes, read the
 [kernel caveat](../kube-cluster/infra/ceph-csi-cephfs/README.md#kernel-caveat-unmounting-cephfs-can-panic-the-node)
 first: a drain unmounts them, and an unmount can panic the node.
+
+## A node is lost: StatefulSet pods stay Terminating
+
+A StatefulSet replaces a pod only once the old one is confirmed gone, so after its node goes
+`NotReady` the pod stays `Terminating` until the node returns. That is deliberate: an
+unreachable node may still run the pod and write to its RBD volume. Once the node is **known
+to be off** (powered down, not just unreachable):
+
+```sh
+kubectl taint node <node> node.kubernetes.io/out-of-service=nodeshutdown:NoExecute
+# its pods are force-deleted and their volumes detached; they start on another node.
+# When the node is back and Ready:
+kubectl taint node <node> node.kubernetes.io/out-of-service=nodeshutdown:NoExecute-
+```
+
+Never taint, or `kubectl delete pod --force`, while the node might still be running the pod:
+that is two writers on one volume.
 
 ## Removing a component
 

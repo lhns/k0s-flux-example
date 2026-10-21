@@ -24,7 +24,7 @@ metadata:
   namespace: semaphore
 spec:
   redirectRegex:
-    regex: "^https://semaphore.kube.example.com/(.*)"
+    regex: "^https?://[^/]+/(.*)"
     replacement: "https://semaphore.example.com/${1}"
     permanent: true
 ---
@@ -39,8 +39,8 @@ spec:
     - kind: Rule
       match: Host(`semaphore.kube.example.com`)
       services:
-        - name: semaphore
-          port: 3000
+        - name: noop@internal
+          kind: TraefikService
       middlewares:
         - name: semaphore-kube-redirect
   tls: {}

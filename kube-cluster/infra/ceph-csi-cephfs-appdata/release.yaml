@@ -8,22 +8,10 @@ spec:
   interval: 1h0m0s
   url: https://ceph.github.io/csi-charts
 ---
-# A SECOND CephFS CSI driver, serving only the `appdata` filesystem.
-#
-# A whole deployment rather than another StorageClass because CSI keys everything off
-# the DRIVER NAME: one name, one socket per node, one process. Filesystems are just
-# StorageClass parameters to that same process.
-#
-# That matters because the node plugin dies as a unit -- ceph-csi 3.17.0 exits when a
-# gRPC call is stuck for 10 minutes (upstream #6286), and a hung mount blocks in the
-# kernel indefinitely. Before this split one hung appdata volume killed the single
-# cephfs plugin ~40 times and unmounted every other cephfs volume on that node,
-# including NVMe ones that shared nothing with it. Nine unrelated apps went Unknown.
-#
-# NOT changed, deliberately: csiConfig is identical (clusterID identifies the CLUSTER,
-# not a filesystem); no secret is created here, both drivers share one cephx identity
-# via a namespace-qualified reference; instanceID stays default, since the two drivers
-# address different metadata pools and their journals cannot collide.
+# Second CephFS driver for the `appdata` filesystem; why: README.md, ADR 0035.
+# Deliberately identical to ../ceph-csi-cephfs: csiConfig (clusterID names the cluster,
+# not a filesystem), the shared secret, and the default instanceID (journals cannot
+# collide, the drivers use different metadata pools).
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
@@ -57,7 +45,20 @@ spec:
     # third driver 8092. The nodeplugin is hostNetwork, so this is a real host
     # port and MUST NOT collide with the other two.
     nodeplugin:
+      registrar:
+        resources:
+          requests:
+            memory: 128Mi
+          limits:
+            memory: 128Mi
       plugin:
+        # Memory limits (ADR 0028). The chart reuses these for liveness-prometheus and, in the
+        # provisioner, the plugin and plugin-controller containers too.
+        resources:
+          requests:
+            memory: 128Mi
+          limits:
+            memory: 256Mi
         # Also the provisioner's image. x86-64-v2 build of upstream: see ../ceph-csi-cephfs/README.md.
         image:
           repository: ghcr.io/lhns/ceph-csi-x86-64-v2
@@ -67,6 +68,30 @@ spec:
         service:
           servicePort: 8092
     provisioner:
+      provisioner:
+        resources:
+          requests:
+            memory: 128Mi
+          limits:
+            memory: 192Mi
+      attacher:
+        resources:
+          requests:
+            memory: 128Mi
+          limits:
+            memory: 128Mi
+      resizer:
+        resources:
+          requests:
+            memory: 128Mi
+          limits:
+            memory: 128Mi
+      snapshotter:
+        resources:
+          requests:
+            memory: 128Mi
+          limits:
+            memory: 128Mi
       httpMetrics:
         containerPort: 8092
         service:
@@ -74,9 +99,9 @@ spec:
     csiConfig:
       - clusterID: ceph-cluster
         monitors:
-          - 10.20.2.101:6789
-          - 10.20.2.102:6789
-          - 10.20.2.103:6789
+          - 10.20.176.250:6789
+          - 10.20.176.251:6789
+          - 10.20.176.252:6789
         cephFS:
           subvolumeGroup: kube
           # see ../ceph-csi-cephfs/release.yaml

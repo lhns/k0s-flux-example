@@ -6,12 +6,12 @@ metadata:
 spec:
   hosts:
   - ssh:
-      address: 10.20.2.52
+      address: 10.20.176.38
       user: root
       port: 22
       keyPath: ~/.ssh/id_rsa
     role: controller
-    privateAddress: 10.20.2.52
+    privateAddress: 10.20.176.38
     # Same aliasing trick as the workers below: defined once, aliased on the other two
     # controllers so the three cannot drift apart.
     files: &controller-files
@@ -24,23 +24,23 @@ spec:
       dst: /var/lib/k0s/authentication-config.yaml
       perm: "0644"
   - ssh:
-      address: 10.20.2.53
+      address: 10.20.176.143
       user: root
       port: 22
       keyPath: ~/.ssh/id_rsa
     role: controller
-    privateAddress: 10.20.2.53
+    privateAddress: 10.20.176.143
     files: *controller-files
   - ssh:
-      address: 10.20.2.54
+      address: 10.20.176.155
       user: root
       port: 22
       keyPath: ~/.ssh/id_rsa
     role: controller
-    privateAddress: 10.20.2.54
+    privateAddress: 10.20.176.155
     files: *controller-files
   - ssh:
-      address: 10.20.2.72
+      address: 10.20.176.37
       user: root
       port: 22
       keyPath: ~/.ssh/id_rsa
@@ -81,7 +81,7 @@ spec:
           - command -v rsyslogd >/dev/null || { apt-get update && apt-get install -y rsyslog; }
           - systemctl reload-or-restart rsyslog
   - ssh:
-      address: 10.20.2.73
+      address: 10.20.176.162
       user: root
       port: 22
       keyPath: ~/.ssh/id_rsa
@@ -89,7 +89,7 @@ spec:
     files: *worker-files
     hooks: *worker-hooks
   - ssh:
-      address: 10.20.2.74
+      address: 10.20.176.189
       user: root
       port: 22
       keyPath: ~/.ssh/id_rsa
@@ -137,7 +137,7 @@ spec:
             keepalived:
               vrrpInstances:
                 - virtualIPs:
-                    - 10.20.2.50/16
+                    - 10.20.176.193/16
                   virtualRouterID: 103
                   authPass: CHANGEME
         installConfig:

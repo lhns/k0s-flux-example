@@ -1,7 +1,7 @@
 # 0019 — Flux's own manifests come from `gen-flux.sh`, never `flux bootstrap`; controllers are tuned
 
 - Status: Accepted
-- Date: 2026-07-10, amended 2026-09-21, 2026-10-03 and 2026-10-04
+- Date: 2026-07-10, amended 2026-09-21, 2026-10-03, 2026-10-04 and 2026-10-16
 - Current answer: `<cluster>/flux-system/gotk-components.yaml` and `gotk-sync.yaml` are generated
   by `scripts/gen-flux.sh` (`CLUSTER=`, `FLUX_VERSION=`), which includes the extra component
   source-watcher. A plain `flux bootstrap` would remove source-watcher and stop every component
@@ -24,7 +24,8 @@ not reproducible.
   for kustomize- and helm-controller. A new cluster is bootstrapped by applying these files, not
   by `flux bootstrap` (README, [Bootstrapping a cluster](../../README.md#bootstrapping-a-cluster)).
 - **`StrictPostBuildSubstitutions`** on kustomize-controller (2026-10-03,
-  [0038](0038-plaintext-config-substituted-secrets.md)).
+  [0038](0038-plaintext-config-substituted-secrets.md)), and `CancelHealthCheckOnNewRevision`
+  (2026-10-16).
 - **Tuning** (2026-10-03/04): the default `--concurrent=4` is too low for this many
   Kustomizations. Concurrency is 32 (kustomize), 10 (source), 8 (helm) and 24 (source-watcher),
   `--requeue-dependency` 5 s, and CPU limits the measured peaks, since more workers only wait for

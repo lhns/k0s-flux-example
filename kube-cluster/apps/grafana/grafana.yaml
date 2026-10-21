@@ -1,0 +1,185 @@
+# The operator (infra/grafana-operator) renders the Deployment, `grafana-service` and `grafana-ini`
+# from this; spec.deployment is a strategic merge onto its defaults. Containers, env and volumes
+# merge by name, ports by containerPort and mounts by mountPath: never restate the operator's port
+# or /var/lib/grafana mount here, it would rename them. Design: README.md, "Operator".
+apiVersion: grafana.integreatly.org/v1beta1
+kind: Grafana
+metadata:
+  name: grafana
+  namespace: grafana
+  labels:
+    # Every Grafana CR selects the instance by this label; instanceSelector is immutable there.
+    grafana.example.com/instance: main
+spec:
+  # renovate: datasource=docker
+  version: ghcr.io/lhns/grafana-babel:13.2.2
+  # The operator logs in with its projected ServiceAccount token ([auth.jwt] below), so it needs
+  # no admin password; the generated admin Secret would only inject GF_SECURITY_ADMIN_*.
+  disableDefaultAdminSecret: true
+  client:
+    useKubeAuth: true
+  # Today's pod: fsGroup only. The operator's default (uid 10001, read-only root) is untested
+  # with the grafana-babel image.
+  disableDefaultSecurityContext: All
+  config:
+    # Grafana's default (keep all rule versions); the operator would set 5 and trim history.
+    unified_alerting:
+      rule_version_record_limit: "0"
+    # Accepts only the operator's audience-bound token (the chart's kubeAuth.audience and its
+    # ServiceAccount, fixed by fullnameOverride there). Users still log in through Authelia.
+    auth.jwt:
+      enabled: "true"
+      header_name: Authorization
+      username_claim: sub
+      email_claim: sub
+      auto_sign_up: "true"
+      expect_claims: '{"iss": "https://kubernetes.default.svc", "sub": "system:serviceaccount:grafana-operator:grafana-operator", "aud": ["operator.grafana.com"]}'
+      role_attribute_strict: "true"
+      # Not a bare 'Admin': the ini parser strips quotes wrapping a whole value.
+      role_attribute_path: "contains(sub, 'system:serviceaccount:grafana-operator:grafana-operator') && 'Admin' || 'None'"
+      jwk_set_url: https://kubernetes.default.svc/openid/v1/jwks
+      jwk_set_bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      tls_client_ca: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+  deployment:
+    spec:
+      # Single writer on /var/lib/grafana and the DB; namespaces/ also caps the namespace at one pod.
+      strategy:
+        type: Recreate
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: grafana
+            app.kubernetes.io/instance: grafana
+            # receive from traefik, and reach the postgres primary directly
+            kube-vnet/net.traefik.traefik: ingress
+            kube-vnet/net.postgres.postgres: egress
+            # the operator's API calls (infra/grafana-operator/vnet.yaml)
+            kube-vnet/net.grafana-operator.grafana-api: ingress
+            # reach the in-cluster VictoriaTraces DB (:10428) as a datasource
+            kube-vnet/net.victoriatraces.victoriatraces: egress
+            # reach the in-cluster VictoriaLogs DB (:9428) as a datasource
+            kube-vnet/net.victorialogs.victorialogs: egress
+            # reach the in-cluster VictoriaMetrics cluster (vmselect :8481) datasource
+            kube-vnet/net.victoriametrics-cluster.vmselect: egress
+            # post alerts to the matrix-alerts relay (:8080)
+            kube-vnet/net.matrix-alerts.matrix-alerts: egress
+        spec:
+          # Grafana runs as uid/gid 472; the volume is group-writable by it.
+          securityContext:
+            fsGroup: 472
+          containers:
+            - name: grafana
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 768Mi
+                # The operator's default limit (1Gi) is about the 7-day peak.
+                limits:
+                  memory: 1536Mi
+              env:
+                # Data source queries; must not undercut vmselect's -search.maxQueryDuration (1m).
+                - name: GF_DATAPROXY_TIMEOUT
+                  value: "65"
+                - name: GF_SERVER_ROOT_URL
+                  value: https://grafana.example.com
+                - name: GF_AUTH_TOKEN_ROTATION_INTERVAL_MINUTES
+                  value: "600"
+                # Replaces the operator's value, so a GrafanaDashboard's spec.plugins installs nothing.
+                - name: GF_INSTALL_PLUGINS
+                  value: victoriametrics-metrics-datasource,victoriametrics-logs-datasource
+                # Store Grafana's state in the shared CNPG Postgres (dedicated grafana
+                # role + database) instead of the bundled SQLite.
+                - name: GF_DATABASE_TYPE
+                  value: postgres
+                - name: GF_DATABASE_HOST
+                  value: postgres-rw.postgres.svc.cluster.local:5432
+                - name: GF_DATABASE_NAME
+                  value: grafana
+                - name: GF_DATABASE_USER
+                  value: grafana
+                - name: GF_DATABASE_SSL_MODE
+                  value: require
+                - name: GF_DATABASE_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: grafana-db
+                      key: password
+                # SSO via the external Authelia OIDC provider (auth.example.com). Ported
+                # from the Swarm grafana.ini [auth.generic_oauth].
+                - name: GF_AUTH_GENERIC_OAUTH_ENABLED
+                  value: "true"
+                - name: GF_AUTH_GENERIC_OAUTH_NAME
+                  value: Authelia
+                - name: GF_AUTH_GENERIC_OAUTH_ICON
+                  value: signin
+                - name: GF_AUTH_GENERIC_OAUTH_CLIENT_ID
+                  value: grafana
+                - name: GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: grafana-config
+                      key: oauth_client_secret
+                - name: GF_AUTH_GENERIC_OAUTH_SCOPES
+                  value: openid profile email groups
+                - name: GF_AUTH_GENERIC_OAUTH_EMPTY_SCOPES
+                  value: "false"
+                - name: GF_AUTH_GENERIC_OAUTH_AUTH_URL
+                  value: https://auth.example.com/api/oidc/authorization
+                - name: GF_AUTH_GENERIC_OAUTH_TOKEN_URL
+                  value: https://auth.example.com/api/oidc/token
+                - name: GF_AUTH_GENERIC_OAUTH_API_URL
+                  value: https://auth.example.com/api/oidc/userinfo
+                - name: GF_AUTH_GENERIC_OAUTH_LOGIN_ATTRIBUTE_PATH
+                  value: preferred_username
+                - name: GF_AUTH_GENERIC_OAUTH_GROUPS_ATTRIBUTE_PATH
+                  value: groups
+                - name: GF_AUTH_GENERIC_OAUTH_NAME_ATTRIBUTE_PATH
+                  value: name
+                - name: GF_AUTH_GENERIC_OAUTH_USE_PKCE
+                  value: "true"
+                - name: GF_AUTH_GENERIC_OAUTH_AUTO_LOGIN
+                  value: "true"
+                - name: GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH
+                  value: "contains(groups, 'admin') && 'Admin' || contains(groups, 'grafana_admin') && 'Admin' || contains(groups, 'grafana_editor') && 'Editor' || 'Viewer'"
+                # SMTP for alert/notification email (Gmail app password). Ported from
+                # the Swarm grafana.ini [smtp].
+                - name: GF_SMTP_ENABLED
+                  value: "true"
+                - name: GF_SMTP_HOST
+                  value: smtp.gmail.com:587
+                - name: GF_SMTP_USER
+                  value: admin@example.com
+                - name: GF_SMTP_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: grafana-config
+                      key: smtp_password
+                - name: GF_SMTP_FROM_ADDRESS
+                  value: admin+grafana@example.com
+                - name: GF_SMTP_FROM_NAME
+                  value: Grafana
+                - name: GF_SMTP_EHLO_IDENTITY
+                  value: example.com
+                # Allow HTML in text panels (dashboards rely on it). From [panels].
+                - name: GF_PANELS_DISABLE_SANITIZE_HTML
+                  value: "true"
+                # Comma-separated [feature_toggles] enable list.
+                - name: GF_FEATURE_TOGGLES_ENABLE
+                  value: grafanaAdvisor
+              volumeMounts:
+                - name: alerting
+                  mountPath: /etc/grafana/provisioning/alerting
+                  readOnly: true
+              readinessProbe:
+                timeoutSeconds: 5
+                initialDelaySeconds: 20
+                periodSeconds: 10
+                failureThreshold: 18 # plugin install + DB migration on first start
+          volumes:
+            # The operator mounts this at /var/lib/grafana; replaces its emptyDir.
+            - name: grafana-data
+              persistentVolumeClaim:
+                claimName: grafana-data
+            - name: alerting
+              configMap:
+                name: grafana-alerting

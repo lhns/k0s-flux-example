@@ -1,7 +1,7 @@
 # 0016 — `validate.sh`: one offline gate for people and CI
 
 - Status: Accepted
-- Date: 2026-07-09, amended 2026-09-02, 2026-09-04, 2026-09-17, 2026-09-27 and 2026-09-30
+- Date: 2026-07-09, amended 2026-09-02, 2026-09-04, 2026-09-17, 2026-09-27, 2026-09-30 and 2026-10-16
 - Current answer: `scripts/validate.sh` is the single entry point, run identically on a
   workstation and in the Lint workflow, with no cluster access. It runs yamllint, a
   `kustomize build` + `kubeconform -strict` sweep over every component of every cluster and the
@@ -29,10 +29,14 @@ the size cap, a Secret applied as a ConfigMap.
   `check-sops.py` ([0003](0003-sops-with-age-one-key-per-cluster.md)),
   `check-source-pins.py`, `check-fetch-digests.py` ([0027](0027-everything-pinned-and-checked.md)),
   `check-coverage.py` (snapshot classes, CNPG backups, [0017](0017-backups-stay-in-ceph.md)),
-  `check-clusters.py`, `check-artifacts.py` ([0048](0048-several-clusters-one-repo.md)), and the
-  offline test of `check-migration.py`. Exemptions need a written reason.
+  `check-clusters.py`, `check-artifacts.py` ([0048](0048-several-clusters-one-repo.md)),
+  `check-grafana.py` ([0058](0058-grafana-operator-manages-grafana-and-its-content.md)),
+  `check-arc-dockerfile.py`, the synapse-pymods version check, and the offline test of
+  `check-migration.py`. Exemptions need a written reason.
 - **`kubeconform -strict`** (2026-09-30): a field in the wrong place passes non-strict
   validation. SOPS metadata is stripped first, line by line.
+- **A one-minute budget** (2026-10-16): the checks run concurrently and each component is built
+  once. CI takes kustomize and helm from the runner image when they match the pins.
 - **Per-component tests** in `<component>/tests/run.sh`: no cluster, deterministic, a missing tool
   fails unless `ALLOW_SKIP=1`, and every skip is listed at the end.
 

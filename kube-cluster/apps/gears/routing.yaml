@@ -1,0 +1,16 @@
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: gears
+  namespace: gears
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`gears.example.com`)
+      services:
+        - name: gears
+          port: 80
+      middlewares:
+        - name: anubis
+  tls: {}

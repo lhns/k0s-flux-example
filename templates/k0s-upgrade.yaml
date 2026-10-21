@@ -1,6 +1,6 @@
 {{- /*
   Optional k0s in-cluster upgrade wrapper. When .Values.k0sUpgrade is set, emit a
-  dedicated Flux Kustomization for kube-cluster/k0s-upgrade/ and inject the k0s
+  dedicated Flux Kustomization for `k0sUpgrade.path` and inject the k0s
   version — read straight from k0sctl.yaml via .Files.Get — through
   postBuild.substitute. The Job there recreates the singleton Autopilot Plan
   (Autopilot then rolls the nodes). Absent -> renders nothing (non-k0s clusters).

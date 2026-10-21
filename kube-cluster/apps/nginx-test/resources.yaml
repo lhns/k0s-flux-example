@@ -19,17 +19,21 @@ spec:
     metadata:
       labels:
         app: nginx-test
+        kube-vnet/net.traefik.traefik: ingress
     spec:
       containers:
         - name: nginx
-          image: nginx:alpine
+          image: nginx:1.31.7-alpine@sha256:892bb2152464f0c5d8972593a5f5afaf8054552580b699d95f8ff4af08c2d33d
           command: ["/bin/sh", "-c", "sleep 30 && exec nginx -g 'daemon off;'"]
           ports:
             - {containerPort: 80}
           readinessProbe:
+            timeoutSeconds: 5
             httpGet: {path: /, port: 80}
             initialDelaySeconds: 2
             periodSeconds: 3
+          resources:
+            limits: {memory: 128Mi}
 ---
 apiVersion: v1
 kind: Service

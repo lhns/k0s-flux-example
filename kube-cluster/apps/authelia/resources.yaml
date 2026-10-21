@@ -77,6 +77,7 @@ spec:
             - name: http
               containerPort: 9091
           readinessProbe:
+            timeoutSeconds: 5
             httpGet:
               path: /api/health
               port: http
@@ -90,6 +91,11 @@ spec:
             - name: secrets
               mountPath: /secrets
               readOnly: true
+          resources:
+            requests:
+              memory: 192Mi
+            limits:
+              memory: 384Mi
       volumes:
         - name: config
           configMap:
@@ -163,7 +169,7 @@ spec:
     spec:
       containers:
         - name: user-info
-          image: php:8.5-apache
+          image: php:8.5.12-apache@sha256:e25ab14ef2cfec3bab9dd66c6cf871691146f428fbd72241b1a2c38fcacf92f5
           env:
             - name: ACCESS_MATRIX
               value: |
@@ -198,6 +204,11 @@ spec:
           volumeMounts:
             - name: html
               mountPath: /var/www/html
+          resources:
+            requests:
+              memory: 64Mi
+            limits:
+              memory: 64Mi
       volumes:
         - name: html
           configMap:

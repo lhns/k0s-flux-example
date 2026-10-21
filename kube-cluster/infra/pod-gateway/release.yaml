@@ -30,10 +30,30 @@ spec:
       # namespace is rejected outright -- including helper pods for maintenance.
       webhook:
         replicas: 2
-      main:
         containers:
+          main:
+            resources:
+              limits:
+                memory: 128Mi
+      main:
+        # Runs ip/iptables setup once and exits.
+        initContainers:
+          routes:
+            resources:
+              requests:
+                memory: 32Mi
+              limits:
+                memory: 128Mi
+        containers:
+          main:
+            resources:
+              limits:
+                memory: 128Mi
           gluetun:
             enabled: true
+            resources:
+              limits:
+                memory: 256Mi
             env:
               TZ: Europe/Berlin
               VPN_SERVICE_PROVIDER: nordvpn
@@ -43,11 +63,8 @@ spec:
               VPN_INTERFACE: wg0
               SERVER_COUNTRIES: Netherlands
               UPDATER_PERIOD: 24h
-              # NOT DNS_KEEP_NAMESERVER=on, which the design brief specifies. With it,
-              # the gateway's dnsmasq forwards to CoreDNS, and since dnsmasq validates
-              # DNSSEC while CoreDNS returns no usable chain, every external name is
-              # BOGUS -> SERVFAIL. It also sent client lookups out via the node
-              # resolver instead of the tunnel. gluetun's own DoT resolver fixes both.
+              # Not "on": dnsmasq would forward to CoreDNS, sending client lookups out
+              # via the node resolver instead of the tunnel.
               # Cluster names still work: dnsmasq keeps a server=/local/ route to
               # K8S DNS from DNS_LOCAL_CIDRS.
               DNS_KEEP_NAMESERVER: "off"
@@ -134,6 +151,9 @@ spec:
       VPN_BLOCK_OTHER_TRAFFIC: true
       VPN_TRAFFIC_PORT: 51820
       VPN_LOCAL_CIDRS: "10.0.0.0/8 172.18.0.0/16 172.19.0.0/16"
+      # The image's dnsmasq trust anchor is only the 2017 root KSK, so since the 2024 KSK
+      # took over every external name validates BOGUS. 1.1.1.1 validates DNSSEC itself.
+      GATEWAY_ENABLE_DNSSEC: false
 
     webhook:
       # Renders to namespaceSelector matchLabels {routed-gateway: "true"}. Scoped by

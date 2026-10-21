@@ -21,3 +21,21 @@ data:
               staticVolume: "true"
         action:
           type: skip
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: velero-volume-policy-graph
+  namespace: velero
+data:
+  # Only for the *-graph schedules (remote-docker, remote-docker-ci). Skips the graph claims
+  # (>=5Gi); the state claims are 1Gi and keep their snapshots. A state claim grown to 5Gi
+  # would silently lose its backup.
+  # Exactly one data key: Velero rejects the ConfigMap otherwise.
+  policy.yaml: |
+    version: v1
+    volumePolicies:
+      - conditions:
+          capacity: "5Gi,"
+        action:
+          type: skip

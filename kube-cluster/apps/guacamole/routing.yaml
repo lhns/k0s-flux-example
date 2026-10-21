@@ -40,7 +40,7 @@ metadata:
   namespace: guacamole
 spec:
   redirectRegex:
-    regex: "^https://guacamole.kube.example.com/(.*)"
+    regex: "^https?://[^/]+/(.*)"
     replacement: "https://guacamole.example.com/${1}"
     permanent: true
 ---
@@ -55,8 +55,8 @@ spec:
     - kind: Rule
       match: Host(`guacamole.kube.example.com`)
       services:
-        - name: guacamole
-          port: 8080
+        - name: noop@internal
+          kind: TraefikService
       middlewares:
         - name: guacamole-kube-redirect
   tls: {}

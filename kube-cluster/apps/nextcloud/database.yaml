@@ -18,7 +18,7 @@ spec:
   databaseRoleReclaimPolicy: retain
 ---
 # The nextcloud database, owned by that role. A pg_dump of the old Swarm Postgres
-# (10.20.2.10:5436, PG 18) is restored into it once before Nextcloud first boots
+# (10.20.176.187:5436, PG 18) is restored into it once before Nextcloud first boots
 # (same major, PG 18 -> PG 18.4 -> clean dump/restore). See README.
 apiVersion: postgresql.cnpg.io/v1
 kind: Database

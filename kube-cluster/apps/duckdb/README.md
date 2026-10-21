@@ -1,11 +1,11 @@
 # duckdb
 
 The [DuckDB UI](https://duckdb.org/docs/extensions/ui) (`duckdb/duckdb`), ported
-from a Docker Swarm stack. Exposed at **`duckdb.kube.example.com`** via traefik, behind
+from a Docker Swarm stack. Exposed at **`duckdb.example.com`** via traefik, behind
 **Authelia SSO**.
 
-- `resources.yaml` — the `duckdb` namespace, a `ceph-rbd` PVC for the workspace,
-  the Deployment (`duckdb` + a `socat` sidecar), Service, the `duckdb-headers`
+- `resources.yaml` — a `ceph-rbd` PVC for the workspace,
+  the StatefulSet (`duckdb` + a `socat` sidecar), Service, the `duckdb-headers`
   Middleware, and the Ingress.
 
 ## How it runs
@@ -22,9 +22,8 @@ The `duckdb/duckdb` image is distroless, so instead of the Swarm
 
 The Ingress chains two middlewares (order matters):
 
-1. `authelia-authelia@kubernetescrd` — SSO via the external Authelia (sees the real
-   host for access control). `duckdb` is allowlisted in Traefik's
-   `providers.kubernetesIngress.crossProviderNamespaces` (in `../../infra/traefik`).
+1. `duckdb-authelia@kubernetescrd` — the reflected Authelia SSO middleware (sees the real
+   host for access control).
 2. `duckdb-duckdb-headers@kubernetescrd` — rewrites `Host`/`Origin`/`Referer` to
    `localhost:4213` so the UI accepts the proxied request.
 
@@ -33,3 +32,11 @@ The Ingress chains two middlewares (order matters):
 `database.db` lives on a fresh `ceph-rbd` (block) volume — appropriate for a
 single-writer DB. To bring over an existing workspace, copy `database.db` into the
 PVC (e.g. `kubectl cp ./database.db duckdb/<pod>:/workspace/database.db`).
+
+## Decisions
+
+- **A one-replica StatefulSet, not a Deployment**, per ADR
+  [0007](../../../docs/adr/0007-ceph-csi-storage-classes-by-access-pattern.md). It mounts the
+  existing `duckdb-workspace` PVC by `claimName`; a `volumeClaimTemplate` would provision a new,
+  empty volume. After a node loss the pod waits for the owner:
+  [operations](../../../docs/operations.md#a-node-is-lost-statefulset-pods-stay-terminating).

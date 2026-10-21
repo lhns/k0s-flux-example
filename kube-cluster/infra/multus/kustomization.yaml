@@ -47,3 +47,11 @@ patches:
     # Memory limits only: CFS throttling in the pod-creation path slows pod starts cluster-wide.
     - op: remove
       path: /spec/template/spec/containers/0/resources/limits/cpu
+    # Memory limit for the install-multus-binary init container (ADR 0028); upstream sets only a request.
+    - op: test
+      path: /spec/template/spec/initContainers/0/name
+      value: install-multus-binary
+    - op: add
+      path: /spec/template/spec/initContainers/0/resources/limits
+      value:
+        memory: 128Mi

@@ -1,0 +1,6 @@
+{
+  "uid": "app-observed-overview",
+  "title": "Observed",
+  "templating": {"list": [{"name": "datasource", "type": "datasource", "query": "victoriametrics-metrics-datasource"}]},
+  "panels": [{"id": 1, "type": "timeseries", "title": "Up", "datasource": {"uid": "${datasource}"}, "targets": [{"expr": "up{job=\"$job\"}"}]}]
+}

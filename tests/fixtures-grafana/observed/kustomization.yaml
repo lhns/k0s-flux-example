@@ -1,0 +1,18 @@
+# Fixture for tests/check-grafana.py: a component with its Grafana objects in its own kustomization.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - resources.yaml
+  - grafana.yaml
+configMapGenerator:
+  - name: app-observed-overview
+    namespace: grafana
+    files:
+      - dashboards/overview.json
+    options:
+      disableNameSuffixHash: true
+      annotations:
+        kustomize.toolkit.fluxcd.io/substitute: disabled
+      # The operator's informer sees only ConfigMaps with this label.
+      labels:
+        app.kubernetes.io/managed-by: grafana-operator

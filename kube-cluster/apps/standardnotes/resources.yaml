@@ -60,6 +60,7 @@ spec:
             - {name: MARIADB_PASSWORD, valueFrom: {secretKeyRef: {name: standardnotes, key: DB_PASSWORD}}}
             - {name: MARIADB_ROOT_PASSWORD, valueFrom: {secretKeyRef: {name: standardnotes, key: MYSQL_ROOT_PASSWORD}}}
           readinessProbe:
+            timeoutSeconds: 5
             exec:
               command: ["sh", "-c", "mariadb-admin ping -h 127.0.0.1 -u root -p\"$MARIADB_ROOT_PASSWORD\" --silent"]
             initialDelaySeconds: 15
@@ -112,7 +113,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: redis
-          image: redis:8-alpine
+          image: redis:8.8.1-alpine@sha256:8096655e437712b07503796fb64d81359256cfcff0ab29d95a7da72863786efb
           resources:
             requests:
               memory: 32Mi
@@ -121,6 +122,7 @@ spec:
           ports:
             - {name: redis, containerPort: 6379}
           readinessProbe:
+            timeoutSeconds: 5
             exec: {command: ["redis-cli", "ping"]}
             initialDelaySeconds: 5
             periodSeconds: 10
@@ -168,7 +170,12 @@ spec:
       enableServiceLinks: false
       containers:
         - name: localstack
-          image: localstack/localstack:4.14
+          image: localstack/localstack:4.14.0@sha256:3ebc37595918b8accb852f8048fef2aff047d465167edd655528065b07bc364a
+          resources:
+            requests:
+              memory: 192Mi
+            limits:
+              memory: 512Mi
           env:
             - {name: SERVICES, value: "sns,sqs"}
             - {name: HOSTNAME_EXTERNAL, value: localstack}
@@ -181,6 +188,7 @@ spec:
           # nothing could reach it). The bootstrap init-hook creates the topics a
           # few seconds after this returns 200; the server takes far longer to boot.
           readinessProbe:
+            timeoutSeconds: 5
             httpGet: {path: /_localstack/health, port: edge}
             initialDelaySeconds: 10
             periodSeconds: 10
@@ -241,7 +249,12 @@ spec:
       initContainers:
         # The entrypoint runs DB migrations on boot; wait for the deps first.
         - name: wait-deps
-          image: busybox:1.38
+          image: busybox:1.38.0@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e
+          resources:
+            requests:
+              memory: 16Mi
+            limits:
+              memory: 64Mi
           command:
             - sh
             - -c
@@ -258,7 +271,13 @@ spec:
           ports:
             - {name: api, containerPort: 3000}
             - {name: files, containerPort: 3104}
+          resources:
+            requests:
+              memory: 768Mi
+            limits:
+              memory: 3Gi
           readinessProbe:
+            timeoutSeconds: 5
             httpGet: {path: /healthcheck, port: api}
             initialDelaySeconds: 30
             periodSeconds: 15
@@ -359,7 +378,12 @@ spec:
         # The image is digest-pinned so the sed targets can't silently drift on a
         # :latest rebuild — and the grep guards fail the pod if a target is missing.
         - name: patch-firstparty-allowlist
-          image: standardnotes/web:latest@sha256:de6f06a417f85bc30d6720a082d4342ebaf637567947b9bb7b50dc06956e2c9f
+          image: standardnotes/web:latest@sha256:46bf76e09592bfd4a191fbe3e3204a0c1afff74c97d0c40c1bc32f38811caea3
+          resources:
+            requests:
+              memory: 64Mi
+            limits:
+              memory: 256Mi
           command:
             - sh
             - -c
@@ -375,10 +399,16 @@ spec:
             - {name: html, mountPath: /work}
       containers:
         - name: web
-          image: standardnotes/web:latest@sha256:de6f06a417f85bc30d6720a082d4342ebaf637567947b9bb7b50dc06956e2c9f
+          image: standardnotes/web:latest@sha256:46bf76e09592bfd4a191fbe3e3204a0c1afff74c97d0c40c1bc32f38811caea3
           ports:
             - {name: http, containerPort: 80}
+          resources:
+            requests:
+              memory: 128Mi
+            limits:
+              memory: 128Mi
           readinessProbe:
+            timeoutSeconds: 5
             httpGet: {path: /, port: http}
             initialDelaySeconds: 10
             periodSeconds: 10

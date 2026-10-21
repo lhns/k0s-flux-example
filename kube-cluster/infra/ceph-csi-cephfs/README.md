@@ -1,9 +1,9 @@
 # ceph-csi-cephfs
 
 Ceph **CephFS** shared-filesystem storage (`cephfs.csi.ceph.com`), providing the `cephfs`
-StorageClass on the `fastappdata` (SSD) filesystem — the default for config, databases-on-files
+StorageClass on the `fastdata` (SSD) filesystem — the default for config, databases-on-files
 and anything latency-sensitive. Each PVC becomes a subvolume under `/volumes/kube/` (external
-Ceph cluster, monitors `10.20.2.101-103`).
+Ceph cluster, monitors `10.20.176.250-252`).
 
 The HDD tier is `cephfs-appdata`, in `../ceph-csi-cephfs-appdata/` under a **driver of its own**
 so that a hang on `appdata` cannot take out this one.

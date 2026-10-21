@@ -1,0 +1,371 @@
+# Grafana Operator objects of this component (README.md, "Grafana objects"). Each opts out of Flux
+# substitution: rule templates and dashboard JSON are full of ${...}.
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: ext-ceph-ceph-cluster
+  namespace: grafana
+spec:
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: dg1tqkgkqcbnke # Ceph
+  configMapRef:
+    name: ext-ceph-dashboards
+    key: ceph-cluster.json
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: ext-ceph-ceph-osds
+  namespace: grafana
+spec:
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: dg1tqkgkqcbnke # Ceph
+  configMapRef:
+    name: ext-ceph-dashboards
+    key: ceph-osds.json
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: ext-ceph-ceph-osd-device
+  namespace: grafana
+spec:
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: dg1tqkgkqcbnke # Ceph
+  configMapRef:
+    name: ext-ceph-dashboards
+    key: ceph-osd-device.json
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: ext-ceph-ceph-pools
+  namespace: grafana
+spec:
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: dg1tqkgkqcbnke # Ceph
+  configMapRef:
+    name: ext-ceph-dashboards
+    key: ceph-pools.json
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: ext-ceph-ceph-pool
+  namespace: grafana
+spec:
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: dg1tqkgkqcbnke # Ceph
+  configMapRef:
+    name: ext-ceph-dashboards
+    key: ceph-pool.json
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: ext-ceph-ceph-cephfs
+  namespace: grafana
+spec:
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: dg1tqkgkqcbnke # Ceph
+  configMapRef:
+    name: ext-ceph-dashboards
+    key: ceph-cephfs.json
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: ext-ceph-ceph-rgw
+  namespace: grafana
+spec:
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: dg1tqkgkqcbnke # Ceph
+  configMapRef:
+    name: ext-ceph-dashboards
+    key: ceph-rgw.json
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: ext-ceph-ceph-rgw-detail
+  namespace: grafana
+spec:
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: dg1tqkgkqcbnke # Ceph
+  configMapRef:
+    name: ext-ceph-dashboards
+    key: ceph-rgw-detail.json
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaAlertRuleGroup
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: ext-ceph
+  namespace: grafana
+spec:
+  name: ext-ceph
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: dg1tqkgkqcbnke # Ceph
+  interval: 1m
+  rules:
+    # Curated checks of ceph_health_detail; a Ceph check name is only exported once it has been raised or is
+    # in the mgr's built-in list. PG_DEGRADED is left out on purpose: recovery after a reboot is normal, and
+    # PG_AVAILABILITY covers the dangerous case. Ceph's own severity moves to check_severity so the rule's
+    # severity label stays ours.
+    - uid: ceph-health-check
+      title: Ceph health check raised
+      condition: C
+      for: 5m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move(max by (name, severity) (ceph_health_detail{name=~"OSD_DOWN|OSD_HOST_DOWN|OSD_NEARFULL|OSD_BACKFILLFULL|OSD_FULL|POOL_NEARFULL|POOL_BACKFILLFULL|POOL_FULL|PG_AVAILABILITY|PG_DAMAGED|OSD_SCRUB_ERRORS|OBJECT_UNFOUND|PG_RECOVERY_FULL|PG_BACKFILL_FULL|MON_DOWN|MON_CLOCK_SKEW|MON_DISK_LOW|MON_DISK_CRIT|FS_DEGRADED|MDS_ALL_DOWN|MDS_DAMAGE|FS_WITH_FAILED_MDS|MDS_SLOW_REQUEST|MDS_SLOW_METADATA_IO|SLOW_OPS|DEVICE_HEALTH|DEVICE_HEALTH_TOOMANY|DEVICE_HEALTH_IN_USE|RECENT_CRASH|MGR_DOWN|CEPHADM_FAILED_DAEMON"} == 1), "severity", "check_severity")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0]}
+      labels:
+        severity: warning
+      annotations:
+        summary: 'Ceph {{ $labels.name }} ({{ if eq $labels.check_severity "HEALTH_ERR" }}error{{ else }}warning{{ end }})'
+        description: 'Ceph has raised health check {{ $labels.name }} for 5 minutes. `ceph health detail` names the affected daemons, OSDs or PGs. https://grafana.example.com/d/ceph-cluster/ceph-cluster'
+      notificationSettings:
+        receiver: matrix
+    # AUTH_INSECURE_* are known and accepted for now, so they are excluded here.
+    - uid: ceph-health-error-other
+      title: Ceph health error (other)
+      condition: C
+      for: 15m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move(max by (name, severity) (ceph_health_detail{severity="HEALTH_ERR", name!~"AUTH_INSECURE_.*|OSD_DOWN|OSD_HOST_DOWN|OSD_NEARFULL|OSD_BACKFILLFULL|OSD_FULL|POOL_NEARFULL|POOL_BACKFILLFULL|POOL_FULL|PG_AVAILABILITY|PG_DAMAGED|OSD_SCRUB_ERRORS|OBJECT_UNFOUND|PG_RECOVERY_FULL|PG_BACKFILL_FULL|MON_DOWN|MON_CLOCK_SKEW|MON_DISK_LOW|MON_DISK_CRIT|FS_DEGRADED|MDS_ALL_DOWN|MDS_DAMAGE|FS_WITH_FAILED_MDS|MDS_SLOW_REQUEST|MDS_SLOW_METADATA_IO|SLOW_OPS|DEVICE_HEALTH|DEVICE_HEALTH_TOOMANY|DEVICE_HEALTH_IN_USE|RECENT_CRASH|MGR_DOWN|CEPHADM_FAILED_DAEMON"} == 1), "severity", "check_severity")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0]}
+      labels:
+        severity: warning
+      annotations:
+        summary: 'Ceph {{ $labels.name }} (error)'
+        description: 'A Ceph health check of error severity that has no rule of its own has been raised for 15 minutes. `ceph health detail` names the cause. https://grafana.example.com/d/ceph-cluster/ceph-cluster'
+      notificationSettings:
+        receiver: matrix
+    # Every Ceph alert depends on the mgr series, so their silence is emailed too.
+    - uid: ceph-metrics-stale
+      title: Ceph metrics stale
+      condition: C
+      for: 2m
+      noDataState: Alerting
+      execErrState: Error
+      data:
+        - refId: A
+          relativeTimeRange: {from: 86400, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              time() - max(tlast_over_time(ceph_health_status[1d]))
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [300]}
+      labels:
+        severity: critical
+      annotations:
+        summary: 'No Ceph health metrics'
+        description: 'The newest ceph_health_status sample is {{ with $values.A }}{{ humanizeDuration .Value }}{{ end }} old: the mgr prometheus module, the Ceph collector or the OTel gateway is down, so the Ceph alerts are blind. `ceph mgr stat`; collector in kube-cluster/external/ceph.'
+      notificationSettings:
+        receiver: matrix-and-email
+    # The collector scrapes its own host, so a dead collector emits no up=0, its series just ends.
+    # The `or` keeps every host seen in the last day at 0 for that case; a removed host fires for up to a day.
+    - uid: ceph-exporter-down
+      title: Ceph exporter or collector down
+      condition: C
+      for: 10m
+      noDataState: Alerting
+      execErrState: Error
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move(max by ("service.instance.id") (up{"service.name"="ceph-exporter"}) or max by ("service.instance.id") (last_over_time(up{"service.name"="ceph-exporter"}[1d])) * 0, "service.instance.id", "host")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: lt, params: [1]}
+      labels:
+        severity: warning
+      annotations:
+        summary: '{{ $labels.host }}: ceph-exporter or its collector is down'
+        description: 'No ceph-exporter scrape from {{ $labels.host }}: no OSD or MDS counters from that host. The exporter or the collector is down: `ceph orch ps {{ $labels.host }}`, `journalctl -u ceph-<fsid>@container.otelcol.{{ $labels.host }}`.'
+      notificationSettings:
+        receiver: matrix
+    # Growth of the fullest OSDs is what stops a cluster, not the average. Over 80% full keeps a new OSD that is
+    # still backfilling quiet; at or past the full ratio it fires with value 0. 24h trend, so a day of
+    # churn does not decide; silent until 12h of history (> 144 points), when a short trend is noise.
+    - uid: ceph-osd-time-to-full
+      title: Ceph OSD fills within a week
+      condition: C
+      for: 1h
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 86400, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              ((scalar(max(ceph_osd_full_ratio)) - max by (ceph_daemon, hostname) (ceph_osd_stat_bytes_used / ceph_osd_stat_bytes)) / deriv((max by (ceph_daemon, hostname) (ceph_osd_stat_bytes_used / ceph_osd_stat_bytes))[24h:5m]) and deriv((max by (ceph_daemon, hostname) (ceph_osd_stat_bytes_used / ceph_osd_stat_bytes))[24h:5m]) > 0 and max by (ceph_daemon, hostname) (ceph_osd_stat_bytes_used / ceph_osd_stat_bytes) > 0.8 and on (ceph_daemon, hostname) count_over_time((max by (ceph_daemon, hostname) (ceph_osd_stat_bytes_used / ceph_osd_stat_bytes))[24h:5m]) > 144) or (max by (ceph_daemon, hostname) (ceph_osd_stat_bytes_used / ceph_osd_stat_bytes) >= scalar(max(ceph_osd_full_ratio))) * 0
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: within_range, params: [0, 604800]}
+      labels:
+        severity: warning
+      annotations:
+        summary: '{{ $labels.ceph_daemon }} on {{ $labels.hostname }} {{ if and $values.A (eq $values.A.Value 0.0) }}is past the full ratio{{ else }}fills up in {{ with $values.A }}{{ humanizeDuration .Value }}{{ end }}{{ end }}'
+        description: 'Predicted from the 24h trend of the OSD, over 80% used. At the full ratio the PGs on it stop taking writes. Free space, add OSDs, or reweight (`ceph osd reweight-by-utilization`). https://grafana.example.com/d/ceph-osds/ceph-osds'
+      notificationSettings:
+        receiver: matrix
+    # max_avail is the space left to a pool given its fullest OSD and replication; pools on the same device
+    # class share it, so several of them fire together. Pools under 1 GB are ignored. The trend needs 12h of
+    # history, as for OSDs.
+    - uid: ceph-pool-time-to-full
+      title: Ceph pool fills within a week
+      condition: C
+      for: 1h
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 86400, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              (((max by (pool_id) (ceph_pool_max_avail) / -deriv((max by (pool_id) (ceph_pool_max_avail))[24h:5m]) and deriv((max by (pool_id) (ceph_pool_max_avail))[24h:5m]) < 0 and on (pool_id) count_over_time((max by (pool_id) (ceph_pool_max_avail))[24h:5m]) > 144) or (max by (pool_id) (ceph_pool_max_avail) < 1073741824) * 0) and on (pool_id) max by (pool_id) (ceph_pool_stored) > 1073741824) * on (pool_id) group_left (name) max by (pool_id, name) (ceph_pool_metadata)
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: within_range, params: [0, 604800]}
+      labels:
+        severity: warning
+      annotations:
+        summary: 'Pool {{ $labels.name }} {{ if and $values.A (eq $values.A.Value 0.0) }}is full{{ else }}fills up in {{ with $values.A }}{{ humanizeDuration .Value }}{{ end }}{{ end }}'
+        description: 'Predicted from the 24h trend of the pool''s max available space. A full pool is read-only to its clients. Free space or add OSDs of its device class. https://grafana.example.com/d/ceph-pool/ceph-pool?var-pool_name={{ $labels.name }}'
+      notificationSettings:
+        receiver: matrix
+    # PGs that are not active serve no I/O: total minus active, per pool. Peering after an OSD restart
+    # clears within seconds, hence the 5m.
+    - uid: ceph-pg-inactive
+      title: Ceph placement groups inactive
+      condition: C
+      for: 5m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              (max by (pool_id) (ceph_pg_total) - max by (pool_id) (ceph_pg_active)) * on (pool_id) group_left (name) max by (pool_id, name) (ceph_pool_metadata)
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0]}
+      labels:
+        severity: critical
+      annotations:
+        summary: '{{ with $values.A }}{{ printf "%.0f" .Value }}{{ end }} PGs of pool {{ $labels.name }} are not active'
+        description: 'Inactive PGs (peering, down, incomplete, stale) serve no I/O: the pool''s clients hang. `ceph pg dump_stuck inactive` and `ceph health detail`. https://grafana.example.com/d/ceph-pool/ceph-pool?var-pool_name={{ $labels.name }}'
+      notificationSettings:
+        receiver: matrix

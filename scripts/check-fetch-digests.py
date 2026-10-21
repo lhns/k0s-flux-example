@@ -47,7 +47,7 @@ def collect(text):
     """(url, digest) of every fetch in one file's text."""
     out = SHELL_PAIR.findall(text)
     try:
-        docs = list(yaml.safe_load_all(text))
+        docs = list(clusters.load_all(text))
     except yaml.YAMLError:
         if re.search(r"kind: (ImageComposition|ImageBuild)", text):
             raise

@@ -52,8 +52,8 @@ Two things still differ, and no image choice fixes them:
 
 ## Security
 
-The perimeter is **who can trigger a workflow**. A job runs arbitrary code, and it runs on the
-shared workspace daemon under this runner's account.
+The perimeter is **who can trigger a workflow**. A job runs arbitrary code. `k0s-flux` jobs
+use an ephemeral account on the `remote-docker-ci` daemon.
 
 - **Do not register a runner on a public repository.** A fork PR would run attacker-controlled
   code.

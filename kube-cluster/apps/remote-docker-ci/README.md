@@ -30,7 +30,7 @@ It also keeps Renovate's image cache off the graph the accounts of `apps/remote-
   replica kube-proxy picked first, for 24h after its last connection; a pod sent to the other
   replica refuses its host key.
 - The graph is a cache: Renovate's image, kept between runs; `renovate.yml` removes superseded
-  tags before each run.
+  tags before each run. The agent also prunes images unused for 7 days.
 
 ## Residual risk
 

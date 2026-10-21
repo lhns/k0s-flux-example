@@ -1,0 +1,19 @@
+---
+# Agents reach the API on loopback (PAPERCLIP_API_URL), so nothing needs a forward-auth bypass.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: paperclip
+  namespace: paperclip
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`paperclip.example.com`)
+      services:
+        - name: paperclip
+          port: 3100
+      middlewares:
+        - name: anubis
+        - name: authelia
+  tls: {}

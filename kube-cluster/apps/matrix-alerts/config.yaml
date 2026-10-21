@@ -1,0 +1,40 @@
+# Shipped as a ConfigMap: comments here are config.
+http:
+  port: 8080
+  alerts-path-prefix: /alerts
+  metrics-enabled: true
+matrix:
+  homeserver-url: https://matrix.example.com
+  user-id: "@grafana:example.com"
+  access-token: ${MATRIX_ACCESS_TOKEN}
+  room-mapping:
+    grafana: "!examplegrafanaroomid:example.com"
+templating:
+  computed-values:
+    - values:
+        color: white
+    - values:
+        color: orange
+      when-matching-labels:
+        severity: warning
+    - values:
+        color: red
+      when-matching-labels:
+        severity: critical
+    - values:
+        color: limegreen
+      when-matching-status: resolved
+  # No .SilenceURL: it points at an Alertmanager, not Grafana.
+  # The matrix.to link becomes an m.mentions entry, so only firing warning/critical alerts
+  # notify; resolved and info messages carry an empty m.mentions and notify nobody.
+  firing-template: '
+    <p>
+      {{ if and (eq .Alert.Status "firing") (ne .Alert.Labels.severity "info") }}<a href="https://matrix.to/#/@admin:example.com">admin</a>{{ end }}
+      <strong><font color="{{ .ComputedValues.color }}">{{ .Alert.Status | ToUpper }}</font></strong>
+      {{ .Alert.Labels.alertname }}
+      {{ if .Alert.Labels.severity }}[{{ .Alert.Labels.severity }}]{{ end }}
+      {{ if .Alert.Annotations.summary }}: {{ .Alert.Annotations.summary }}{{ end }}
+      {{ if .Alert.Annotations.description }}<br/>{{ .Alert.Annotations.description }}{{ end }}
+      <br/>
+      {{ if .GeneratorURL }}<a href="{{ .GeneratorURL }}">Rule</a>{{ else }}<a href="https://grafana.example.com/alerting/list">Alerts</a>{{ end }}
+    </p>'

@@ -27,7 +27,7 @@ metadata:
   namespace: backrest
 spec:
   redirectRegex:
-    regex: "^https://backrest.kube.example.com/(.*)"
+    regex: "^https?://[^/]+/(.*)"
     replacement: "https://backrest.example.com/${1}"
     permanent: true
 ---
@@ -42,8 +42,8 @@ spec:
     - kind: Rule
       match: Host(`backrest.kube.example.com`)
       services:
-        - name: backrest
-          port: 9898
+        - name: noop@internal
+          kind: TraefikService
       middlewares:
         - name: backrest-kube-redirect
   tls: {}

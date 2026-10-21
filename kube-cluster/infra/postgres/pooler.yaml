@@ -24,6 +24,12 @@ spec:
   # Auth is fully automatic: the operator creates the cnpg_pooler_pgbouncer role + a
   # user_search() function and uses TLS client-cert auth pgbouncer<->Postgres. No secret.
   template:
+    # Changing the template rolls the pooler pods (clients reconnect).
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9127"
+        prometheus.io/path: /metrics
     spec:
       containers:
         - name: pgbouncer

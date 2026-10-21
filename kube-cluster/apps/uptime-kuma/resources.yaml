@@ -1,7 +1,7 @@
 # Uptime Kuma keeps ALL state in /app/data — its embedded SQLite DB (kuma.db),
 # config, and uploads. Copied once from the old Swarm volume
-# fastappdata:/docker/uptime-kuma into a dedicated Ceph RBD volume. Single-writer
-# (SQLite) -> RWO + Recreate on the Deployment.
+# fastdata:/docker/uptime-kuma into a dedicated Ceph RBD volume. Single-writer
+# (SQLite) -> RWO + a one-replica StatefulSet.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -14,17 +14,16 @@ spec:
     requests:
       storage: 10Gi
 ---
+# StatefulSet, not Deployment: a replacement starts only once the old pod is confirmed gone,
+# so SQLite never gets two writers (README, "Decisions").
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: uptime-kuma
   namespace: uptime-kuma
 spec:
-  # SQLite /app/data copied from the old Swarm volume (see README), now live. RWO
-  # data volume -> Recreate (never two writers).
   replicas: 1
-  strategy:
-    type: Recreate
+  serviceName: uptime-kuma
   selector:
     matchLabels:
       app.kubernetes.io/name: uptime-kuma
@@ -53,6 +52,11 @@ spec:
         # from backup, not just the tag reverted.
         - name: uptime-kuma
           image: louislam/uptime-kuma:2.5.6
+          resources:
+            requests:
+              memory: 256Mi
+            limits:
+              memory: 512Mi
           env:
             - name: TZ
               value: Europe/Berlin
@@ -65,12 +69,14 @@ spec:
             - name: data
               mountPath: /app/data
           readinessProbe:
+            timeoutSeconds: 5
             httpGet:
               path: /
               port: http
             initialDelaySeconds: 15
             periodSeconds: 10
             failureThreshold: 12
+      # The existing PVC by name. A volumeClaimTemplate would provision a new, empty volume.
       volumes:
         - name: data
           persistentVolumeClaim:

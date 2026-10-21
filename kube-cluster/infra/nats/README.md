@@ -12,7 +12,7 @@ the apps, not by CRs.
   pod with ingress into the servers from joining the cluster.
 - `vnet.yaml` — `nats` (clients → `:4222`), `nats-cluster` (route peering, home namespace
   only), and the servers' ingress binding into the `otel-scrape` vnet.
-- `namespace.yaml` — namespace + the `default-requests` LimitRange.
+- `namespaces/namespace.yaml` — namespace + the `default-requests` LimitRange.
 
 Clients connect to `nats://nats.nats.svc:4222`.
 

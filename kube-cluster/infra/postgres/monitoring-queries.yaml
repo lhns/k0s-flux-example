@@ -1,0 +1,259 @@
+# Custom exporter queries on top of the operator's defaults (cluster.yaml). Each key becomes
+# cnpg_<key>_<column>; a key equal to a default one silently replaces it. They run as
+# cnpg_metrics_exporter in `app` and read only shared catalogs, so no target_databases.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-monitoring
+  namespace: postgres
+  labels:
+    cnpg.io/reload: ""
+data:
+  queries: |
+    pg_stat_database_sessions:
+      query: |
+        SELECT datname
+          , sessions
+          , session_time
+          , active_time
+          , idle_in_transaction_time
+          , sessions_abandoned
+          , sessions_fatal
+          , sessions_killed
+          , COALESCE(checksum_failures, 0) AS checksum_failures
+        FROM pg_catalog.pg_stat_database
+        WHERE datname IS NOT NULL
+      metrics:
+        - datname:
+            usage: "LABEL"
+            description: "Name of the database"
+        - sessions:
+            usage: "COUNTER"
+            description: "Sessions established"
+        - session_time:
+            usage: "COUNTER"
+            description: "Time spent by sessions, in milliseconds"
+        - active_time:
+            usage: "COUNTER"
+            description: "Time spent executing statements, in milliseconds"
+        - idle_in_transaction_time:
+            usage: "COUNTER"
+            description: "Time spent idle in a transaction, in milliseconds"
+        - sessions_abandoned:
+            usage: "COUNTER"
+            description: "Sessions ended because the client disconnected"
+        - sessions_fatal:
+            usage: "COUNTER"
+            description: "Sessions ended by a fatal error"
+        - sessions_killed:
+            usage: "COUNTER"
+            description: "Sessions ended by operator intervention"
+        - checksum_failures:
+            usage: "GAUGE"
+            description: "Data page checksum failures"
+
+    # Role <-> database map for the per-app dashboard variable.
+    pg_database_owner:
+      query: |
+        SELECT d.datname
+          , r.rolname AS owner
+          , 1 AS info
+        FROM pg_catalog.pg_database d
+        JOIN pg_catalog.pg_roles r ON r.oid OPERATOR(pg_catalog.=) d.datdba
+        WHERE d.datallowconn
+          AND d.datname NOT IN ('template1', 'postgres', 'app')
+      metrics:
+        - datname:
+            usage: "LABEL"
+            description: "Name of the database"
+        - owner:
+            usage: "LABEL"
+            description: "Role owning the database"
+        - info:
+            usage: "GAUGE"
+            description: "Always 1"
+
+    # Per database, unlike the default backends_waiting. Joined through pg_stat_activity because
+    # the usual row-lock wait is on a transactionid lock, which carries no database.
+    pg_locks_waiting:
+      query: |
+        SELECT d.datname
+          , COALESCE(w.backends, 0) AS backends
+        FROM pg_catalog.pg_database d
+        LEFT JOIN (
+          SELECT a.datid, pg_catalog.count(DISTINCT l.pid) AS backends
+          FROM pg_catalog.pg_locks l
+          JOIN pg_catalog.pg_stat_activity a ON a.pid OPERATOR(pg_catalog.=) l.pid
+          WHERE NOT l.granted
+          GROUP BY a.datid
+        ) w ON w.datid OPERATOR(pg_catalog.=) d.oid
+        WHERE d.datallowconn
+      metrics:
+        - datname:
+            usage: "LABEL"
+            description: "Name of the database"
+        - backends:
+            usage: "GAUGE"
+            description: "Backends waiting for a lock"
+
+    # Age of the longest running statement; the default backends query only has transaction age.
+    pg_stat_activity_active:
+      query: |
+        SELECT d.datname
+          , COALESCE(a.max_query_seconds, 0) AS max_query_seconds
+        FROM pg_catalog.pg_database d
+        LEFT JOIN (
+          SELECT datid
+            , EXTRACT(EPOCH FROM pg_catalog.max(pg_catalog.now() OPERATOR(pg_catalog.-) query_start)) AS max_query_seconds
+          FROM pg_catalog.pg_stat_activity
+          WHERE state OPERATOR(pg_catalog.=) 'active'
+            AND backend_type OPERATOR(pg_catalog.=) 'client backend'
+            AND pid OPERATOR(pg_catalog.<>) pg_catalog.pg_backend_pid()
+          GROUP BY datid
+        ) a ON a.datid OPERATOR(pg_catalog.=) d.oid
+        WHERE d.datallowconn
+      metrics:
+        - datname:
+            usage: "LABEL"
+            description: "Name of the database"
+        - max_query_seconds:
+            usage: "GAUGE"
+            description: "Runtime of the longest active statement, in seconds"
+
+    # Cluster-wide I/O by process type (PG18 columns). Rows that never did I/O are left out;
+    # times need track_io_timing (relation) and track_wal_io_timing (wal).
+    pg_stat_io:
+      runonserver: ">=18.0.0"
+      query: |
+        SELECT backend_type
+          , object
+          , context
+          , COALESCE(reads, 0) AS reads
+          , COALESCE(read_bytes, 0) AS read_bytes
+          , COALESCE(read_time, 0) AS read_time
+          , COALESCE(writes, 0) AS writes
+          , COALESCE(write_bytes, 0) AS write_bytes
+          , COALESCE(write_time, 0) AS write_time
+          , COALESCE(extend_bytes, 0) AS extend_bytes
+          , COALESCE(hits, 0) AS hits
+          , COALESCE(evictions, 0) AS evictions
+          , COALESCE(fsyncs, 0) AS fsyncs
+          , COALESCE(fsync_time, 0) AS fsync_time
+        FROM pg_catalog.pg_stat_io
+        WHERE COALESCE(reads, 0) + COALESCE(writes, 0) + COALESCE(extends, 0)
+            + COALESCE(hits, 0) + COALESCE(evictions, 0) + COALESCE(fsyncs, 0) > 0
+      metrics:
+        - backend_type:
+            usage: "LABEL"
+            description: "Process type"
+        - object:
+            usage: "LABEL"
+            description: "Target object: relation, temp relation or wal"
+        - context:
+            usage: "LABEL"
+            description: "I/O context: normal, bulkread, bulkwrite, vacuum or init"
+        - reads:
+            usage: "COUNTER"
+            description: "Read operations"
+        - read_bytes:
+            usage: "COUNTER"
+            description: "Bytes read"
+        - read_time:
+            usage: "COUNTER"
+            description: "Time spent reading, in milliseconds"
+        - writes:
+            usage: "COUNTER"
+            description: "Write operations"
+        - write_bytes:
+            usage: "COUNTER"
+            description: "Bytes written"
+        - write_time:
+            usage: "COUNTER"
+            description: "Time spent writing, in milliseconds"
+        - extend_bytes:
+            usage: "COUNTER"
+            description: "Bytes added by relation extends"
+        - hits:
+            usage: "COUNTER"
+            description: "Shared buffer hits"
+        - evictions:
+            usage: "COUNTER"
+            description: "Buffers evicted to make room"
+        - fsyncs:
+            usage: "COUNTER"
+            description: "fsync calls"
+        - fsync_time:
+            usage: "COUNTER"
+            description: "Time spent in fsync, in milliseconds"
+
+    # Per database: the 5 statements with the most cumulative execution time, by queryid (never the
+    # text: infra/postgres/README.md, Decisions), plus `other` for the rest, so the rows add up to
+    # the database's total. Primary only: each instance keeps its own statistics. Ranking on
+    # cumulative time keeps the top 5 stable, so few series appear over time.
+    pg_stat_statements_top:
+      primary: true
+      query: |
+        WITH s AS (
+          SELECT dbid
+            , queryid
+            , pg_catalog.sum(calls)::float8 AS calls
+            , pg_catalog.sum(total_exec_time)::float8 AS total_exec_time
+            , pg_catalog.sum(rows)::float8 AS rows
+            , pg_catalog.sum(shared_blks_read)::float8 AS shared_blks_read
+            , pg_catalog.sum(temp_blks_written)::float8 AS temp_blks_written
+          FROM public.pg_stat_statements(false)
+          WHERE queryid IS NOT NULL
+          GROUP BY dbid, queryid
+        ), ranked AS (
+          SELECT s.*
+            , pg_catalog.row_number() OVER (PARTITION BY dbid ORDER BY total_exec_time DESC, queryid) AS rn
+          FROM s
+        )
+        SELECT d.datname
+          , CASE WHEN r.rn OPERATOR(pg_catalog.<=) 5 THEN r.queryid::text ELSE 'other' END AS queryid
+          , pg_catalog.sum(r.calls) AS calls
+          , pg_catalog.sum(r.total_exec_time) AS total_exec_time
+          , pg_catalog.sum(r.rows) AS rows
+          , pg_catalog.sum(r.shared_blks_read) AS shared_blks_read
+          , pg_catalog.sum(r.temp_blks_written) AS temp_blks_written
+        FROM ranked r
+        JOIN pg_catalog.pg_database d ON d.oid OPERATOR(pg_catalog.=) r.dbid
+        WHERE d.datname NOT IN ('template1', 'postgres', 'app')
+        GROUP BY 1, 2
+      metrics:
+        - datname:
+            usage: "LABEL"
+            description: "Name of the database"
+        - queryid:
+            usage: "LABEL"
+            description: "Statement id (resolve in psql), or other"
+        - calls:
+            usage: "COUNTER"
+            description: "Executions"
+        - total_exec_time:
+            usage: "COUNTER"
+            description: "Execution time, in milliseconds"
+        - rows:
+            usage: "COUNTER"
+            description: "Rows returned or affected"
+        - shared_blks_read:
+            usage: "COUNTER"
+            description: "Blocks read from outside shared_buffers"
+        - temp_blks_written:
+            usage: "COUNTER"
+            description: "Temp file blocks written"
+
+    # Evictions mean pg_stat_statements.max is too small for the distinct statements.
+    pg_stat_statements_info:
+      primary: true
+      query: |
+        SELECT dealloc
+          , EXTRACT(EPOCH FROM stats_reset) AS stats_reset_time
+        FROM public.pg_stat_statements_info
+      metrics:
+        - dealloc:
+            usage: "COUNTER"
+            description: "Entries evicted because pg_stat_statements.max was reached"
+        - stats_reset_time:
+            usage: "GAUGE"
+            description: "Time of the last statistics reset"

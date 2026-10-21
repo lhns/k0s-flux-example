@@ -2,7 +2,7 @@
 # forwardAuth middleware, reflected into every namespace (traefik-reflector). Every
 # SSO-protected app references this. Points at the IN-CLUSTER Authelia (a single
 # Traefik->Authelia hop, so the header-stripping problem that needed the direct port
-# on Swarm doesn't apply). Rollback = revert to http://10.20.2.10:9091/... (external).
+# on Swarm doesn't apply). Rollback = revert to http://10.20.176.187:9091/... (external).
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -68,7 +68,7 @@ spec:
       - Remote-Email
       - Remote-Name
 ---
-# Raw-TCP exposure of Authelia :9091 on traefik's `authelia` entrypoint (10.20.2.15:9091),
+# Raw-TCP exposure of Authelia :9091 on traefik's `authelia` entrypoint (10.20.176.210:9091),
 # HostSNI(`*`) plain-TCP passthrough. Lets EXTERNAL proxies (the Swarm Traefik) call
 # forwardAuth directly with headers intact. In-cluster apps use the reflected middleware
 # (the ClusterIP service) instead.

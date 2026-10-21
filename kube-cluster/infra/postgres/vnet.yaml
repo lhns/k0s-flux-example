@@ -119,3 +119,21 @@ spec:
   podSelector:
     matchLabels:
       cnpg.io/poolerName: postgres-pooler
+---
+# ── Metrics scrape ──────────────────────────────────────────────────────────
+# The otel cluster collector scrapes the instance (:9187) and pooler (:9127) exporters
+# (infra/opentelemetry-monitoring). Membership is per pod, not per port, so the collector
+# could also reach :5432; it holds no credentials.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetworkBinding
+metadata:
+  name: postgres-scrape-ingress
+  namespace: postgres
+spec:
+  virtualNetworkRef:
+    name: otel-scrape
+    namespace: opentelemetry
+  direction: ingress
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: postgres

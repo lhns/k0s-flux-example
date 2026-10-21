@@ -1,0 +1,4529 @@
+{
+  "uid": "servers",
+  "title": "Servers",
+  "description": "Host performance from the OpenTelemetry hostmetrics receiver (system.*). Provisioned from git (kube-cluster/apps/grafana/dashboards/cluster); README there has the runbook.",
+  "tags": [
+    "cluster",
+    "servers"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "1m",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "links": [
+    {
+      "type": "link",
+      "title": "Kubernetes Containers",
+      "icon": "dashboard",
+      "url": "/d/k8s-containers/kubernetes-containers",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "Containers on the selected k8s nodes"
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "ds",
+        "label": "Datasource",
+        "type": "datasource",
+        "query": "victoriametrics-metrics-datasource",
+        "refresh": 1,
+        "current": {},
+        "hide": 0
+      },
+      {
+        "name": "server",
+        "label": "Server",
+        "type": "query",
+        "datasource": {
+          "type": "victoriametrics-metrics-datasource",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "label_values({__name__=\"system.cpu.load_average.1m\"}, host.name)",
+          "refId": "server"
+        },
+        "definition": "label_values({__name__=\"system.cpu.load_average.1m\"}, host.name)",
+        "regex": "",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "hide": 0
+      },
+      {
+        "name": "device",
+        "label": "Disk device",
+        "type": "query",
+        "datasource": {
+          "type": "victoriametrics-metrics-datasource",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "label_values({__name__=\"system.disk.io_time\", host.name=~\"$server\"}, device)",
+          "refId": "device"
+        },
+        "definition": "label_values({__name__=\"system.disk.io_time\", host.name=~\"$server\"}, device)",
+        "regex": "/^(?!dm-|loop|(sd|vd|xvd)[a-z]+[0-9]+$|nvme[0-9]+n[0-9]+p[0-9]+$).*/",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Servers not reporting",
+      "description": "Selected servers whose newest host metric is over 5 minutes old. Non-zero: the host is down, its collector stopped, or the metrics pipeline lags (then every host goes stale at once).",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "count(time() - max by (\"host.name\") (tlast_over_time({__name__=\"system.cpu.load_average.1m\", host.name=~\"$server\"}[1d])) > 300) or vector(0)",
+          "legendFormat": "",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Worst disk time-to-full",
+      "description": "Shortest predicted time until a host filesystem is full, from its 6h trend. Red < 4h, orange < 24h, yellow < 7d. See *Disk space*.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 14400
+              },
+              {
+                "color": "yellow",
+                "value": 86400
+              },
+              {
+                "color": "green",
+                "value": 604800
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "range",
+              "options": {
+                "from": 1000000000.0,
+                "to": 1000000000000.0,
+                "result": {
+                  "text": "not filling",
+                  "color": "green",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "min(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}) / -deriv(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"})[6h:5m]) and deriv(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"})[6h:5m]) < 0) or vector(1e+10)",
+          "legendFormat": "",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 4,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Busiest CPU",
+      "description": "Highest 5m CPU busy share among the selected servers.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.8
+              },
+              {
+                "color": "orange",
+                "value": 0.9
+              },
+              {
+                "color": "red",
+                "value": 0.95
+              }
+            ]
+          },
+          "mappings": [],
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "topk(1, label_move(1 - sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"idle\"}[5m])) / sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\"}[5m])), \"host.name\", \"server\"))",
+          "legendFormat": "{{server}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Highest iowait",
+      "description": "Highest 5m share of CPU time spent waiting for disk I/O.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.1
+              },
+              {
+                "color": "orange",
+                "value": 0.2
+              },
+              {
+                "color": "red",
+                "value": 0.4
+              }
+            ]
+          },
+          "mappings": [],
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "topk(1, label_move(sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"wait\"}[5m])) / sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\"}[5m])), \"host.name\", \"server\"))",
+          "legendFormat": "{{server}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Highest load per core",
+      "description": "5m load average divided by logical CPUs. Above 1 means runnable or I/O-blocked tasks are queueing.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "orange",
+                "value": 1.5
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          },
+          "mappings": [],
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "topk(1, label_move(max by (\"host.name\") ({__name__=\"system.cpu.load_average.5m\", host.name=~\"$server\"}) / max by (\"host.name\") ({__name__=\"system.cpu.logical.count\", host.name=~\"$server\"}), \"host.name\", \"server\"))",
+          "legendFormat": "{{server}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Soonest memory exhaustion",
+      "description": "Shortest time until available memory runs out on its 1h trend, counted only where under a quarter is left and shrinking.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 7200
+              },
+              {
+                "color": "green",
+                "value": 43200
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "range",
+              "options": {
+                "from": 1000000000.0,
+                "to": 1000000000000.0,
+                "result": {
+                  "text": "stable",
+                  "color": "green",
+                  "index": 0
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "min((max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\"})) / -deriv((max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\"}))[1h:1m]) and deriv((max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\"}))[1h:1m]) < 0 and (max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\"})) < 0.25 * max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"})) or vector(1e+10)",
+          "legendFormat": "",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 20,
+        "y": 0,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Server health",
+      "description": "One row per server, now. Click a server to filter the dashboard or jump to its containers.\n\n- **Disk TTF / Memory TTF**: time to full from the trend; *not filling* / empty means no risk. These drive the alerts, not fixed percentages.\n- **iowait** high with low CPU busy: storage is the bottleneck (see *Disk I/O*). **steal** high: the hypervisor is overcommitted.\n- **Net** on k8s nodes is pod traffic only (hostmetrics runs in a pod netns there).",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Last seen"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 120
+                    },
+                    {
+                      "color": "red",
+                      "value": 300
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "range",
+                    "options": {
+                      "from": 0,
+                      "to": 120,
+                      "result": {
+                        "text": "up",
+                        "index": 0
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Uptime"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #C"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "CPU busy"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 0.8
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.9
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.95
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #D"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "iowait"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 0.1
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.2
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.4
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #E"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "steal"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 0.05
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.1
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.25
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 80
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #F"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Load/core"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 1
+                    },
+                    {
+                      "color": "orange",
+                      "value": 1.5
+                    },
+                    {
+                      "color": "red",
+                      "value": 2
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #G"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Memory used"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": null
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #H"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Memory TTF"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 7200
+                    },
+                    {
+                      "color": "green",
+                      "value": 43200
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "range",
+                    "options": {
+                      "from": 1000000000.0,
+                      "to": 1000000000000.0,
+                      "result": {
+                        "text": "stable",
+                        "color": "green",
+                        "index": 0
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #I"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Swap used"
+              },
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #J"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Disk TTF"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 14400
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 86400
+                    },
+                    {
+                      "color": "green",
+                      "value": 604800
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "range",
+                    "options": {
+                      "from": 1000000000.0,
+                      "to": 1000000000000.0,
+                      "result": {
+                        "text": "not filling",
+                        "color": "green",
+                        "index": 0
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #K"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Fullest disk"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": null
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #L"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Net in"
+              },
+              {
+                "id": "unit",
+                "value": "Bps"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #M"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Net out"
+              },
+              {
+                "id": "unit",
+                "value": "Bps"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "server"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Show only this server",
+                    "url": "/d/servers/servers?var-server=${__value.raw}&${__url_time_range}"
+                  },
+                  {
+                    "title": "Containers on this node (k8s nodes)",
+                    "url": "/d/k8s-containers/kubernetes-containers?var-server=${__value.raw}&${__url_time_range}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        },
+        "sortBy": [
+          {
+            "displayName": "CPU busy",
+            "desc": true
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(time() - max by (\"host.name\") (tlast_over_time({__name__=\"system.cpu.load_average.1m\", host.name=~\"$server\"}[1d])), \"host.name\", \"server\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max by (\"host.name\") ({__name__=\"system.uptime\", host.name=~\"$server\"}), \"host.name\", \"server\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(1 - sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"idle\"}[5m])) / sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\"}[5m])), \"host.name\", \"server\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"wait\"}[5m])) / sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\"}[5m])), \"host.name\", \"server\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"steal\"}[5m])) / sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\"}[5m])), \"host.name\", \"server\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max by (\"host.name\") ({__name__=\"system.cpu.load_average.5m\", host.name=~\"$server\"}) / max by (\"host.name\") ({__name__=\"system.cpu.logical.count\", host.name=~\"$server\"}), \"host.name\", \"server\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "F"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\"}) / max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}), \"host.name\", \"server\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "G"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(((max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\"})) / -deriv((max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\"}))[1h:1m]) and deriv((max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\"}))[1h:1m]) < 0 and (max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\"})) < 0.25 * max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"})) or (max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}) * 0 + 1e+10), \"host.name\", \"server\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "H"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max by (\"host.name\") ({__name__=\"system.paging.usage\", host.name=~\"$server\", state=\"used\"}), \"host.name\", \"server\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "I"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(min by (\"host.name\") (max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}) / -deriv(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"})[6h:5m]) and deriv(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"})[6h:5m]) < 0) or (max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}) * 0 + 1e+10), \"host.name\", \"server\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "J"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max by (\"host.name\") (max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.utilization\", host.name=~\"$server\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"})), \"host.name\", \"server\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "K"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "(label_move(sum by (\"host.name\") (rate({__name__=\"system.network.io\", host.name=~\"$server\", device!~\"lo|veth.*|docker.*|br-.*\", direction=\"receive\", k8s.node.name=\"\"}[$__rate_interval])), \"host.name\", \"server\")) or (label_move(sum by (\"k8s.node.name\") (rate({__name__=\"k8s.pod.network.io\", k8s.node.name=~\"$server\", direction=\"receive\"}[$__rate_interval])), \"k8s.node.name\", \"server\"))",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "L"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "(label_move(sum by (\"host.name\") (rate({__name__=\"system.network.io\", host.name=~\"$server\", device!~\"lo|veth.*|docker.*|br-.*\", direction=\"transmit\", k8s.node.name=\"\"}[$__rate_interval])), \"host.name\", \"server\")) or (label_move(sum by (\"k8s.node.name\") (rate({__name__=\"k8s.pod.network.io\", k8s.node.name=~\"$server\", direction=\"transmit\"}[$__rate_interval])), \"k8s.node.name\", \"server\"))",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "M"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            }
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 18,
+        "h": 13
+      }
+    },
+    {
+      "id": 39,
+      "type": "alertlist",
+      "title": "Firing alerts",
+      "description": "Grafana alerts currently firing or pending (all folders).",
+      "options": {
+        "viewMode": "list",
+        "groupMode": "default",
+        "groupBy": [],
+        "maxItems": 20,
+        "sortOrder": 1,
+        "dashboardAlerts": false,
+        "alertName": "",
+        "alertInstanceLabelFilter": "",
+        "showInstances": true,
+        "stateFilter": {
+          "firing": true,
+          "pending": true,
+          "noData": false,
+          "normal": false,
+          "error": true
+        }
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 4,
+        "w": 6,
+        "h": 13
+      }
+    },
+    {
+      "id": 40,
+      "type": "row",
+      "title": "CPU",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "CPU busy",
+      "description": "Share of CPU time not idle.\n\n**Bad:** pinned near 100% for long stretches; requests queue and latency rises. **Fix:** find the consumer (on k8s nodes: *Top pods by CPU* below), move or limit it, or add cores.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.95
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "min",
+            "max",
+            "mean",
+            "lastNotNull"
+          ],
+          "sortBy": "Mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(1 - sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"idle\"}[$__rate_interval])) / sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\"}[$__rate_interval])), \"host.name\", \"server\")",
+          "legendFormat": "{{server}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "CPU time by mode",
+      "description": "Where CPU time goes, summed over the selected servers (select one server to see only it).\n\n- **user/system** high: real compute load.\n- **wait** (iowait): waiting on disk, see *Disk I/O*.\n- **steal**: the hypervisor gave the time to other VMs; move VMs or reduce overcommit.\n- **softirq/interrupt** high: network or storage interrupt load, often one core (see *Hottest core*).",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 60,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "min",
+            "max",
+            "mean",
+            "lastNotNull"
+          ],
+          "sortBy": "Mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (state) (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state!=\"idle\"}[$__rate_interval])) / scalar(sum(rate({__name__=\"system.cpu.time\", host.name=~\"$server\"}[$__rate_interval])))",
+          "legendFormat": "{{state}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 18,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "iowait",
+      "description": "Share of CPU time idle while waiting for disk I/O.\n\n**Bad:** sustained > 20-40%: the disk or the network storage (Ceph RBD/CephFS) is too slow for the load. **Fix:** check *Disk I/O* latency and queue depth; on Ceph-backed nodes look at the Ceph nodes too.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.4
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "min",
+            "max",
+            "mean",
+            "lastNotNull"
+          ],
+          "sortBy": "Mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"wait\"}[$__rate_interval])) / sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\"}[$__rate_interval])), \"host.name\", \"server\")",
+          "legendFormat": "{{server}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Steal",
+      "description": "Share of CPU time the hypervisor ran other guests while this VM wanted to run.\n\n**Bad:** sustained > 10-25%; the VM is slow for reasons inside the guest cannot show. **Fix:** rebalance VMs across hypervisors or lower vCPU overcommit.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.25
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "min",
+            "max",
+            "mean",
+            "lastNotNull"
+          ],
+          "sortBy": "Mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"steal\"}[$__rate_interval])) / sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\"}[$__rate_interval])), \"host.name\", \"server\")",
+          "legendFormat": "{{server}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 26,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Load per core",
+      "description": "5m load average / logical CPUs. Linux load counts tasks running **and** blocked on I/O.\n\n**Bad:** sustained > 1 with high CPU busy: CPU saturation; > 1 with low busy and high iowait: I/O saturation.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "min": 0,
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "min",
+            "max",
+            "mean",
+            "lastNotNull"
+          ],
+          "sortBy": "Mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max by (\"host.name\") ({__name__=\"system.cpu.load_average.5m\", host.name=~\"$server\"}) / max by (\"host.name\") ({__name__=\"system.cpu.logical.count\", host.name=~\"$server\"}), \"host.name\", \"server\")",
+          "legendFormat": "{{server}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 34,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Hottest core",
+      "description": "Busy share of the busiest single core. Hosts that report only aggregate CPU (k8s nodes) show their average.\n\n**Bad:** one core near 100% while the host average is low: a single-threaded process or an interrupt/softirq hotspot (e.g. one NIC queue). **Fix:** spread IRQs (irqbalance, RSS queues) or scale the process out.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "min",
+            "max",
+            "mean",
+            "lastNotNull"
+          ],
+          "sortBy": "Mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max by (\"host.name\") (1 - sum by (\"host.name\", cpu) (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"idle\"}[$__rate_interval])) / sum by (\"host.name\", cpu) (rate({__name__=\"system.cpu.time\", host.name=~\"$server\"}[$__rate_interval]))), \"host.name\", \"server\")",
+          "legendFormat": "{{server}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 34,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 41,
+      "type": "row",
+      "title": "Memory",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 42,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Memory used",
+      "description": "Non-reclaimable memory (excludes page cache and reclaimable slab) / total.\n\nA high but flat line is fine. What matters is the trend: see *Available memory trend* and the TTF in *Server health*.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "min",
+            "max",
+            "mean",
+            "lastNotNull"
+          ],
+          "sortBy": "Mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\"}) / max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}), \"host.name\", \"server\")",
+          "legendFormat": "{{server}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 43,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Available memory",
+      "description": "Total minus non-reclaimable memory: what new allocations can get before the kernel must swap or OOM-kill.\n\n**Bad:** steadily falling towards 0. **Fix:** find the growing process (k8s nodes: *Top pods by memory*); restart a leaking service, add limits or memory.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "min",
+            "max",
+            "mean",
+            "lastNotNull"
+          ],
+          "sortBy": "Mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move((max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\"})), \"host.name\", \"server\")",
+          "legendFormat": "{{server}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 43,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Available memory trend",
+      "description": "Change in available memory per hour (1h slope). Negative = shrinking.\n\n**Bad:** negative for hours (a leak); the memory TTF alert fires once less than a quarter is left and it would run out within 2h.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "transparent",
+                "value": null
+              },
+              {
+                "color": "transparent",
+                "value": 0
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "axisSoftMin": 0,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "min",
+            "max",
+            "mean",
+            "lastNotNull"
+          ],
+          "sortBy": "Mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(deriv((max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\"}))[1h:5m]) * 3600, \"host.name\", \"server\")",
+          "legendFormat": "{{server}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 51,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 17,
+      "type": "timeseries",
+      "title": "Memory composition",
+      "description": "Summed over the selected servers. Cached/buffered and slab_reclaimable are given back under pressure; *used* and *slab_unreclaimable* are not.\n\n**Bad:** slab_unreclaimable growing without bound (kernel object leak, e.g. dentries, conntrack).",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 60,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "min",
+            "max",
+            "mean",
+            "lastNotNull"
+          ],
+          "sortBy": "Mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (state) (max by (\"host.name\", state) ({__name__=\"system.memory.usage\", host.name=~\"$server\"}))",
+          "legendFormat": "{{state}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 51,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 18,
+      "type": "timeseries",
+      "title": "Swap used",
+      "description": "Swap in use (only hosts with swap).\n\n**Bad:** growing together with swap-in activity: the working set does not fit in RAM.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "min",
+            "max",
+            "mean",
+            "lastNotNull"
+          ],
+          "sortBy": "Mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max by (\"host.name\") ({__name__=\"system.paging.usage\", host.name=~\"$server\", state=\"used\"}), \"host.name\", \"server\")",
+          "legendFormat": "{{server}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 59,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "Swap activity",
+      "description": "Pages swapped in and out per second.\n\n**Bad:** sustained swap-in: thrashing, every access may wait on disk. **Fix:** free memory or add RAM. A spike right after a collector restart is a counter artefact.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "min",
+            "max",
+            "mean",
+            "lastNotNull"
+          ],
+          "sortBy": "Mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(sum by (\"host.name\", direction) (rate({__name__=\"system.paging.operations\", host.name=~\"$server\", type=\"major\"}[$__rate_interval])), \"host.name\", \"server\")",
+          "legendFormat": "{{server}} {{direction}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 59,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 42,
+      "type": "row",
+      "title": "Disk space",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 67,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 20,
+      "type": "table",
+      "title": "Filesystems",
+      "description": "Host filesystems (k8s PVC mounts are on the Kubernetes Containers dashboard).\n\n- **Growth/day**: usage change per day from the 6h trend.\n- **Time to full**: free space / shrink rate; *not filling* when stable or shrinking. Alerts fire at < 24h (warning) and < 4h or ≥ 97% full (critical), only when over half full.\n- **Fix:** find what grows (logs, images, VictoriaMetrics/Kafka data), prune or grow the disk.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #A"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Size"
+              },
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #B"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Used"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": null
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #C"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Free"
+              },
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #D"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Growth/day"
+              },
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #E"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Time to full"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 14400
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 86400
+                    },
+                    {
+                      "color": "green",
+                      "value": 604800
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "range",
+                    "options": {
+                      "from": 1000000000.0,
+                      "to": 1000000000000.0,
+                      "result": {
+                        "text": "not filling",
+                        "color": "green",
+                        "index": 0
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Value #F"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Inodes used"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": null
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "server"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Show only this server",
+                    "url": "/d/servers/servers?var-server=${__value.raw}&${__url_time_range}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": ""
+        },
+        "sortBy": [
+          {
+            "displayName": "Time to full",
+            "desc": false
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"used\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}) + max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}) + max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"reserved\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}), \"host.name\", \"server\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.utilization\", host.name=~\"$server\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}), \"host.name\", \"server\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}), \"host.name\", \"server\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(-deriv(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"})[6h:5m]) * 86400, \"host.name\", \"server\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move((max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}) / -deriv(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"})[6h:5m]) and deriv(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"})[6h:5m]) < 0) or (max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}) * 0 + 1e+10), \"host.name\", \"server\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.inodes.usage\", host.name=~\"$server\", state=\"used\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}) / (max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.inodes.usage\", host.name=~\"$server\", state=\"used\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}) + max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.inodes.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"})), \"host.name\", \"server\")",
+          "legendFormat": "",
+          "instant": true,
+          "range": false,
+          "format": "table",
+          "refId": "F"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            }
+          }
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 68,
+        "w": 24,
+        "h": 9
+      }
+    },
+    {
+      "id": 21,
+      "type": "timeseries",
+      "title": "Filesystem used",
+      "description": "Used share per filesystem.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "min",
+            "max",
+            "mean",
+            "lastNotNull"
+          ],
+          "sortBy": "Mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.utilization\", host.name=~\"$server\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}), \"host.name\", \"server\")",
+          "legendFormat": "{{server}} {{mountpoint}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 77,
+        "w": 8,
+        "h": 8
+      }
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Free space projected in 24h",
+      "description": "Where free space will be in 24h if the 6h trend continues. **Below 0 = fills within a day.**",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "bytes",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "transparent",
+                "value": 0
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "axisSoftMin": 0,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "area"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "min",
+            "max",
+            "mean",
+            "lastNotNull"
+          ],
+          "sortBy": "Mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(predict_linear(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"})[6h:5m], 86400), \"host.name\", \"server\")",
+          "legendFormat": "{{server}} {{mountpoint}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 8,
+        "y": 77,
+        "w": 8,
+        "h": 8
+      }
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Inodes used",
+      "description": "Used inode share. **Bad:** climbing while bytes are free: millions of small files (caches, mail, session files); the filesystem reports full anyway.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "min",
+            "max",
+            "mean",
+            "lastNotNull"
+          ],
+          "sortBy": "Mean",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "label_move(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.inodes.usage\", host.name=~\"$server\", state=\"used\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}) / (max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.inodes.usage\", host.name=~\"$server\", state=\"used\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}) + max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.inodes.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"})), \"host.name\", \"server\")",
+          "legendFormat": "{{server}} {{mountpoint}}",
+          "range": true,
+          "instant": false,
+          "refId": "A"
+        }
+      ],
+      "gridPos": {
+        "x": 16,
+        "y": 77,
+        "w": 8,
+        "h": 8
+      }
+    },
+    {
+      "id": 43,
+      "type": "row",
+      "title": "Disk I/O",
+      "collapsed": true,
+      "gridPos": {
+        "x": 0,
+        "y": 85,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [
+        {
+          "id": 24,
+          "type": "timeseries",
+          "title": "Device utilisation (top 10)",
+          "description": "Share of time the device had I/O in flight. On k8s nodes **rbdN** are Ceph RBD PVCs, on Ceph nodes **casN-M** are the OSD devices.\n\n**Bad:** near 100% together with rising latency: the device is saturated (for SSD/RBD, which serve in parallel, latency and queue matter more).",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "percentunit",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": false,
+                "drawStyle": "line",
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "min": 0,
+              "max": 1
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ],
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "topk_max(10, label_move(max by (\"host.name\", device) (rate({__name__=\"system.disk.io_time\", host.name=~\"$server\", device!~\"dm-.*|loop.*|(sd|vd|xvd)[a-z]+[0-9]+|nvme[0-9]+n[0-9]+p[0-9]+\", device=~\"$device\"}[$__rate_interval])), \"host.name\", \"server\"))",
+              "legendFormat": "{{server}} {{device}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "gridPos": {
+            "x": 0,
+            "y": 86,
+            "w": 12,
+            "h": 8
+          }
+        },
+        {
+          "id": 25,
+          "type": "timeseries",
+          "title": "Latency per operation (top 10)",
+          "description": "Average time per completed read/write.\n\n**Bad:** HDD > 20-50ms, SSD/NVMe > 5ms, RBD > 10-20ms sustained. **Fix:** find the heavy writer (*Disk I/O by pod* on the container dashboard), check Ceph health and the OSD devices on the Ceph nodes.",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "s",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": false,
+                "drawStyle": "line",
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ],
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "topk_max(10, label_move(sum by (\"host.name\", device, direction) (rate({__name__=\"system.disk.operation_time\", host.name=~\"$server\", device!~\"dm-.*|loop.*|(sd|vd|xvd)[a-z]+[0-9]+|nvme[0-9]+n[0-9]+p[0-9]+\", device=~\"$device\"}[$__rate_interval])) / sum by (\"host.name\", device, direction) (rate({__name__=\"system.disk.operations\", host.name=~\"$server\", device!~\"dm-.*|loop.*|(sd|vd|xvd)[a-z]+[0-9]+|nvme[0-9]+n[0-9]+p[0-9]+\", device=~\"$device\"}[$__rate_interval])), \"host.name\", \"server\"))",
+              "legendFormat": "{{server}} {{device}} {{direction}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "gridPos": {
+            "x": 12,
+            "y": 86,
+            "w": 12,
+            "h": 8
+          }
+        },
+        {
+          "id": 26,
+          "type": "timeseries",
+          "title": "Queue depth (top 10)",
+          "description": "Average number of I/Os in flight (weighted I/O time per second).\n\n**Bad:** consistently above what the device can serve in parallel (1-2 for HDD); requests are waiting.",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": false,
+                "drawStyle": "line",
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ],
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "topk_max(10, label_move(max by (\"host.name\", device) (rate({__name__=\"system.disk.weighted_io_time\", host.name=~\"$server\", device!~\"dm-.*|loop.*|(sd|vd|xvd)[a-z]+[0-9]+|nvme[0-9]+n[0-9]+p[0-9]+\", device=~\"$device\"}[$__rate_interval])), \"host.name\", \"server\"))",
+              "legendFormat": "{{server}} {{device}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "gridPos": {
+            "x": 0,
+            "y": 94,
+            "w": 12,
+            "h": 8
+          }
+        },
+        {
+          "id": 27,
+          "type": "timeseries",
+          "title": "Throughput (top 10)",
+          "description": "Bytes read + written per second per device.",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "Bps",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": false,
+                "drawStyle": "line",
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ],
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "topk_max(10, label_move(sum by (\"host.name\", device) (rate({__name__=\"system.disk.io\", host.name=~\"$server\", device!~\"dm-.*|loop.*|(sd|vd|xvd)[a-z]+[0-9]+|nvme[0-9]+n[0-9]+p[0-9]+\", device=~\"$device\"}[$__rate_interval])), \"host.name\", \"server\"))",
+              "legendFormat": "{{server}} {{device}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "gridPos": {
+            "x": 12,
+            "y": 94,
+            "w": 12,
+            "h": 8
+          }
+        },
+        {
+          "id": 28,
+          "type": "timeseries",
+          "title": "IOPS (top 10)",
+          "description": "Completed operations per second per device.\n\n**Bad:** high IOPS with small throughput and high latency: random small I/O (databases, fsync-heavy apps); move them to faster storage.",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "iops",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": false,
+                "drawStyle": "line",
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ],
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "topk_max(10, label_move(sum by (\"host.name\", device) (rate({__name__=\"system.disk.operations\", host.name=~\"$server\", device!~\"dm-.*|loop.*|(sd|vd|xvd)[a-z]+[0-9]+|nvme[0-9]+n[0-9]+p[0-9]+\", device=~\"$device\"}[$__rate_interval])), \"host.name\", \"server\"))",
+              "legendFormat": "{{server}} {{device}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "gridPos": {
+            "x": 0,
+            "y": 102,
+            "w": 12,
+            "h": 8
+          }
+        },
+        {
+          "id": 29,
+          "type": "timeseries",
+          "title": "Blocked processes",
+          "description": "Processes in uninterruptible sleep (D state), usually waiting on disk or network storage. Not reported by k8s nodes.\n\n**Bad:** sustained > 0 rising with iowait: storage stalls; a hung NFS/CephFS mount pins them forever.",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": false,
+                "drawStyle": "line",
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ],
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "label_move(max by (\"host.name\") ({__name__=\"system.processes.count\", host.name=~\"$server\", status=\"blocked\"}), \"host.name\", \"server\")",
+              "legendFormat": "{{server}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "gridPos": {
+            "x": 12,
+            "y": 102,
+            "w": 12,
+            "h": 8
+          }
+        }
+      ]
+    },
+    {
+      "id": 44,
+      "type": "row",
+      "title": "Network",
+      "collapsed": true,
+      "gridPos": {
+        "x": 0,
+        "y": 86,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [
+        {
+          "id": 30,
+          "type": "timeseries",
+          "title": "Throughput",
+          "description": "Received (up) and transmitted (down) per server. **k8s nodes show the sum of their pods' traffic**: hostmetrics there runs in a pod netns, and host-network traffic (Ceph RBD/CephFS kernel clients, hostNetwork pods) is not visible.\n\n**Bad:** flat-topped at the link speed: saturated link. **Fix:** find the top talker (*Network by pod* on the container dashboard).",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "Bps",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": false,
+                "drawStyle": "line",
+                "axisSoftMin": 0,
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byRegexp",
+                  "options": ".*transmit.*"
+                },
+                "properties": [
+                  {
+                    "id": "custom.transform",
+                    "value": "negative-Y"
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ],
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "label_move(sum by (\"host.name\", direction) (rate({__name__=\"system.network.io\", host.name=~\"$server\", device!~\"lo|veth.*|docker.*|br-.*\", k8s.node.name=\"\"}[$__rate_interval])), \"host.name\", \"server\")",
+              "legendFormat": "{{server}} {{direction}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "label_move(sum by (\"k8s.node.name\", direction) (rate({__name__=\"k8s.pod.network.io\", k8s.node.name=~\"$server\"}[$__rate_interval])), \"k8s.node.name\", \"server\")",
+              "legendFormat": "{{server}} pods {{direction}}",
+              "range": true,
+              "instant": false,
+              "refId": "B"
+            }
+          ],
+          "gridPos": {
+            "x": 0,
+            "y": 87,
+            "w": 12,
+            "h": 8
+          }
+        },
+        {
+          "id": 31,
+          "type": "timeseries",
+          "title": "Errors and drops",
+          "description": "Packets per second dropped or with errors. A small constant drop rate (unknown protocols, multicast) is normal.\n\n**Bad:** errors > 0 (cabling, NIC, MTU mismatch) or drops rising with traffic (ring buffer or socket backlog overflow). Alert: errors+drops > 1% of packets for 15m.",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "pps",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": false,
+                "drawStyle": "line",
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ],
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "label_move(sum by (\"host.name\", direction) (rate({__name__=\"system.network.errors\", host.name=~\"$server\", device!~\"lo|veth.*|docker.*|br-.*\", k8s.node.name=\"\"}[$__rate_interval])), \"host.name\", \"server\")",
+              "legendFormat": "{{server}} errors {{direction}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "label_move(sum by (\"host.name\", direction) (rate({__name__=\"system.network.dropped\", host.name=~\"$server\", device!~\"lo|veth.*|docker.*|br-.*\", k8s.node.name=\"\"}[$__rate_interval])), \"host.name\", \"server\")",
+              "legendFormat": "{{server}} drops {{direction}}",
+              "range": true,
+              "instant": false,
+              "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "label_move(sum by (\"k8s.node.name\", direction) (rate({__name__=\"k8s.pod.network.errors\", k8s.node.name=~\"$server\"}[$__rate_interval])), \"k8s.node.name\", \"server\")",
+              "legendFormat": "{{server}} pod errors {{direction}}",
+              "range": true,
+              "instant": false,
+              "refId": "C"
+            }
+          ],
+          "gridPos": {
+            "x": 12,
+            "y": 87,
+            "w": 12,
+            "h": 8
+          }
+        },
+        {
+          "id": 32,
+          "type": "timeseries",
+          "title": "TCP connections",
+          "description": "Connections by state (servers outside k8s).\n\n- **CLOSE_WAIT** growing: an application does not close sockets (leak).\n- **TIME_WAIT** in the tens of thousands: connection churn; use keep-alive / pooling.\n- **SYN_RECV** high: SYN flood or a full accept backlog.",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": false,
+                "drawStyle": "line",
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ],
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "label_move(sum by (\"host.name\", state) ({__name__=\"system.network.connections\", host.name=~\"$server\", protocol=\"tcp\", k8s.node.name=\"\", state=~\"ESTABLISHED|TIME_WAIT|CLOSE_WAIT|SYN_RECV\"}), \"host.name\", \"server\")",
+              "legendFormat": "{{server}} {{state}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "gridPos": {
+            "x": 0,
+            "y": 95,
+            "w": 12,
+            "h": 8
+          }
+        }
+      ]
+    },
+    {
+      "id": 45,
+      "type": "row",
+      "title": "Processes and Kubernetes",
+      "collapsed": true,
+      "gridPos": {
+        "x": 0,
+        "y": 87,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [
+        {
+          "id": 33,
+          "type": "timeseries",
+          "title": "Process creation",
+          "description": "New processes per second (servers outside k8s). **Bad:** a sudden sustained jump: a fork loop or a crash-restarting service.",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": false,
+                "drawStyle": "line",
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ],
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "label_move(rate({__name__=\"system.processes.created\", host.name=~\"$server\"}[$__rate_interval]), \"host.name\", \"server\")",
+              "legendFormat": "{{server}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "gridPos": {
+            "x": 0,
+            "y": 88,
+            "w": 8,
+            "h": 8
+          }
+        },
+        {
+          "id": 34,
+          "type": "timeseries",
+          "title": "Running pods per k8s node",
+          "description": "Pods in phase Running. **Bad:** one node carrying most pods: rebalancing (descheduler) or anti-affinity is not working.",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": false,
+                "drawStyle": "line",
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ],
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "label_move(count by (\"k8s.node.name\") (max by (\"k8s.node.name\", \"k8s.pod.uid\") ({__name__=\"k8s.pod.phase\", k8s.node.name=~\"$server\"}) == 2), \"k8s.node.name\", \"server\")",
+              "legendFormat": "{{server}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "gridPos": {
+            "x": 8,
+            "y": 88,
+            "w": 8,
+            "h": 8
+          }
+        },
+        {
+          "id": 35,
+          "type": "state-timeline",
+          "title": "k8s node Ready",
+          "description": "Kubelet Ready condition. Red: NotReady; pods there are not scheduled and get evicted after the toleration timeout.",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "green",
+                    "value": 1
+                  }
+                ]
+              },
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": {
+                      "text": "NotReady",
+                      "color": "red"
+                    },
+                    "1": {
+                      "text": "Ready",
+                      "color": "green"
+                    }
+                  }
+                }
+              ],
+              "custom": {
+                "fillOpacity": 80,
+                "lineWidth": 0
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "showValue": "never",
+            "mergeValues": true,
+            "alignValue": "left",
+            "rowHeight": 0.8,
+            "legend": {
+              "showLegend": false
+            },
+            "tooltip": {
+              "mode": "single"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "label_move(max by (\"k8s.node.name\") ({__name__=\"k8s.node.condition_ready\", k8s.node.name=~\"$server\"}), \"k8s.node.name\", \"server\")",
+              "legendFormat": "{{server}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "gridPos": {
+            "x": 16,
+            "y": 88,
+            "w": 8,
+            "h": 8
+          }
+        },
+        {
+          "id": 36,
+          "type": "timeseries",
+          "title": "Top pods by CPU on these servers",
+          "description": "Noisy neighbours: the 10 pods using the most CPU on the selected k8s nodes. Click a series to open it.",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "short",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": false,
+                "drawStyle": "line",
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "min": 0,
+              "links": [
+                {
+                  "title": "Open in Kubernetes Containers",
+                  "url": "/d/k8s-containers/kubernetes-containers?var-namespace=${__field.labels.namespace}&var-pod=${__field.labels.pod}&${__url_time_range}"
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "mean",
+                "max"
+              ],
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "topk_max(10, label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\") (rate({__name__=\"container.cpu.time\", k8s.node.name=~\"$server\"}[$__rate_interval])), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\"))",
+              "legendFormat": "{{namespace}}/{{pod}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "gridPos": {
+            "x": 0,
+            "y": 96,
+            "w": 8,
+            "h": 8
+          }
+        },
+        {
+          "id": 37,
+          "type": "timeseries",
+          "title": "Top pods by memory on these servers",
+          "description": "Working set of the 10 largest pods on the selected k8s nodes.",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "bytes",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": false,
+                "drawStyle": "line",
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "min": 0,
+              "links": [
+                {
+                  "title": "Open in Kubernetes Containers",
+                  "url": "/d/k8s-containers/kubernetes-containers?var-namespace=${__field.labels.namespace}&var-pod=${__field.labels.pod}&${__url_time_range}"
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "mean",
+                "max"
+              ],
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "topk_max(10, label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\") ({__name__=\"container.memory.working_set\", k8s.node.name=~\"$server\"}), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\"))",
+              "legendFormat": "{{namespace}}/{{pod}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "gridPos": {
+            "x": 8,
+            "y": 96,
+            "w": 8,
+            "h": 8
+          }
+        },
+        {
+          "id": 38,
+          "type": "timeseries",
+          "title": "Top pods by disk I/O on these servers",
+          "description": "Read + write bytes/s of the RBD PVCs mounted by each pod (CephFS traffic is not attributable).",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "unit": "Bps",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              },
+              "custom": {
+                "lineWidth": 1,
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "spanNulls": false,
+                "drawStyle": "line",
+                "stacking": {
+                  "mode": "none",
+                  "group": "A"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "min": 0,
+              "links": [
+                {
+                  "title": "Open in Kubernetes Containers",
+                  "url": "/d/k8s-containers/kubernetes-containers?var-namespace=${__field.labels.namespace}&var-pod=${__field.labels.pod}&${__url_time_range}"
+                }
+              ]
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true,
+              "calcs": [
+                "mean",
+                "max"
+              ],
+              "sortBy": "Mean",
+              "sortDesc": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "victoriametrics-metrics-datasource",
+                "uid": "${ds}"
+              },
+              "expr": "topk_max(10, label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\") ((sum by (\"host.name\", device) (rate({__name__=\"system.disk.io\", host.name=~\"$server\", device=~\"rbd[0-9]+\"}[$__rate_interval])) * on (\"host.name\", device) group_right () (max by (\"host.name\", device, \"k8s.pod.uid\") (label_replace(label_replace({__name__=\"system.filesystem.utilization\", host.name=~\"$server\", mountpoint=~\"/var/lib/k0s/kubelet/pods/.*\"}, \"k8s.pod.uid\", \"$1\", \"mountpoint\", \"/var/lib/k0s/kubelet/pods/([^/]+)/.*\"), \"device\", \"$1\", \"device\", \"/dev/(.+)\")) * 0 + 1)) * on (\"k8s.pod.uid\") group_left (\"k8s.namespace.name\", \"k8s.pod.name\") (max by (\"k8s.pod.uid\", \"k8s.namespace.name\", \"k8s.pod.name\") ({__name__=\"k8s.pod.phase\"}) * 0 + 1)), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\"))",
+              "legendFormat": "{{namespace}}/{{pod}}",
+              "range": true,
+              "instant": false,
+              "refId": "A"
+            }
+          ],
+          "gridPos": {
+            "x": 16,
+            "y": 96,
+            "w": 8,
+            "h": 8
+          }
+        }
+      ]
+    }
+  ]
+}

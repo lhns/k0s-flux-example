@@ -2,9 +2,9 @@
 # Its chart is the ExternalArtifact from generators-artifact.yaml.
 #
 # Renders the repo-root generator chart once for every group: one Flux Kustomization
-# per dir under kube-cluster/apps/ (prefix app-), kube-cluster/infra/ (prefix infra-)
-# and kube-cluster/rbac/ (prefix rbac-). reconcileStrategy: Revision so a new dir
-# (no chart version bump) re-renders. A second cluster is not another group here: it has its
+# per dir under kube-cluster/apps/ (prefix app-), kube-cluster/infra/ (prefix infra-),
+# kube-cluster/rbac/ (prefix rbac-) and kube-cluster/external/ (prefix ext-).
+# A second cluster is not another group here: it has its
 # own root with its own groups (kube-test-cluster/flux-system/generators.yaml). README.md,
 # "Multiple clusters".
 apiVersion: helm.toolkit.fluxcd.io/v2
@@ -36,6 +36,7 @@ spec:
       - { base: kube-cluster/apps, prefix: app }
       - { base: kube-cluster/infra, prefix: infra }
       - { base: kube-cluster/rbac, prefix: rbac }
+      - { base: kube-cluster/external, prefix: ext }
     # Emit an ArtifactGenerator + HelmRelease per component instead of the Kustomizations
     # themselves, so no single release carries more than one component.
     generate:

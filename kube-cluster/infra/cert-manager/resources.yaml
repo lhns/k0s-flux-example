@@ -1,0 +1,25 @@
+# Memory limits (ADR 0028), per cluster: the shared base stays unsized.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cert-manager
+  namespace: cert-manager
+spec:
+  values:
+    resources:
+      requests:
+        memory: 96Mi
+      limits:
+        memory: 256Mi
+    cainjector:
+      resources:
+        requests:
+          memory: 128Mi
+        limits:
+          memory: 256Mi
+    webhook:
+      resources:
+        requests:
+          memory: 64Mi
+        limits:
+          memory: 192Mi

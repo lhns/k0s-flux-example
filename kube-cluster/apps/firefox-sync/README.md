@@ -19,10 +19,3 @@ backend**), migrated from Docker Swarm. Public at `firefox-sync.example.com`.
 - **Domain**: `firefox-sync.example.com` stays canonical (NOT `.kube`) — it's baked into `SYNC_URL`, the
   persisted node URL, and every client's `about:config` (`identity.sync.tokenserver.uri`). No redirect.
 - **kube-vnet**: `net.traefik.traefik: ingress` + `net.postgres.postgres: egress`. Single replica.
-
-## One-time migration
-1. Deploy; the server creates both schemas + bootstraps the node.
-2. `pgloader` the old MariaDB (`10.20.2.10:3307`) per-DB into the matching PG databases (data-only). The
-   domain is unchanged, so the migrated node URL already matches `SYNC_URL` — no remap.
-3. Firefox clients need no reconfiguration (same `firefox-sync.example.com`); ensure DNS points it at the
-   Traefik LB.

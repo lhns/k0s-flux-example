@@ -100,7 +100,7 @@ Groups present: `victoriametrics-exporter`, `victoriametrics-exporter-latest`,
 No Grafana datasource needed — query vmselect directly from the jumphost:
 
 ```sh
-ssh admin@10.20.5.15
+ssh admin@10.20.150.84
 kubectl port-forward -n victoriametrics-cluster svc/vmselect 18481:8481 >/dev/null 2>&1 &
 Q=http://127.0.0.1:18481/select/0/prometheus/api/v1
 # always url-encode: dotted metric names must be written {__name__="kafka...."}
@@ -263,7 +263,7 @@ messages (that would need KIP-932 share groups) — so "don't commit" alone does
 retry. Something must rewind the cursor, and only `error_backoff` does.
 
 **Still open:** why both exporters wedge in the same window — different backends, same hour ⇒
-a shared trigger (Ceph, or the Swarm host `10.20.2.10`). Next wedge: overlay query #4 with
+a shared trigger (Ceph, or the Swarm host `10.20.176.187`). Next wedge: overlay query #4 with
 vmstorage `vm_slow_row_inserts_total` rate and Ceph health.
 (An earlier "413 too large" reading was a **false positive** — grep matched digits in a
 timestamp. There is no 413.)

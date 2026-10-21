@@ -1,0 +1,11 @@
+# Paperclip may call the worker's API server (:8642); its pod label is kube-vnet/net.hermes.
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: hermes
+  namespace: hermes
+spec:
+  description: "paperclip -> hermes-worker API server (:8642)."
+  allowedNamespaces:
+    names:
+      - paperclip
