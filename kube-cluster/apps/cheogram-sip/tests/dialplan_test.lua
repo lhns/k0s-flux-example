@@ -709,7 +709,7 @@ legs("several matrix targets are several legs",
 	{ring = {"matrix:@admin:example.com", "matrix:@other:example.com"}},
 	matrix_leg .. "&" .. person_leg("@other:example.com"), true)
 legs("the same person twice is one leg, case-insensitively",
-	{ring = {"matrix:@admin:example.com", "matrix:@LHNS:example.com"}}, matrix_leg, true)
+	{ring = {"matrix:@admin:example.com", "matrix:@ADMIN:example.com"}}, matrix_leg, true)
 -- A bare matrix: is the bridge's default recipient: a leg with no MXID in it.
 legs("a bare matrix: is one default leg", {ring = {"matrix:"}}, "Local/default@matrix-leg/n", true)
 legs("a bare matrix: and a person are two legs", {ring = {"matrix:", "matrix:@admin:example.com"}},
@@ -899,7 +899,7 @@ check("home texts no xmpp", #live_home.xmpp, 0)
 check("home texts only user", table.concat(live_home.bridge, ","), "@user:example.com")
 local _, live_office = deliver_on(routing, "office")
 check("office texts one xmpp target", #live_office.xmpp, 1)
-check("and it is lhns", live_office.xmpp[1] ~= nil and live_office.xmpp[1]:find("lhns", 1, true) ~= nil, true)
+check("and it is admin", live_office.xmpp[1] ~= nil and live_office.xmpp[1]:find("admin", 1, true) ~= nil, true)
 check("office texts lhns on matrix", table.concat(live_office.bridge, ","), "@admin:example.com")
 
 -- xmpp targets: distinct, and the dialled contact for a line with no plan.

@@ -85,8 +85,8 @@ spec:
 
       # Node 22, ubuntu-latest's default.
       # renovate: datasource=node-version depName=node
-      url=https://nodejs.org/dist/v22.23.3/node-v22.23.3-linux-x64.tar.xz
-      digest=sha256:df450af89261115ef9f9e3830c3eeb2cc9213b63c720b1af623cb5dcbe2e02de
+      url=https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-x64.tar.xz
+      digest=sha256:1805bcd35e6815559bd2eb97db438d3fdb0eb3a5e6a977b7c1badca76337e9ce
       fetch "$url" "$digest" $t/node.txz
       tar -xJf $t/node.txz -C /usr/local --strip-components=1 \
         --exclude='*/share/doc' --exclude='*/share/man' --exclude='*/*.md' --exclude='*/LICENSE'

@@ -644,6 +644,10 @@ def main() -> int:
         print("== convert SOPS secrets to examples")
         n_sops = sum(1 for p in iter_files(tree) if p.suffix in {".yaml", ".yml"} and convert_sops(p))
         print(f"   {n_sops} converted")
+        # Tells the checks they run on the template (scripts/check-sops.py: no encrypted files).
+        (tree / ".public-template").write_text(
+            "Built by scripts/make-public.py; secrets are CHANGEME examples, not encrypted.\n",
+            encoding="utf-8", newline="\n")
 
         print("== substitute")
         substitute = build_substituter(cfg)

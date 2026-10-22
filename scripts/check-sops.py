@@ -159,6 +159,12 @@ for path in files:
                         f"{where}: {key}.{name} is not encrypted -- the value is in the "
                         f"clear in git")
 
+# make-public.py writes this marker: the template's secrets are CHANGEME examples, so there it
+# is the normal state, not a broken marker search.
+if not files and (pathlib.Path(__file__).resolve().parent.parent / ".public-template").exists():
+    print("no encrypted files: public template, secrets are examples")
+    sys.exit(0)
+
 if not files:
     print("== sops check failed ==", file=sys.stderr)
     print("  no encrypted files found in any cluster -- the marker search is broken",

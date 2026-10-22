@@ -20,10 +20,11 @@ permissions:
   statuses: write
 jobs:
   validate:
-    # The ARC scale set k0s-flux in the cluster (kube-cluster/apps/github-runner); its name alone,
-    # no self-hosted. No automatic fallback: if it is down, dispatch with runner: github-hosted,
-    # which spends Actions minutes.
-    runs-on: ${{ inputs.runner == 'github-hosted' && 'ubuntu-latest' || 'k0s-flux' }}
+    # The repo variable LINT_RUNNER names the self-hosted runner: here the ARC scale set k0s-flux
+    # (kube-cluster/apps/github-runner), its name alone, no self-hosted. Unset (the public
+    # template) means GitHub-hosted. No automatic fallback: if it is down, dispatch with
+    # runner: github-hosted, which spends Actions minutes.
+    runs-on: ${{ inputs.runner == 'github-hosted' && 'ubuntu-latest' || vars.LINT_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # kubeconform's schemas, check-fetch-digests.py's verified pairs and the apt .debs. A
