@@ -139,7 +139,7 @@ spec:
       RUN npm run build:prod
 
       # renovate: datasource=docker
-      FROM nginx:1.31.8-alpine@sha256:eb37f58646a901dc7727cf448cae36daaefaba79de33b5058dab79aa4c04aefb
+      FROM nginx:1.31.8-alpine@sha256:e2d97c2b8c016f12c2f1a27d095685063b2f281c4edf2babfde6001cf4fb77a8
       COPY --from=build /src/dist /usr/share/nginx/html
       # SPA fallback, but NOT for /assets/ -- a hashed bundle that 404s must stay a 404. Serving
       # index.html in its place makes a stale or failed deploy look like a working page that
