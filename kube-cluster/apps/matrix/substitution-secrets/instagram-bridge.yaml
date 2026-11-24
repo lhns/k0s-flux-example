@@ -1,0 +1,13 @@
+# EXAMPLE — placeholder values. In the source repo this file is SOPS-encrypted
+# (age, `encrypted_regex: ^(data|stringData)$`). Replace each CHANGEME-* and
+# encrypt with `sops -e -i` before applying.
+apiVersion: v1
+kind: Secret
+type: Opaque
+metadata:
+    name: instagram-bridge-values
+    namespace: gen-app-matrix
+stringData:
+    MATRIX_INSTAGRAM_PICKLE_KEY: CHANGEME-MATRIX_INSTAGRAM_PICKLE_KEY
+    MATRIX_INSTAGRAM_PUBLIC_MEDIA_KEY: CHANGEME-MATRIX_INSTAGRAM_PUBLIC_MEDIA_KEY
+    MATRIX_INSTAGRAM_DIRECT_MEDIA_KEY: CHANGEME-MATRIX_INSTAGRAM_DIRECT_MEDIA_KEY

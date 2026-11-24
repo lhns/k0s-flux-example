@@ -20,3 +20,10 @@ app_service_config_files:
   - /registrations/signal.yaml
   - /registrations/instagram.yaml
   - /registrations/sip.yaml
+  - /registrations/doublepuppet-telegram.yaml
+  - /registrations/doublepuppet-whatsapp.yaml
+  - /registrations/doublepuppet-discord.yaml
+  - /registrations/doublepuppet-signal.yaml
+  - /registrations/doublepuppet-instagram.yaml
+  - /registrations/doublepuppet-sip.yaml
+  - /registrations/lk-jwt.yaml

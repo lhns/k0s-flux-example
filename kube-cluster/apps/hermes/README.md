@@ -34,6 +34,8 @@ is the dashboard (`hermes.example.com`); the API server (`hermes:8642`, ClusterI
 | `vnet.yaml`, `networkpolicy.yaml` | Paperclip may call the worker's :8642 (pod label `kube-vnet/net.hermes`). Owner egress: internet, Traefik's VIP and Paperclip :3100 (`kube-vnet/net.paperclip.paperclip`). Worker egress: internet and Paperclip :3100. |
 | `secret-*.yaml` | One Secret per key; see "Credentials". |
 
+Restart and shutdown notices are off on Matrix (managed `platforms.matrix.gateway_restart_notification: false`): every deploy or reloader restart pinged the owner. Cron failure notices are unaffected.
+
 Config precedence: managed scope overlays the profile file, which overlays Hermes' defaults. Only
 keys read through `load_config` work in managed scope; `approvals.mode` and the model stay in the
 profile so a second profile can differ.

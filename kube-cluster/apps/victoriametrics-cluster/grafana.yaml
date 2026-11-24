@@ -20,6 +20,7 @@ spec:
       title: VictoriaMetrics component down
       condition: C
       for: 10m
+      keepFiringFor: 15m
       noDataState: Alerting
       execErrState: Error
       data:
@@ -42,14 +43,19 @@ spec:
       labels:
         severity: warning
       annotations:
-        summary: '{{ $labels.service }} is down'
-        description: 'The scrape of {{ $labels.service }} fails. Short blips during a rollout clear within minutes; check the pod and its StatefulSet.'
+        summary: '{{ with $labels.service }}{{ . }}{{ else }}every VictoriaMetrics component{{ end }} is down'
+        description: 'The scrape of {{ with $labels.service }}{{ . }}{{ else }}every VictoriaMetrics component{{ end }} fails. Short blips during a rollout clear within minutes; check the pod and its StatefulSet.'
       notificationSettings:
         receiver: matrix-and-email
+        group_by: [grafana_folder, alertname]
+        group_wait: 1m
+        group_interval: 10m
+        repeat_interval: 24h
     - uid: kafka-exporter-members
       title: Telemetry exporter has too few consumers
       condition: C
       for: 15m
+      keepFiringFor: 15m
       noDataState: Alerting
       execErrState: Error
       data:
@@ -72,7 +78,11 @@ spec:
       labels:
         severity: warning
       annotations:
-        summary: 'Kafka group {{ $labels.group }} has {{ with $values.A }}{{ humanize .Value }}{{ end }} of 2 consumers'
+        summary: 'Kafka group {{ with $labels.group }}{{ . }}{{ else }}unknown{{ end }} has {{ with $values.A }}{{ humanize .Value }}{{ else }}n/a{{ end }} of 2 consumers'
         description: 'One exporter replica is gone: no redundancy and half the throughput. NoData means the group itself vanished.'
       notificationSettings:
         receiver: matrix-and-email
+        group_by: [grafana_folder, alertname]
+        group_wait: 1m
+        group_interval: 10m
+        repeat_interval: 24h

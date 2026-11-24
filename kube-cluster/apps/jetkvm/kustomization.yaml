@@ -2,12 +2,11 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 metadata:
   annotations:
-    # CNPG (db) + Reflector (db secret into the jetkvm ns) + oci-composer (both images are
-    # built in-cluster; nothing upstream publishes them) + app-coturn (its shared secret is
+    # CNPG (db) + Reflector (db secret into the jetkvm ns) + app-coturn (its shared secret is
     # reflected here for TURN credentials). Read by the root generator; inert
     # to kustomize. No `namespace:` transformer here -- database.yaml and db-role-secret.yaml
     # live in the postgres ns.
-    flux-component-generator/dependsOn: infra-postgres,infra-reflector,infra-oci-composer,app-coturn
+    flux-component-generator/dependsOn: infra-postgres,infra-reflector,app-coturn
 resources:
 - resources.yaml
 - routing.yaml

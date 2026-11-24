@@ -8,7 +8,7 @@ metadata:
   name: lldap
   namespace: lldap
 spec:
-  description: "LDAP clients (Authelia, mosquitto, jellyfin, stalwart, snikket, rdpgw) -> lldap :3890."
+  description: "LDAP clients (Authelia, mosquitto, jellyfin, stalwart, snikket, rdpgw, webtop) -> lldap :3890."
   allowedNamespaces:
     names:
       - authelia
@@ -17,3 +17,4 @@ spec:
       - stalwart
       - snikket
       - rdpgw
+      - webtop

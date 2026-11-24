@@ -1,0 +1,57 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: yjs
+  namespace: opencloud
+spec:
+  selector:
+    app.kubernetes.io/name: yjs
+  ports:
+    - {name: http, port: 1234, targetPort: http}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: yjs
+  namespace: opencloud
+spec:
+  replicas: 1
+  # One instance: rooms are in memory, and two pods split a document's editors (README).
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: yjs
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: yjs
+        app.kubernetes.io/instance: opencloud
+        kube-vnet/net.traefik.traefik: ingress
+    spec:
+      enableServiceLinks: false
+      # Above SHUTDOWN_GRACE_PERIOD_MS, so the graceful shutdown ends before the kill.
+      terminationGracePeriodSeconds: 20
+      containers:
+        - name: yjs
+          image: opencloudeu/yjs:1.1.1@sha256:370ea8387e7896470b0c52d38769359ad5772d79a403d1bb5eb6d047b0789b35
+          ports:
+            - {name: http, containerPort: 1234}
+          env:
+            - {name: PORT, value: "1234"}
+            - {name: OPENCLOUD_URL, value: "https://opencloud.example.com"}
+            - {name: SHUTDOWN_GRACE_PERIOD_MS, value: "15000"}
+          resources:
+            requests:
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          readinessProbe:
+            timeoutSeconds: 5
+            httpGet: {path: /healthz/ready, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            timeoutSeconds: 5
+            httpGet: {path: /healthz/ready, port: http}
+            periodSeconds: 30
+            failureThreshold: 3

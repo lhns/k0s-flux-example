@@ -77,7 +77,7 @@ spec:
         # No fsGroup. The s6 setup script already chowns /data/gitea and
         # /data/git recursively on every start; fsGroup would make the kubelet
         # do the same work again, on the HDD tier, before the container even
-        # starts (apps/gitea, docs §5.2).
+        # starts (docs §5.2).
         runAsUser: 0
         runAsGroup: 0
       # The entire config surface is FORGEJO__*/USER_* env; service links would
@@ -86,7 +86,7 @@ spec:
       containers:
         - name: forgejo
           # Not on Docker Hub: codeberg.org is the project's own registry.
-          image: codeberg.org/forgejo/forgejo:17.0.0
+          image: codeberg.org/forgejo/forgejo:17.0.2@sha256:879f4f10a98e3e167b32cde5f7ae3af0163d50bfacf567559a27a0e95a95670c
           env:
             - name: TZ
               value: Europe/Berlin
@@ -286,6 +286,13 @@ spec:
             # Default 300 s; a killed mirror sync leaves git lock files that block every later one.
             - name: FORGEJO__git_0X2E_timeout__MIRROR
               value: "900"
+            # Scheduled `git gc` of every repository (weekly by default); off by default, so
+            # abandoned `tmp_pack_*` and loose packs pile up until the git volume is full.
+            - name: FORGEJO__cron_0X2E_git_gc_repos__ENABLED
+              value: "true"
+            # The 60 s default kills gc on a large repository before it finishes.
+            - name: FORGEJO__git_0X2E_timeout__GC
+              value: "3600"
             # git rejects history with a malformed author email (`Name < <a@b>`) on clone; old public
             # repos carry such commits, and Forgejo already relaxes the other legacy fsck checks.
             - name: FORGEJO__git_0X2E_config__fetch_0X2E_fsck_0X2E_badEmail

@@ -3,16 +3,21 @@ kind: Kustomization
 metadata:
   annotations:
     # Needs the CNPG cluster + Database/DatabaseRole CRDs (infra-postgres) and
-    # Reflector (infra-reflector) to mirror the db secret into this namespace.
+    # Reflector (infra-reflector) to mirror the db secret into this namespace, and
+    # cert-manager (infra-cert-manager) for the jellyfin-sqlite host certs.
     # Read by the root generator; inert to kustomize.
-    flux-component-generator/dependsOn: infra-postgres,infra-reflector
+    flux-component-generator/dependsOn: infra-postgres,infra-reflector,infra-cert-manager
 resources:
 - resources.yaml
+- sqlite.yaml
 - routing.yaml
 - vnet.yaml
 - database.yaml
 - db-role-secret.yaml
 - ssh-ffmpeg-key-secret.yaml
+- grafana.yaml
+- probe
+- secret-jellyfin-probe.yaml
 configMapGenerator:
 - name: jellyfin-ffmpeg-wrapper
   namespace: jellyfin
@@ -31,3 +36,14 @@ configMapGenerator:
   namespace: jellyfin
   files:
   - config.json=jellyfin-web-config.json
+# Dashboard JSON: stable name with the operator's label, no substitution (ADR 0060).
+- name: app-jellyfin-dashboards
+  namespace: grafana
+  options:
+    disableNameSuffixHash: true
+    labels:
+      app.kubernetes.io/managed-by: grafana-operator
+    annotations:
+      kustomize.toolkit.fluxcd.io/substitute: disabled
+  files:
+  - dashboards/jellyfin-playback.json

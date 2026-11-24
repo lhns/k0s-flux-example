@@ -34,4 +34,6 @@ expect_fail "an artifact writing its ref into flux-system" "writes its ref into 
 # README "Control namespaces and risky changes" relies on this: a typo must not leave prune on.
 expect_fail "pruneDisabled naming nothing generated" "is not a generated Kustomization" \
   '{"groups":[{"base":"tests/fixtures/apps","prefix":"app"}],"generate":{"pruneDisabled":["app-nope"]}}'
+expect_fail "alerts.components naming nothing generated" "is not a generated Kustomization"   '{"groups":[{"base":"tests/fixtures/apps","prefix":"app"}],"generate":{},"alerts":{"providerRef":"matrix","cluster":"x","components":["app-nope"]}}'
+expect_fail "alerts without components" "alerts.components is required"   '{"groups":[{"base":"tests/fixtures/apps","prefix":"app"}],"generate":{},"alerts":{"providerRef":"matrix","cluster":"x"}}'
 exit "$fail"

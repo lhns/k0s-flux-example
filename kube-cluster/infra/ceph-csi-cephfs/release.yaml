@@ -51,7 +51,7 @@ spec:
         # Also the provisioner's image. x86-64-v2 build of upstream: see README.md.
         image:
           repository: ghcr.io/lhns/ceph-csi-x86-64-v2
-          tag: v3.18.1@sha256:d706364a170eeea45d574f52d32fd4aa85cf225d77c318cf222b07166b5804f4
+          tag: v3.18.2@sha256:9d43f09f0ab9f8f341ae56e599cd384c5e976151d478898282ce249cfcc2d9a1
       httpMetrics:
         containerPort: 8090
         service:

@@ -1,0 +1,24 @@
+# The ocphotos web extension, a release zip only. Its backend is apps/ocapps: bump the two together.
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageComposition
+metadata:
+  name: app-ocphotos
+  namespace: opencloud
+spec:
+  interval: 1h
+  # No `base`: files mounted into the OpenCloud image at /web/apps/ocphotos.
+  layers:
+    - name: ocphotos
+      fetch:
+        # renovate: datasource=github-releases depName=gnacho/ocphotos extractVersion=^ocphotos-v(?<version>.+)$
+        url: https://github.com/gnacho/ocphotos/releases/download/ocphotos-v1.6.6/ocphotos-1.6.6.zip
+        digest: sha256:b642bafd16bda4f25af595c718d18148f136da2f66f556d512b1240a267fe051
+        unpack: zip
+        subpath: ocphotos
+      to: /
+  push:
+    history: 10
+    writeRefTo:
+      namespace: gen-app-opencloud
+      keys:
+        ref: OPENCLOUD_APP_OCPHOTOS_REF

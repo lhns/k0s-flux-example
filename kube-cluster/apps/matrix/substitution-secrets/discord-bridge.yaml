@@ -1,0 +1,13 @@
+# EXAMPLE — placeholder values. In the source repo this file is SOPS-encrypted
+# (age, `encrypted_regex: ^(data|stringData)$`). Replace each CHANGEME-* and
+# encrypt with `sops -e -i` before applying.
+apiVersion: v1
+kind: Secret
+type: Opaque
+metadata:
+    name: discord-bridge-values
+    namespace: gen-app-matrix
+stringData:
+    MATRIX_DISCORD_AVATAR_PROXY_KEY: CHANGEME-MATRIX_DISCORD_AVATAR_PROXY_KEY
+    MATRIX_DISCORD_PROVISIONING_SECRET: CHANGEME-MATRIX_DISCORD_PROVISIONING_SECRET
+    MATRIX_DISCORD_DIRECT_MEDIA_KEY: CHANGEME-MATRIX_DISCORD_DIRECT_MEDIA_KEY

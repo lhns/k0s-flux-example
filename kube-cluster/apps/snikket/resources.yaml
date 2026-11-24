@@ -1,7 +1,5 @@
 ---
-# Prosody's data + uploads. ceph-rbd (block) rather than cephfs: prosody is a
-# single writer with its own on-disk format, and the repo's rule sends
-# single-writer stores to block (apps/homeassistant/resources.yaml).
+# Prosody's data + uploads. Block, not cephfs: a single writer with its own on-disk format.
 # SNIKKET_UPLOAD_STORAGE_GB is set well below this so uploads cannot fill it.
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -15,22 +13,14 @@ spec:
     requests:
       storage: 20Gi
 ---
-# Snikket ships as four containers on `network_mode: host`, talking to each other
-# over localhost. One Pod reproduces that exactly — same network namespace, same
-# localhost — which is why this is a multi-container Pod rather than three
-# Deployments with Services between them.
-#
-# Two of upstream's four are deliberately absent:
-#   - snikket-cert-manager  -> cert-manager already issues certs here (routing.yaml)
-#   - the bundled coturn    -> SNIKKET_TWEAK_TURNSERVER=0, apps/coturn serves it
+# One Pod because upstream's containers share localhost; two of its four are absent (README).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: snikket
   namespace: snikket
   annotations:
-    # roll on secret rotation (the shared TURN secret is env, and env is never
-    # updated in a running pod).
+    # Env is never updated in a running pod; roll on secret rotation.
     reloader.stakater.com/auto: "true"
 spec:
   replicas: 1
@@ -45,16 +35,10 @@ spec:
       labels:
         app.kubernetes.io/name: snikket
         app.kubernetes.io/instance: snikket
-        # Web (443, HTTPS end to end) and the raw XMPP ports (5222/5269/5000)
-        # all arrive via traefik — the raw ones as IngressRouteTCP on dedicated
-        # entrypoints.
         kube-vnet/net.traefik.traefik: ingress
-        # Authentication goes out to lldap :3890. Needs BOTH this label and
-        # `snikket` listed in apps/lldap/vnet.yaml allowedNamespaces - the label
-        # alone does nothing.
+        # lldap :3890. Needs this label AND `snikket` in apps/lldap/vnet.yaml.
         kube-vnet/net.lldap.lldap: egress
-        # apps/cheogram-sip reaches prosody's external-component port (5347).
-        # Needs BOTH this label and cheogram-sip listed in vnet.yaml.
+        # apps/cheogram-sip reaches the component port (5347). Needs this label AND vnet.yaml.
         kube-vnet/net.snikket-component: ingress
     spec:
       # The images read SNIKKET_* from the environment; injected <SVC>_PORT vars
@@ -63,7 +47,7 @@ spec:
       containers:
         # ---- prosody + the Snikket modules: c2s, s2s, proxy65, internal HTTP ----
         - name: server
-          image: snikket/snikket-server:stable.20260611
+          image: snikket/snikket-server:stable.20260611@sha256:311c076e06ec0fdb182900577a936cdc8d15da50bcc6ccd6707b743a13a162f3
           envFrom:
             - configMapRef: {name: snikket-env}
           env:
@@ -82,17 +66,17 @@ spec:
                   name: snikket-ldap
                   key: LDAP_BIND_PASSWORD
             # Read by sip.cfg.lua as ENV_SIP_COMPONENT_SECRET / ENV_ASTERISK_COMPONENT_SECRET.
-            # Mirrored from the cheogram-sip ns by reflector, so the gateway and prosody
-            # cannot drift apart on a rotation.
+            # Owned here (secret-sip-components.yaml) and mirrored to cheogram-sip by
+            # reflector, so the gateway and prosody cannot drift apart on a rotation.
             - name: SIP_COMPONENT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: cheogram-sip-components
+                  name: sip-components
                   key: SIP_COMPONENT_SECRET
             - name: ASTERISK_COMPONENT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: cheogram-sip-components
+                  name: sip-components
                   key: ASTERISK_COMPONENT_SECRET
           ports:
             - {name: c2s, containerPort: 5222, protocol: TCP}
@@ -105,20 +89,13 @@ spec:
             - {name: data, mountPath: /snikket}
             - {name: certs, mountPath: /snikket/letsencrypt/live/xmpp.example.com, readOnly: true}
             - {name: extra-config, mountPath: /etc/snikket-extra, readOnly: true}
-            # subPath, NOT a directory mount: /etc/prosody/modules holds 68
-            # symlinks into prosody-modules, and mounting over the directory
-            # would shadow every one of them and break the server. The cost of
-            # subPath is that ConfigMap updates do not propagate live, so a
-            # change needs a pod roll - which Reloader already does.
+            # Prosody loads custom_plugins/mod_auth_lldap/mod_auth_lldap.lua. Not under /etc/prosody:
+            # the entrypoint chowns it, and image volumes take no file subPath.
             - name: ldap-module
-              mountPath: /etc/prosody/modules/mod_auth_lldap.lua
-              subPath: mod_auth_lldap.lua
+              mountPath: /var/lib/prosody/custom_plugins/mod_auth_lldap
               readOnly: true
-            # lualdap, which the image does not ship (artifacts/lualdap.yaml). This exact path is already
-            # in prosody's package.cpath, so nothing has to be told where to look. Mounting the
-            # `lib` level rather than lua/5.4 keeps the package's relative symlink resolvable:
-            # lua/5.4/lualdap.so points at ../../liblua5.4-ldap.so.0.0.0, which is only inside
-            # the artifact if the artifact root is `lib`.
+            # lualdap (artifacts/lualdap.yaml), at a path already in prosody's package.cpath.
+            # Mounted at the `lib` level so lua/5.4/lualdap.so's relative symlink resolves.
             - name: lualdap
               mountPath: /var/lib/prosody/custom_plugins/lib
               readOnly: true
@@ -138,7 +115,7 @@ spec:
             limits: {memory: 2Gi}
         # ---- TLS/HTTP front for the portal, file sharing and BOSH/websocket ----
         - name: web-proxy
-          image: snikket/snikket-web-proxy:stable.20260611
+          image: snikket/snikket-web-proxy:stable.20260611@sha256:e2c22746c19489d2723c6ccebb15f2f14e4e35431cabbc7318d9ee33a48566e1
           envFrom:
             - configMapRef: {name: snikket-env}
           ports:
@@ -162,7 +139,7 @@ spec:
             limits: {memory: 512Mi}
         # ---- the invite/admin web UI, reached only through web-proxy ----
         - name: web-portal
-          image: snikket/snikket-web-portal:stable.20260611
+          image: snikket/snikket-web-portal:stable.20260611@sha256:d67ff498c44bcabc6eee0379d030870004cc37ccf445aa5450d891d4ce02e136
           envFrom:
             - configMapRef: {name: snikket-env}
           resources:
@@ -177,10 +154,11 @@ spec:
         - name: extra-config
           configMap:
             name: snikket-extra-config
+        # Built by artifacts/ldap-module.yaml.
         - name: ldap-module
-          configMap:
-            name: snikket-ldap-module
-        # Exported by artifacts/lualdap.yaml; see infra/oci-composer/README.md.
+          image:
+            reference: ${SNIKKET_LDAP_MODULE_REF}
+            pullPolicy: IfNotPresent
         - name: lualdap
           image:
             reference: ${SNIKKET_LUALDAP_REF}

@@ -15,6 +15,7 @@ resources:
 - routing.yaml
 - vnet.yaml
 - ldap-secret.yaml
+- secret-sip-components.yaml
 configMapGenerator:
 - name: snikket-env
   namespace: snikket
@@ -30,10 +31,3 @@ configMapGenerator:
   - ldap.cfg.lua
   # external components for the SIP gateway (apps/cheogram-sip)
   - sip.cfg.lua
-# The forked auth provider. Mounted by subPath into /etc/prosody/modules, which
-# is already in prosody's plugin_paths - see resources.yaml for why a whole
-# directory mount there would break the server.
-- name: snikket-ldap-module
-  namespace: snikket
-  files:
-  - mod_auth_lldap.lua

@@ -33,7 +33,7 @@ spec:
   chart:
     spec:
       chart: opentelemetry-kube-stack
-      version: "0.25.1"
+      version: "0.27.3"
       interval: 1h0m0s
       sourceRef:
         kind: HelmRepository
@@ -84,7 +84,7 @@ spec:
         image:
           repository: otel/opentelemetry-collector-contrib
           # renovate: datasource=docker depName=otel/opentelemetry-collector-contrib
-          tag: "0.163.1"
+          tag: "0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea"
         # Unset the chart-default node/kubelet scrape file so it doesn't clash with
         # our config (we don't use the packaged prometheus scrape presets here).
         scrape_configs_file: ""
@@ -191,7 +191,7 @@ spec:
         image:
           repository: otel/opentelemetry-collector-k8s
           # renovate: datasource=docker depName=otel/opentelemetry-collector-k8s
-          tag: "0.163.1"
+          tag: "0.165.0@sha256:ce55d0a38923c83120e4ba613fbdf446786652d2ce9f29d1cd7879e5d869829f"
         presets:
           clusterMetrics:
             enabled: true
@@ -223,7 +223,7 @@ spec:
                         # scrape-fail noise. To scrape another namespace: add it here
                         # AND add an ingress binding for its pods in vnet.yaml.
                         namespaces:
-                          names: [flux-system, matrix, nats, arc-system, remote-docker-ci, anubis, rdpgw, postgres, grafana-operator]
+                          names: [flux-system, matrix, nats, arc-system, remote-docker-ci, anubis, rdpgw, postgres, grafana-operator, storage-usage, kube-state-metrics, webtop, spegel, cephfs-client-metrics, jellyfin, grafana, matrix-alerts]
                     relabel_configs:
                       - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
                         action: keep

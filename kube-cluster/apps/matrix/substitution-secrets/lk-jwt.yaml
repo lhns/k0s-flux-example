@@ -1,0 +1,12 @@
+# EXAMPLE — placeholder values. In the source repo this file is SOPS-encrypted
+# (age, `encrypted_regex: ^(data|stringData)$`). Replace each CHANGEME-* and
+# encrypt with `sops -e -i` before applying.
+apiVersion: v1
+kind: Secret
+type: Opaque
+metadata:
+    name: lk-jwt-values
+    namespace: gen-app-matrix
+stringData:
+    MATRIX_LKJWT_AS_TOKEN: CHANGEME-MATRIX_LKJWT_AS_TOKEN
+    MATRIX_LKJWT_HS_TOKEN: CHANGEME-MATRIX_LKJWT_HS_TOKEN

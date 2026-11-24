@@ -15,3 +15,7 @@ configMapGenerator:
   namespace: victoriatraces
   files:
   - config.yaml=victoriatraces-exporter.yaml
+- name: victoriatraces-cardinality-exporter-config
+  namespace: victoriatraces
+  files:
+  - config.yml=cardinality-exporter.yaml

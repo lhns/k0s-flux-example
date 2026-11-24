@@ -15,3 +15,7 @@ configMapGenerator:
   namespace: victorialogs
   files:
   - config.yaml=victorialogs-exporter.yaml
+- name: victorialogs-cardinality-exporter-config
+  namespace: victorialogs
+  files:
+  - config.yml=cardinality-exporter.yaml

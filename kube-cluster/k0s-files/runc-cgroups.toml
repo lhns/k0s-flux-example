@@ -1,0 +1,26 @@
+# containerd drop-in: the node's cgroup driver, and a runtime for containers that manage their own
+# cgroups. containerd reads it only when k0s starts; a change needs drain + reboot (ADR 0067).
+
+# containerd 2.x config format, like the other drop-ins.
+version = 3
+
+[plugins."io.containerd.cri.v1.runtime".containerd.runtimes.runc.options]
+  # Pod cgroups are created through the host's systemd instead of written to cgroupfs directly.
+  # The kubelet takes its driver from this runtime, so both always agree, and it is what lets
+  # runc delegate a cgroup to a container (below).
+  SystemdCgroup = true
+
+# For containers that run their own init (systemd as PID 1) in a user namespace. Pods opt in
+# through a RuntimeClass; every other pod keeps the default runtime and a read-only cgroup.
+[plugins."io.containerd.cri.v1.runtime".containerd.runtimes.runc-cgrw]
+  # The same shim as the default runtime; only the options below differ.
+  runtime_type = "io.containerd.runc.v2"
+  # The container's own cgroup is mounted read-write, so its init can create a cgroup per
+  # service. It stays inside that cgroup: the pod's limits still cover everything below it.
+  cgroup_writable = true
+
+  [plugins."io.containerd.cri.v1.runtime".containerd.runtimes.runc-cgrw.options]
+    # Needed for cgroup_writable to be usable in a user namespace: only with the systemd driver
+    # does runc delegate the cgroup and hand it to the container's root; otherwise host root
+    # keeps it and the container cannot write it.
+    SystemdCgroup = true

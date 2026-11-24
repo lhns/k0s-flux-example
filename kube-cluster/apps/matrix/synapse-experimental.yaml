@@ -1,0 +1,8 @@
+# A --config-path holding Synapse's experimental_features, the only copy: homeserver.yaml has
+# none. Whole-key, so an entry left out is off, and one added to homeserver.yaml would be ignored.
+# msc4502 and msc4512 are lk-jwt's (README, "lk-jwt as an appservice").
+experimental_features:
+  msc3202_transaction_extensions: true
+  msc2409_to_device_messages_enabled: true
+  msc4502_enabled: true
+  msc4512_enabled: true

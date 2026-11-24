@@ -9,7 +9,8 @@ spec:
   url: oci://ghcr.io/lhns/charts/kube-pv-reaper
   ref:
     # Pinned release; bump to roll a new version (cut an upstream vX.Y.Z first).
-    tag: "0.1.5"
+    tag: "0.1.7"
+    digest: sha256:a99fba616c3999ccc2ce73c1c427f2f429706bd75f16d404a7175fb41f0a66e6
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease

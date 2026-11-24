@@ -12,6 +12,8 @@ spec:
   forwardAuth:
     address: http://anubis.anubis.svc.cluster.local:8080/.within.website/x/cmd/anubis/api/check
     trustForwardHeader: true
+    # Caps only the auth service's answer that Traefik buffers (a redirect or a page), not app traffic.
+    maxResponseBodySize: 1048576
 ---
 # The challenge page. No middleware here, or the challenge would challenge itself.
 apiVersion: traefik.io/v1alpha1

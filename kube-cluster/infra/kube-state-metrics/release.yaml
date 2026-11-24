@@ -1,0 +1,131 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: kube-state-metrics
+  namespace: kube-state-metrics
+spec:
+  interval: 1h0m0s
+  url: oci://ghcr.io/prometheus-community/charts/kube-state-metrics
+  ref:
+    tag: "9.0.1"
+    digest: sha256:eaa4f3a6747db7e678480ff6224194931b26efa439b1e23111da6e742900b558
+  # Chart 9.0.0 lists the provenance layer first, and Flux otherwise extracts the first layer.
+  layerSelector:
+    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
+    operation: copy
+---
+# Flux object state only (README). The metric config follows the CRD versions in
+# flux-system/gotk-components.yaml: bump it with them.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kube-state-metrics
+  namespace: kube-state-metrics
+spec:
+  interval: 10m0s
+  chartRef:
+    kind: OCIRepository
+    name: kube-state-metrics
+  values:
+    fullnameOverride: kube-state-metrics
+    # No built-in collectors: the OTel k8s_cluster receiver owns core objects, nothing is exported twice.
+    collectors: []
+    extraArgs:
+      - --custom-resource-state-only=true
+    rbac:
+      extraRules:
+        - apiGroups: [helm.toolkit.fluxcd.io, kustomize.toolkit.fluxcd.io, notification.toolkit.fluxcd.io, source.extensions.fluxcd.io, source.toolkit.fluxcd.io]
+          resources: [kustomizations, helmreleases, gitrepositories, ocirepositories, helmrepositories, helmcharts, buckets, externalartifacts, artifactgenerators, receivers]
+          verbs: [list, watch]
+    customResourceState:
+      enabled: true
+      config:
+        kind: CustomResourceStateMetrics
+        spec:
+          resources:
+          - groupVersionKind:
+              group: kustomize.toolkit.fluxcd.io
+              version: v1
+              kind: Kustomization
+            metricNamePrefix: gotk
+            # Identical for every kind; the anchor keeps them from drifting.
+            metrics: &gotk-metrics
+              - name: resource_info
+                help: The current state of a Flux resource.
+                each:
+                  type: Info
+                  info:
+                    labelsFromPath:
+                      name: [metadata, name]
+                labelsFromPath:
+                  exported_namespace: [metadata, namespace]
+                  ready: [status, conditions, "[type=Ready]", status]
+                  reason: [status, conditions, "[type=Ready]", reason]
+                  suspended: [spec, suspend]
+          - groupVersionKind:
+              group: helm.toolkit.fluxcd.io
+              version: v2
+              kind: HelmRelease
+            metricNamePrefix: gotk
+            metrics: *gotk-metrics
+          - groupVersionKind:
+              group: source.toolkit.fluxcd.io
+              version: v1
+              kind: GitRepository
+            metricNamePrefix: gotk
+            metrics: *gotk-metrics
+          - groupVersionKind:
+              group: source.toolkit.fluxcd.io
+              version: v1
+              kind: OCIRepository
+            metricNamePrefix: gotk
+            metrics: *gotk-metrics
+          - groupVersionKind:
+              group: source.toolkit.fluxcd.io
+              version: v1
+              kind: HelmRepository
+            metricNamePrefix: gotk
+            metrics: *gotk-metrics
+          - groupVersionKind:
+              group: source.toolkit.fluxcd.io
+              version: v1
+              kind: HelmChart
+            metricNamePrefix: gotk
+            metrics: *gotk-metrics
+          - groupVersionKind:
+              group: source.toolkit.fluxcd.io
+              version: v1
+              kind: Bucket
+            metricNamePrefix: gotk
+            metrics: *gotk-metrics
+          - groupVersionKind:
+              group: source.toolkit.fluxcd.io
+              version: v1
+              kind: ExternalArtifact
+            metricNamePrefix: gotk
+            metrics: *gotk-metrics
+          - groupVersionKind:
+              group: source.extensions.fluxcd.io
+              version: v1beta1
+              kind: ArtifactGenerator
+            metricNamePrefix: gotk
+            metrics: *gotk-metrics
+          - groupVersionKind:
+              group: notification.toolkit.fluxcd.io
+              version: v1
+              kind: Receiver
+            metricNamePrefix: gotk
+            metrics: *gotk-metrics
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 128Mi
+    podLabels:
+      kube-vnet/net.opentelemetry.otel-scrape: ingress
+    podAnnotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "8080"
+      prometheus.io/path: /metrics

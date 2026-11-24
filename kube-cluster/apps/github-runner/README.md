@@ -1,9 +1,9 @@
 # github-runner
 
 Self-hosted GitHub Actions runners. **Nothing in this namespace is privileged.**
-The ARC scale sets start a fresh pod per job ([below](#arc-scale-sets)); `k0s-flux`,
-this repo's Lint and Renovate, has Docker from a workspace of its own, `apps/remote-docker-ci`
-([below](#k0s-flux-lint-and-renovate)).
+The ARC scale sets start a fresh pod per job ([below](#arc-scale-sets)); `k0s-flux`
+(this repo's Lint and Renovate) has Docker from a workspace of its own,
+`apps/remote-docker-ci` ([below](#k0s-flux-lint-and-renovate)).
 
 The Docker daemon lives in the workspace, reached over an SSH-in-WebSocket tunnel. The
 remote-docker client runs inside the runner container and rewrites every bind mount into an
@@ -187,7 +187,7 @@ edit one, copy it to the other.
 ### Adding a scale set
 
 1. A Secret with key `github_token`, as in [Secret](#secret).
-2. A HelmRelease in `scale-sets.yaml`, copied from `arc-k0s-flux`, with its own
+2. A HelmRelease, in `scale-sets.yaml` or its own `scale-set-<name>.yaml`, copied from `arc-k0s-flux`, with its own
    `runnerScaleSetName`, `githubConfigUrl` and `githubConfigSecret`.
 3. `runs-on: <runnerScaleSetName>` in the repository's workflows.
 

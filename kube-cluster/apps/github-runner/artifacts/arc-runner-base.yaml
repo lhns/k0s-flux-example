@@ -14,7 +14,7 @@ spec:
   dockerfile:
     inline: |
       # renovate: datasource=docker
-      FROM ghcr.io/actions/actions-runner:2.338.0@sha256:4ffadc0002b2581327e06101fc8c06cd189232baf79fe561fac9caeb76f5e807 AS base
+      FROM ghcr.io/actions/actions-runner:2.338.2@sha256:6d0b2d80d80f143f77dcb676e50920100bbb547e39e883454d57f45ab8c31300 AS base
       USER root
 
       # Versions may be newer than ubuntu-latest's; Renovate keeps them current. The apt packages
@@ -36,14 +36,14 @@ spec:
       t=/tmp/dl; mkdir -p $t
 
       # renovate: datasource=github-releases depName=cli/cli
-      url=https://github.com/cli/cli/releases/download/v2.102.1/gh_2.102.1_linux_amd64.tar.gz
-      digest=sha256:77b9e297e94c50336823d0f84de7ef1be60cba704601fa0d98f129f47a94987b
+      url=https://github.com/cli/cli/releases/download/v2.105.0/gh_2.105.0_linux_amd64.tar.gz
+      digest=sha256:79e7ab5db738c48777b696e374f8b428f0647debfb424f44d2f426370407fe2f
       fetch "$url" "$digest" $t/gh.tgz
       tar -xzf $t/gh.tgz -C /usr/local --strip-components=1 --wildcards '*/bin/gh'
 
       # renovate: datasource=github-releases depName=mikefarah/yq
-      url=https://github.com/mikefarah/yq/releases/download/v4.54.1/yq_linux_amd64
-      digest=sha256:8e34fc298390875de416e6a4afcb8cabeceb25d9aa8506c1a2f9353cf702ea5f
+      url=https://github.com/mikefarah/yq/releases/download/v4.54.3/yq_linux_amd64
+      digest=sha256:129534601871538efe0ba4c5e62a34fb1d5f469bcb975c4fddeb467d82974973
       fetch "$url" "$digest" $t/yq
       install -m 0755 $t/yq /usr/local/bin/yq
 
@@ -60,8 +60,8 @@ spec:
       tar -xzf $t/helm.tgz -C /usr/local/bin --strip-components=1 linux-amd64/helm
 
       # renovate: datasource=github-tags depName=kubernetes/kubernetes
-      url=https://dl.k8s.io/release/v1.37.1/bin/linux/amd64/kubectl
-      digest=sha256:65691ff77eb6fa44c908b77a1082c9f092c3b9733b5cefabec0d1104890e21a8
+      url=https://dl.k8s.io/release/v1.37.2/bin/linux/amd64/kubectl
+      digest=sha256:c04487523e7aa7d1493f7808174c899db93d7a9cf57531420cd76b9bd415f8f4
       fetch "$url" "$digest" $t/kubectl
       install -m 0755 $t/kubectl /usr/local/bin/kubectl
 
@@ -74,21 +74,21 @@ spec:
       mkdir -p /usr/libexec/docker/cli-plugins
 
       # renovate: datasource=github-releases depName=docker/buildx
-      url=https://github.com/docker/buildx/releases/download/v0.38.1/buildx-v0.38.1.linux-amd64
-      digest=sha256:e25d5cd675092bb5d1d03632fdc46cdf3fede7b514dc5f023a105e00d3ce5ad4
+      url=https://github.com/docker/buildx/releases/download/v0.39.1/buildx-v0.39.1.linux-amd64
+      digest=sha256:903090816da68f8bc1a2ff5346dd163a5adacfce4548d003c75df42cd47a9bf4
       fetch "$url" "$digest" $t/buildx
       install -m 0755 $t/buildx /usr/libexec/docker/cli-plugins/docker-buildx
 
       # renovate: datasource=github-releases depName=docker/compose
-      url=https://github.com/docker/compose/releases/download/v5.6.1/docker-compose-linux-x86_64
-      digest=sha256:47737f4236e6d3ccea7291995203f8f018058783b4c3a9469119811a0b5db8c0
+      url=https://github.com/docker/compose/releases/download/v5.8.0/docker-compose-linux-x86_64
+      digest=sha256:b8840f5008c447f41fce0a57ae3adeab42c89b1eb6e6012524bcabbfb4ffbaf6
       fetch "$url" "$digest" $t/compose
       install -m 0755 $t/compose /usr/libexec/docker/cli-plugins/docker-compose
 
       # Node 22, ubuntu-latest's default.
       # renovate: datasource=node-version depName=node
-      url=https://nodejs.org/dist/v22.23.4/node-v22.23.4-linux-x64.tar.xz
-      digest=sha256:1805bcd35e6815559bd2eb97db438d3fdb0eb3a5e6a977b7c1badca76337e9ce
+      url=https://nodejs.org/dist/v22.23.5/node-v22.23.5-linux-x64.tar.xz
+      digest=sha256:cdeb8670a0c81f51b4dc4ac61919f9b1ad917b304bf8221eb939570663d240f8
       fetch "$url" "$digest" $t/node.txz
       tar -xJf $t/node.txz -C /usr/local --strip-components=1 \
         --exclude='*/share/doc' --exclude='*/share/man' --exclude='*/*.md' --exclude='*/LICENSE'
@@ -111,8 +111,8 @@ spec:
       RUN <<'EOS'
       set -eu
       # renovate: datasource=github-releases depName=lhns/remote-docker
-      url=https://github.com/lhns/remote-docker/releases/download/v0.14.0/remote-docker_0.14.0_linux_amd64.tar.gz
-      digest=sha256:b1fd0bf3ebba62b1265e823a1fcceee73da27f9f65b360138e5cbb93995d1f84
+      url=https://github.com/lhns/remote-docker/releases/download/v0.16.9/remote-docker_0.16.9_linux_amd64.tar.gz
+      digest=sha256:1c6c71787bda3d9466c5a720c043c956db4f8f446b417f9a15627422e7542b4e
       curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/rd.tgz "$url"
       echo "$(echo "$digest" | cut -d: -f2)  /tmp/rd.tgz" | sha256sum -c -
       tar -xzf /tmp/rd.tgz -C /usr/local/bin remote-docker

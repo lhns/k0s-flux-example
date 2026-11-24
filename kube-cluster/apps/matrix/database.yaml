@@ -74,8 +74,8 @@ spec:
 # again", which would recreate every portal and duplicate 400+ contacts.
 #
 # The SQLite file on the telegram-data PVC is deliberately left in place as
-# the rollback: switching back is an edit to the database block in the
-# bridge's config.yaml (which lives on the PVC, not in git).
+# the rollback: switching back is an edit to the database block in
+# telegram-bridge-config.yaml (README, "Porting SQLite -> Postgres").
 apiVersion: postgresql.cnpg.io/v1
 kind: Database
 metadata:

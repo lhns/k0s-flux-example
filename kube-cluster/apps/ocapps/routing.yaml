@@ -1,0 +1,32 @@
+# ocapps serves note attachments, proxied note images and photo originals on OpenCloud's origin.
+# This stops any of them running as a document there; the extensions' fetch/<img>/<video> use is
+# unaffected. Never route without it.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: ocapps-headers
+  namespace: ocapps
+spec:
+  headers:
+    contentSecurityPolicy: "sandbox; default-src 'none'; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'unsafe-inline'"
+    contentTypeNosniff: true
+    referrerPolicy: no-referrer
+---
+# The extensions call these same-origin paths, so ocapps cannot have its own host. The longer rule
+# outranks OpenCloud's Host() route. No /ocs/ (it would put ocapps in every sync client's path) and
+# no /ocapps-admin/.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: ocapps
+  namespace: ocapps
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`opencloud.example.com`) && (PathPrefix(`/index.php/apps/notes/`) || PathPrefix(`/ocphotos-api/`))
+      services:
+        - {name: ocapps, port: 8096}
+      middlewares:
+        - name: ocapps-headers
+  tls: {}

@@ -30,6 +30,14 @@
       "versioningTemplate": "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)\\+k0s\\.(?<build>\\d+)$"
     },
     {
+      "description": "The Flux release each cluster runs: the `# Flux Version:` header `flux install --export` writes. The fluxcd/flux2 rule regenerates the files from it.",
+      "customType": "regex",
+      "managerFilePatterns": ["/^(kube-cluster|kube-test-cluster)/flux-system/gotk-components\\.yaml$/"],
+      "matchStrings": ["# Flux Version: (?<currentValue>v\\S+)"],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "fluxcd/flux2"
+    },
+    {
       "description": "Kubernetes image volumes. The built-in kubernetes manager looks for `image: <string>`, but an image volume spells it `image: {reference: repo:tag}` — a mapping — an ImageComposition layer `image: {ref: ...}` and a Grafana CR `version:` (apps/grafana) likewise, so it sees nothing and the reference would silently stop being bumped. Anchored on an explicit `# renovate: datasource=docker` comment rather than matching every `reference:` in the repo, because composed artifacts (apps/freshrss) use that same key for a ${...} ref substituted at apply time, which must NOT be tracked.",
       "customType": "regex",
       "managerFilePatterns": ["/(kube-cluster|kube-test-cluster|shared)/.*\\.ya?ml$/"],
@@ -48,6 +56,14 @@
       "extractVersionTemplate": "^v?(?<version>.+)$"
     },
     {
+      "description": "GitHub release assets whose tag has a prefix before the v (`notes-v0.1.9`, gnacho's extensions in apps/opencloud/artifacts/). The comment carries `extractVersion=`, which also keeps the manager above from matching; it filters out the repo's other tags. The bare version is captured, so tag and file name move together, and check-fetch-digests.py rewrites the digest as above.",
+      "customType": "regex",
+      "managerFilePatterns": ["/(kube-cluster|kube-test-cluster|shared)/.*\\.ya?ml$/"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)\\s+extractVersion=(?<extractVersion>\\S+)\\s+url[:=]\\s*\\S+?/releases/download/[^/\\s]*?-v(?<currentValue>[^/\\s]+)/\\S+(?:\\n[ \\t]+(?:digest|unpack|subpath)[:=][^\\n]*)*"
+      ]
+    },
+    {
       "description": "Pinned downloads that are not GitHub release assets, under the same `# renovate:` comment and `url=` line as the manager above (arc-runner-base.yaml): dl.k8s.io (kubectl), download.docker.com (docker CLI), nodejs.org (node, held to 22 below).",
       "customType": "regex",
       "managerFilePatterns": ["/(kube-cluster|kube-test-cluster|shared)/.*\\.ya?ml$/"],
@@ -58,7 +74,23 @@
       "extractVersionTemplate": "^v?(?<version>.+)$"
     },
     {
-      "description": "Base images in an ImageBuild's inline Dockerfile (apps/jetkvm). The built-in dockerfile manager only reads real Dockerfiles, so a recipe living inside a YAML string is invisible to it and its FROM pins would never be bumped. oci-composer requires every FROM to be digest-pinned, so the tag AND the digest are captured and Renovate updates them together. Anchored on an explicit `# renovate: datasource=docker` comment on the preceding line, so it matches only where we asked for it.",
+      "description": "A chart value `tag: <tag>@<digest>` (apps/webtop `image.tag`), which the built-in managers do not read: they see an `image:` string, not a bare tag. Anchored on a `# renovate: datasource=docker depName=<repo>` comment on the preceding line.",
+      "customType": "regex",
+      "managerFilePatterns": ["/(kube-cluster|kube-test-cluster|shared)/.*\\.ya?ml$/"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)\\s+tag:\\s*(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"
+      ]
+    },
+    {
+      "description": "A CloudNativePG Cluster `imageName: repo:tag@digest` under a `# renovate: datasource=docker depName=<repo>` comment on the line above. The built-in kubernetes manager reads only `image:`, so a Cluster's image would never be bumped. The flavour (standard-trixie) is the tag suffix, so docker versioning keeps it.",
+      "customType": "regex",
+      "managerFilePatterns": ["/(kube-cluster|kube-test-cluster|shared)/.*\\.ya?ml$/"],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)\\s+imageName:\\s*[^:\\s]+:(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"
+      ]
+    },
+    {
+      "description": "Base images in an ImageBuild's inline Dockerfile (apps/matrix, apps/github-runner). The built-in dockerfile manager only reads real Dockerfiles, so a recipe living inside a YAML string is invisible to it and its FROM pins would never be bumped. oci-composer requires every FROM to be digest-pinned, so the tag AND the digest are captured and Renovate updates them together. Anchored on an explicit `# renovate: datasource=docker` comment on the preceding line, so it matches only where we asked for it.",
       "customType": "regex",
       "managerFilePatterns": [
         "/(kube-cluster|kube-test-cluster|shared)/.*\\.ya?ml$/"
@@ -124,17 +156,41 @@
       "automerge": true
     },
     {
+      "description": "Label every PR with the cluster it changes, whatever the update type. shared/ is deployed by every cluster.",
+      "matchFileNames": ["kube-cluster/**", "shared/**"],
+      "addLabels": ["kube-cluster"]
+    },
+    {
+      "matchFileNames": ["kube-test-cluster/**", "shared/**"],
+      "addLabels": ["kube-test-cluster"]
+    },
+    {
       "description": "Promotion: kube-test-cluster takes minor updates unreviewed, so a version runs there before the reviewed PR for kube-cluster's copy of the same pin. Each cluster's overlay holds its own pin, so the two are separate PRs. Rules below still hold back what they name (k0s, mariadb, ...).",
       "matchFileNames": ["kube-test-cluster/**"],
       "matchUpdateTypes": ["minor", "patch"],
-      "automerge": true,
-      "addLabels": ["kube-test-cluster"]
+      "automerge": true
     },
     {
       "description": "Auto-merge image digest updates. Docker only: a Flux commit bump is also typed 'digest', but that is new source code.",
       "matchUpdateTypes": ["digest"],
       "matchDatasources": ["docker"],
       "automerge": true
+    },
+    {
+      "description": "A tag-only image gets a pin-digest PR (config:recommended leaves pinDigests off), so a re-pushed tag cannot go unnoticed. scripts/check-image-pins.py fails the lint on any image without a digest; this rule is how it gets fixed. pinDigest is not the `digest` update type above, so these PRs are reviewed, not automerged.",
+      "matchDatasources": ["docker"],
+      "pinDigests": true
+    },
+    {
+      "description": "No pin for a HelmRelease chart from a `HelmRepository type: oci` (cert-manager, spegel): Renovate looks it up as a docker image, but `chart.spec.version` has no place for a digest, so the pin cannot be written and fails the whole pin-dependencies branch. An OCIRepository takes its pin as `ref.digest` and keeps the rule above (one with a Helm `layerSelector` would also be typed HelmChart and skipped here).",
+      "matchManagers": ["flux"],
+      "matchDepTypes": ["HelmChart"],
+      "pinDigests": false
+    },
+    {
+      "description": "No pin where a digest breaks the file: RENOVATE_VERSION is passed to the action as a bare tag, and the barman manifest is vendored whole (its task re-downloads it; check-image-pins.py exempts it).",
+      "matchFileNames": [".github/workflows/renovate.yml", "*/infra/barman-cloud-plugin/manifest.yaml"],
+      "pinDigests": false
     },
     {
       "description": "The k0s version rolls the whole cluster (via Autopilot) on merge, so never automerge it — always a human-reviewed PR.",
@@ -162,6 +218,24 @@
       "matchPackageNames": ["dock.mau.dev/mautrix/meta"],
       "versioning": "regex:^ig-v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$",
       "allowedVersions": "/^ig-v/"
+    },
+    {
+      "description": "Notesnook's server images are tagged v1.0-beta.N. Docker versioning reads -beta.N as a fixed suffix like -alpine and never offers a newer N, so these sat at beta.32 while upstream reached beta.41. The regex makes N the patch version. One release train from one repo, so one PR; never automerged, because a beta can change the database schema (rollback then needs a restore) and the service wiring (apps/notesnook README).",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["streetwriters/identity", "streetwriters/notesnook-sync", "streetwriters/sse"],
+      "versioning": "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)-beta\\.(?<patch>\\d+)$",
+      "groupName": "notesnook-server",
+      "automerge": false
+    },
+    {
+      "description": "A bridge image bump may add or drop config keys, and the config is read-only in git (matrix README, \"Bridge configs live in git\"). The task runs the new image's own upgrader over the config and commits the result; it fails, and so blocks automerge through the lint, if a secret would be lost. The image is run through the Docker socket the workflow mounts. Patch bumps still automerge; the lint has the same check.",
+      "matchFileNames": ["kube-cluster/apps/matrix/resources.yaml"],
+      "matchPackageNames": ["dock.mau.dev/mautrix/signal", "dock.mau.dev/mautrix/telegram", "dock.mau.dev/mautrix/meta"],
+      "postUpgradeTasks": {
+        "commands": ["python3 scripts/bridge-config-sync.py --image {{{depName}}}"],
+        "fileFilters": ["kube-cluster/apps/matrix/*-bridge-config.yaml"],
+        "executionMode": "update"
+      }
     },
     {
       "description": "Do not let Renovate touch ghcr.io/lhns/mautrix-discord. It is our own fork of mautrix-discord v0.7.7 carrying the backfill throttle + retry patch (branch backfill-throttle-retry), tagged v<upstream>-throttle.<n>. No upstream release stream maps onto that tag scheme, so anything Renovate could offer would either be an unrelated build or silently drop the patch. Rebasing onto a newer upstream is a deliberate act: re-apply the four diffs (documented in apps/matrix/README.md), rebuild via the fork's build-image workflow, bump the pin by hand. Discord initial backfill is a ONE-SHOT per portal, so running an accidentally un-patched image is not a recoverable mistake — it truncates channels permanently.",
@@ -245,10 +319,15 @@
       "extractVersion": "^kustomize/v(?<version>.+)$"
     },
     {
-      "description": "Keep jetkvm on Node 22. Upstream's cloud-api requires it: engines ^22.21.1.",
-      "matchFileNames": ["kube-cluster/apps/jetkvm/artifacts/*.yaml"],
-      "matchDepNames": ["node"],
-      "allowedVersions": "<23"
+      "description": "Review every JetKVM image bump by hand. Our forks' lhns-build tag MOVES on every merge there, so a digest update is an unreviewed rebuild of the fork, not an upstream release (ADR 0009). The fork's workflow summary maps the digest to its commit.",
+      "matchPackageNames": ["ghcr.io/lhns/jetkvm-cloud-api", "ghcr.io/lhns/jetkvm-ui"],
+      "automerge": false
+    },
+    {
+      "description": "A Postgres major (18 -> 19) is a planned pg_upgrade or dump/restore, not a tag bump: no PR for it. Minor and patch updates of the operand image still come.",
+      "matchPackageNames": ["ghcr.io/cloudnative-pg/postgresql"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
     },
     {
       "description": "barman-cloud-plugin is a WHOLE-FILE vendored release, not an image tag. infra/barman-cloud-plugin/manifest.yaml is upstream's release manifest, and the version appears TWICE in it: the Deployment's image, and a base64 SIDECAR_IMAGE inside a generated Secret whose name carries a content hash. Only the first is visible to Renovate, so a plain tag bump moves the controller and leaves the injected sidecar on the old release -- that is how the tree ended up running controller v0.14.0 against a v0.13.0 sidecar. The postUpgradeTask re-downloads the entire upstream manifest so all three move together; fileFilters is what lets Renovate commit it. newValue, not newVersion: the release tag carries the v prefix that Renovate strips when it normalises a version, and the difference only shows up as a 404. automerge stays off deliberately: if the download ever fails, the branch falls back to exactly the one-line bump this rule exists to prevent, so the diff needs eyes. Verify a bump by checking the Secret name changed and that a rolled instance pod runs the matching plugin-barman-cloud-sidecar tag.",
@@ -256,8 +335,8 @@
       "automerge": false,
       "addLabels": ["barman-plugin"],
       "postUpgradeTasks": {
-        "commands": ["curl -sfL -o kube-cluster/infra/barman-cloud-plugin/manifest.yaml https://github.com/cloudnative-pg/plugin-barman-cloud/releases/download/{{{newValue}}}/manifest.yaml"],
-        "fileFilters": ["kube-cluster/infra/barman-cloud-plugin/manifest.yaml"],
+        "commands": ["curl -sfL -o {{{packageFile}}} https://github.com/cloudnative-pg/plugin-barman-cloud/releases/download/{{{newValue}}}/manifest.yaml"],
+        "fileFilters": ["*/infra/barman-cloud-plugin/manifest.yaml"],
         "executionMode": "branch"
       }
     },
@@ -285,6 +364,13 @@
       "matchFileNames": ["kube-cluster/apps/matrix/*.yaml", "kube-cluster/apps/matrix/artifacts/*.yaml"],
       "matchPackageNames": ["matrixdotorg/synapse"],
       "groupName": "synapse",
+      "automerge": false
+    },
+    {
+      "description": "snikket/snikket-server is pinned twice and the two must move together: the Deployment's image, and the FROM of the snikket-ldap-module ImageBuild, which patches that image's own mod_auth_ldap. scripts/validate.sh fails the lint if they ever disagree.",
+      "matchFileNames": ["kube-cluster/apps/snikket/*.yaml", "kube-cluster/apps/snikket/artifacts/*.yaml"],
+      "matchPackageNames": ["snikket/snikket-server"],
+      "groupName": "snikket-server",
       "automerge": false
     },
     {
@@ -334,8 +420,74 @@
       "addLabels": ["mariadb-datadir"]
     },
     {
+      "description": "Stalwart majors change the store layout: 1.0 does not open a 0.16 store and is reached only by copying the data with stalwart-migrate (apps/stalwart README). Never merge a major as a tag bump.",
+      "matchPackageNames": ["stalwartlabs/stalwart"],
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true,
+      "automerge": false
+    },
+    {
       "description": "A merged bump of the cephadm spec changes nothing on Ceph until the owner applies it and runs `ceph orch redeploy`, so it is never automerged (external/ceph/README.md).",
       "matchFileNames": ["kube-cluster/external/ceph/cephadm/otel-collector.yaml"],
+      "automerge": false
+    },
+    {
+      "description": "The storage-usage exporter uses the Ceph image's Python bindings against this cluster's Ceph, which cephadm upgrades by hand. Move it with the cluster's release: reviewed, never automerged, and held at the running major (apps/storage-usage).",
+      "matchPackageNames": ["quay.io/ceph/ceph"],
+      "allowedVersions": "/^v20\\./",
+      "automerge": false
+    },
+    {
+      "description": "Flux's own manifests change only as a whole release (README, \"Upgrading Flux\"), so no per-image bumps; nor the flux manager's own regeneration, which drops gen-flux.sh's flags and leaves gotk-sync.yaml stale.",
+      "matchFileNames": ["*/flux-system/gotk-components.yaml"],
+      "matchManagers": ["kubernetes", "flux"],
+      "enabled": false
+    },
+    {
+      "description": "A Flux release: one PR for every cluster, never automerged (README, \"Upgrading Flux\"). The task regenerates every cluster's flux-system files at the bumped header.",
+      "matchDepNames": ["fluxcd/flux2"],
+      "automerge": false,
+      "addLabels": ["flux"],
+      "postUpgradeTasks": {
+        "commands": ["bash scripts/gen-flux.sh"],
+        "fileFilters": ["*/flux-system/gotk-components.yaml", "*/flux-system/gotk-sync.yaml"],
+        "executionMode": "branch"
+      }
+    },
+    {
+      "description": "OpenCloud's web extensions (apps/opencloud) are one image with a tag per app, `draw-io-2.2.1`: the compatibility group keeps each app on its own tags. Never automerged: check minOpenCloud/maxOpenCloud in opencloud-eu/awesome-apps webApps/apps.json first.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["opencloudeu/web-extensions"],
+      "versioning": "regex:^(?<compatibility>[a-z][a-z-]*)-(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$",
+      "automerge": false
+    },
+    {
+      "description": "JankariTech's Presentation Viewer image (apps/opencloud), an OpenCloud web extension like the ones above: never automerged, check minOpenCloud/maxOpenCloud first.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["jankaritech/mdpresentation-viewer-opencloud"],
+      "automerge": false
+    },
+    {
+      "description": "ocapps (apps/ocapps) and its Notes and ocphotos extensions (apps/opencloud/artifacts/): one maintainer, no compatibility matrix, so they move as one reviewed PR. Never automerged.",
+      "matchPackageNames": ["gnacho/ocapps", "gnacho/ocnotes", "gnacho/ocphotos"],
+      "groupName": "ocapps",
+      "automerge": false
+    },
+    {
+      "description": "The yjs server (apps/opencloud) pairs with the Web that OpenCloud bundles: never automerged; follow the version opencloud-compose's stable branch pins.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["opencloudeu/yjs"],
+      "automerge": false
+    },
+    {
+      "description": "kube-webtop-workspaces (apps/webtop): the desktop image, the controller image and the chart are the owner's own builds, never automerged. Only releases (`vX.Y.Z` images, `X.Y.Z` chart) are proposed: the registry also holds 0.0.0-dev.<sha>, sha-<sha>, `image` and .sig tags, which are no upgrade path over each other. Last, so no earlier automerge rule overrides it.",
+      "matchPackageNames": [
+        "ghcr.io/lhns/kube-webtop-workspaces",
+        "ghcr.io/lhns/kube-webtop-workspaces-desktop",
+        "ghcr.io/lhns/charts/kube-webtop-workspaces"
+      ],
+      "versioning": "semver",
+      "allowedVersions": "/^v?\\d+\\.\\d+\\.\\d+$/",
       "automerge": false
     }
   ]

@@ -1,0 +1,91 @@
+# CephFS kernel client metrics per mount, one exporter per node (README.md). No inbound traffic
+# but the scrape, no API access.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: cephfs-client-metrics
+  namespace: cephfs-client-metrics
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cephfs-client-metrics
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      # Scraped by the otel `cluster` collector; this namespace must also be in its
+      # `namespaces.names` (infra/opentelemetry-monitoring/release.yaml).
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9923"
+        prometheus.io/path: /metrics
+      labels:
+        app.kubernetes.io/name: cephfs-client-metrics
+        app.kubernetes.io/instance: cephfs-client-metrics
+        kube-vnet/net.opentelemetry.otel-scrape: ingress
+    spec:
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      securityContext:
+        # debugfs is root-only (0700). uid 0 owns it, so no capability is needed.
+        runAsUser: 0
+        runAsGroup: 0
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: exporter
+          image: python:3.14.9-slim-trixie@sha256:35caba83af2fe6da9a5d922f9b0156f21d1246a48278c58a08bd253303ba42e8
+          command: [python3, -I, /opt/cephfs-client-metrics/cephfs_client_metrics.py]
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          ports:
+            - name: metrics
+              containerPort: 9923
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 60
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: exporter
+              mountPath: /opt/cephfs-client-metrics
+              readOnly: true
+            - name: debugfs
+              mountPath: /sys/kernel/debug
+              readOnly: true
+            # Where the CephFS mounts are, to map each client to its PV. HostToContainer, or the
+            # pod keeps a private copy of every mount and pins its superblock after the host
+            # unmounts it.
+            - name: kubelet
+              mountPath: /var/lib/k0s/kubelet
+              readOnly: true
+              mountPropagation: HostToContainer
+      volumes:
+        - name: exporter
+          configMap:
+            name: cephfs-client-metrics
+        - name: debugfs
+          hostPath:
+            path: /sys/kernel/debug
+            type: Directory
+        - name: kubelet
+          hostPath:
+            path: /var/lib/k0s/kubelet
+            type: Directory

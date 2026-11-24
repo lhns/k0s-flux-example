@@ -242,3 +242,33 @@ Backtest over 7 days:
 | --- | --- | --- |
 | `victoriametrics-component-down` | vmstorage: 44 brief blips, 3 of 5m or more (rollouts, the longest 19m) | `for` raised from 5m to 10m: one hit |
 | `kafka-exporter-members` | one dip of under 5m per group | as specified, no hit with `for` 15m |
+
+## Cardinality metrics
+
+`victoriametrics-cluster-cardinality-exporter` is a [json_exporter](https://github.com/prometheus-community/json_exporter)
+(module in `cardinality-exporter.yaml`). The `victoriametrics-cluster-exporter` collector probes it every 5m
+(job `victoriametrics-cardinality`; the metrics' `service.name` is the job name), and it queries vmselect's `/api/v1/status/tsdb?topN=50&focusLabel=service.name`.
+
+| Metric | Labels | Meaning |
+| --- | --- | --- |
+| `victoriametrics_cardinality_series_today` | `source` = `service.name` | series seen **today** (UTC; the API default date) for that source |
+| `victoriametrics_cardinality_series_today_total` | | all series seen today |
+| `victoriametrics_cardinality_series_today_by_metric` | `metric` | series seen today for each of the top 50 metric names |
+
+Like the other Victoria stores, this counts series with data **since 00:00 UTC today**, per source: it
+resets at midnight and is not a rate. New per hour per source: `rate(<metric>[30m]) * 3600` (rate treats the midnight drop as a reset; the first half hour after midnight counts every still-active one again).
+Store-wide truly new series: `rate(vm_new_timeseries_created_total[1h]) * 3600`.
+
+A source whose number climbs is churning series. Top 50 caps label cardinality, so a source or
+metric that falls out of the top 50 simply disappears.
+
+**In storage (hourly)**: job `victoriametrics-cardinality-retention` (module `retention`,
+`scrape_timeout` 2m) reads `/api/v1/series/count` into `victoriametrics_cardinality_series_retention_total`,
+every series in the index over the whole retention. It takes 30-45 s, close to vmselect's
+`-search.maxQueryDuration=1m`, which also caps a per-request `timeout=`. If it starts timing out, raise the flag.
+
+### Decisions
+
+- **json_exporter, one per store**: the numbers exist only as API responses. It carries `both` on
+  the store's vnet (queries the store, is probed by the collector).
+- **Every 5m**: the numbers move slowly and the queries are heavy.

@@ -41,7 +41,7 @@ spec:
       containers:
         - name: zigbee2mqtt
           # Runs as root; /app/data is root-owned, writable directly (no fsGroup needed).
-          image: ghcr.io/koenkk/zigbee2mqtt:2.14.2
+          image: ghcr.io/koenkk/zigbee2mqtt:2.14.3@sha256:fb4a6b0f6868ad1cd6a9996479802b2420e599c3463b62bbff8c8cd9a908f43a
           resources:
             requests:
               memory: 192Mi

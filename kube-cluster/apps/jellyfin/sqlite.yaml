@@ -1,0 +1,382 @@
+# The official Jellyfin on SQLite, kept beside the Postgres fork until Postgres support is
+# official (README, "jellyfin-sqlite"). Shares the media, transcode, ffmpeg-wrapper, SSH-key and
+# web-config objects with the fork; everything below is its own.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jellyfin-sqlite-config
+  namespace: jellyfin
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  name: jellyfin-sqlite-metadata
+spec:
+  accessModes: [ReadWriteMany]
+  capacity:
+    storage: 1Gi # ignored for static cephfs, required by the API
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: jellyfin-sqlite-metadata
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: appdata
+      staticVolume: "true"
+      rootPath: /docker/jellyfin/metadata
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jellyfin-sqlite-metadata
+  namespace: jellyfin
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: jellyfin-sqlite-metadata
+  resources:
+    requests:
+      storage: 1Gi
+---
+# The writer of subbuzz and trickplay, as on Swarm. The fork mounts the same dirs read-only
+# through its own PVs (resources.yaml).
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  name: jellyfin-sqlite-subbuzz
+spec:
+  accessModes: [ReadWriteMany]
+  capacity:
+    storage: 1Gi
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: jellyfin-sqlite-subbuzz
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: appdata
+      staticVolume: "true"
+      rootPath: /docker/jellyfin/subbuzz
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jellyfin-sqlite-subbuzz
+  namespace: jellyfin
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: jellyfin-sqlite-subbuzz
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  name: jellyfin-sqlite-trickplay
+spec:
+  accessModes: [ReadWriteMany]
+  capacity:
+    storage: 1Gi
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: jellyfin-sqlite-trickplay
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: appdata
+      staticVolume: "true"
+      rootPath: /docker/jellyfin/trickplay
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jellyfin-sqlite-trickplay
+  namespace: jellyfin
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: jellyfin-sqlite-trickplay
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Its own transcode dir, beside the fork's: Jellyfin empties its transcode dir recursively at
+# start, so a nested one would lose its running streams on every fork restart. The Jellyfin 12
+# worker mounts the same dir at the same path, /cache/transcodes: ffmpeg runs there on the paths
+# Jellyfin passes.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  name: jellyfin-sqlite-transcodes
+spec:
+  accessModes: [ReadWriteMany]
+  capacity:
+    storage: 1Gi
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: jellyfin-sqlite-transcodes
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: fastdata
+      staticVolume: "true"
+      rootPath: /eph-docker/jellyfin/cache/transcodes-sqlite
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jellyfin-sqlite-transcodes
+  namespace: jellyfin
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: ""
+  volumeName: jellyfin-sqlite-transcodes
+  resources:
+    requests:
+      storage: 1Gi
+---
+# The copy source: the Swarm fastdata tree, read-only. Used only by the one-time copy Job
+# (README); remove with it once the copy is verified and the rollback is unwanted.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  name: jellyfin-sqlite-swarm-fast
+spec:
+  accessModes: [ReadOnlyMany]
+  capacity:
+    storage: 1Gi
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: jellyfin-sqlite-swarm-fast
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: fastdata
+      staticVolume: "true"
+      rootPath: /docker/jellyfin
+    readOnly: true
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jellyfin-sqlite-swarm-fast
+  namespace: jellyfin
+spec:
+  accessModes: [ReadOnlyMany]
+  storageClassName: ""
+  volumeName: jellyfin-sqlite-swarm-fast
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jellyfin-sqlite
+  namespace: jellyfin
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  # Single writer on the RWO config volume.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: jellyfin-sqlite
+  template:
+    metadata:
+      # Scraped by the otel `cluster` collector (EnableMetrics in system.xml, README); /metrics
+      # is kept off the public routes (routing.yaml).
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8096"
+        prometheus.io/path: /metrics
+      labels:
+        # Not "jellyfin": the fork's Service selects that.
+        app.kubernetes.io/name: jellyfin-sqlite
+        app.kubernetes.io/instance: jellyfin-sqlite
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.lldap.lldap: egress
+        kube-vnet/net.jellyfin-api: ingress
+        kube-vnet/net.opentelemetry.otel-scrape: ingress
+    spec:
+      # Root and no fsGroup, as for the fork (resources.yaml).
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      containers:
+        - name: jellyfin
+          image: ghcr.io/jellyfin/jellyfin:12.4@sha256:fea863d0cd9ec445985d9c75fc6ed64e38a1d2766cf0c250a33d553f4fc1b771
+          env:
+            - name: TZ
+              value: Europe/Berlin
+            # Remote transcoding through the fork's wrapper (resources.yaml). TranscodingTempPath
+            # in encoding.xml (config volume) is /cache/transcodes.
+            - name: JELLYFIN_FFMPEG
+              value: /opt/ssh-ffmpeg/bin/ffmpeg
+            - name: TMPDIR
+              value: /cache/transcodes/tmp
+            # The Jellyfin 12 worker (jellyfin-ffmpeg 8); :1522 is the fork's 10.11 one. Keep the
+            # worker's image tag equal to this image's.
+            - name: FFMPEG_SSH_WORKER
+              value: "10.20.176.187:1523"
+            - name: FFMPEG_SSH_USER
+              value: root
+            - name: FFMPEG_SSH_KEY
+              value: /opt/ssh-ffmpeg-key/id
+            - name: FFMPEG_SSH_REMOTE
+              value: /usr/lib/jellyfin-ffmpeg
+            - name: FFMPEG_SSH_LOCAL
+              value: /usr/lib/jellyfin-ffmpeg
+            - name: FFMPEG_SSH_TMPDIR
+              value: /cache/transcodes/tmp
+          ports:
+            - name: http
+              containerPort: 8096
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: metadata
+              mountPath: /config/metadata
+            - name: trickplay
+              mountPath: /config/data/trickplay
+            - name: subbuzz
+              mountPath: /config/subbuzz
+            - name: web-config
+              mountPath: /jellyfin/jellyfin-web/config.json
+              subPath: config.json
+              readOnly: true
+            - name: media
+              mountPath: /media
+              readOnly: true
+            - name: cache
+              mountPath: /cache
+            - name: transcodes
+              mountPath: /cache/transcodes
+            - name: ssh-img
+              mountPath: /opt/ssh-img
+              readOnly: true
+            - name: ssh-ffmpeg-wrapper
+              mountPath: /opt/ssh-ffmpeg/bin
+              readOnly: true
+            - name: ssh-ffmpeg-key
+              mountPath: /opt/ssh-ffmpeg-key
+              readOnly: true
+          # Same probes as the fork, for the same GC stalls.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /System/Ping
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 500m
+              memory: 2Gi
+            limits:
+              memory: 4Gi
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: jellyfin-sqlite-config
+        - name: metadata
+          persistentVolumeClaim:
+            claimName: jellyfin-sqlite-metadata
+        - name: trickplay
+          persistentVolumeClaim:
+            claimName: jellyfin-sqlite-trickplay
+        - name: subbuzz
+          persistentVolumeClaim:
+            claimName: jellyfin-sqlite-subbuzz
+        - name: web-config
+          configMap:
+            name: jellyfin-web-config
+        - name: media
+          persistentVolumeClaim:
+            claimName: jellyfin-media-stream
+            readOnly: true
+        - name: cache
+          emptyDir: {}
+        - name: transcodes
+          persistentVolumeClaim:
+            claimName: jellyfin-sqlite-transcodes
+        - name: ssh-img
+          image:
+            # renovate: datasource=docker
+            reference: buildpack-deps:trixie-scm@sha256:4f34e1d673fdb65371de9f88bdd32c4e30152fe692b35604aef5c0b3c0e6da10
+            pullPolicy: IfNotPresent
+        - name: ssh-ffmpeg-wrapper
+          configMap:
+            name: jellyfin-ffmpeg-wrapper
+            defaultMode: 0755
+        - name: ssh-ffmpeg-key
+          secret:
+            secretName: jellyfin-ssh-ffmpeg-key
+            defaultMode: 0400
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jellyfin-sqlite
+  namespace: jellyfin
+spec:
+  selector:
+    app.kubernetes.io/name: jellyfin-sqlite
+  ports:
+    - name: http
+      port: 8096
+      targetPort: http

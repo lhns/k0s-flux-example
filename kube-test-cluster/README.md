@@ -12,7 +12,7 @@ relate and for the bootstrap procedure.
 | the traefik VIP `192.0.2.100` | `infra/metallb-pool/pool.yaml`, `infra/traefik/release.yaml` |
 | the DNS zone `*.test.kube.example.com` | `infra/traefik-config/tls.yaml`, `apps/nginx-test/resources.yaml` |
 | storage: prod's StorageClass names on node-local disk | `infra/local-storage/` |
-| a GitHub push webhook: none, so Flux polls git hourly | add an `infra/flux-webhook` like prod's |
+| a GitHub push webhook: none, so Flux polls git every 5 minutes | add an `infra/flux-webhook` like prod's (then `scripts/gen-flux.sh` sets hourly) |
 
 ## What runs here
 

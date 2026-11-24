@@ -82,7 +82,8 @@ The top of each is the at-a-glance view: a colour means act. The rows below dril
 panel's description says what bad looks like and what fixes it. Capacity is judged by
 **time to full** from the trend, not by fixed percentages; fixed fractions only appear as guards
 (over half full, so an empty disk taking writes stays quiet, and at least 97% full, so a full
-static disk still alerts).
+static disk still alerts). PVC alerts add fixed levels (95%, 85%): a volume that fills without a
+steady trend never shows a short time to full.
 
 ### Runbook: servers
 
@@ -138,18 +139,20 @@ static disk still alerts).
 | `server-disk-fill-24h` / `-4h` | time to full < 24h / < 4h (6h trend, over half full), or ≥ 97% | 30m / 15m | warning / critical |
 | `server-inodes-fill` | inodes full within 24h | 30m | warning |
 | `server-memory-exhaustion` | available memory gone within 2h (1h trend), under a quarter left | 15m | warning |
-| `server-cpu-saturated` | CPU > 95% busy (15m average) | 30m | warning |
+| `server-cpu-saturated` | CPU > 95% busy (15m average); recovers below 90% | 30m | warning |
 | `server-iowait-high` | iowait > 40% | 30m | warning |
 | `server-cpu-steal` | steal > 25% | 1h | warning |
-| `server-load-high` | 15m load > 2× cores | 30m | warning |
+| `server-load-high` | 15m load > 2× cores; recovers below 1.5× | 30m | warning |
 | `server-network-errors` | errors + drops > 1% of packets | 15m | warning |
 | `server-filesystem-readonly` | a filesystem is mounted `ro` | 5m | critical |
 | `k8s-node-not-ready` / `k8s-node-pressure` | Ready false / Memory- or DiskPressure | 5m | critical / warning |
-| `pvc-fill-24h` / `-4h` | as for server disks | 30m / 15m | warning / critical |
-| `container-oom-risk` | RSS reaches the limit within 1h (over 70% of it), or ≥ 90% | 15m | warning |
+| `pvc-fill-24h` / `-4h` | time to full < 24h / < 4h (6h trend, over half full); volumes over 2 TiB (whole-filesystem static CephFS mounts) skipped, as in the two below | 30m / 15m | warning |
+| `pvc-full` / `pvc-above-85` | used > 95% / 85-95% | 15m / 1h | critical / warning |
+| `container-oom-risk` | RSS reaches the limit within 1h (over 70% of it), or ≥ 90%; recovers above 2h | 15m | warning |
 | `container-oom-killed` | restarted with last reason OOMKilled | 0 | warning |
 | `container-restart-loop` | 3+ distinct `container.id` of one container in 15m (series count would misfire on relabels) | 10m | warning |
 | `container-cpu-at-limit` | usage > 90% of the CPU limit | 30m | warning |
+| `workload-unavailable` | Deployment or StatefulSet with 0 available replicas (desired > 0); emailed, repeats hourly | 15m | critical |
 | `pod-pending` / `container-not-ready` | Pending / not ready (restart loops excluded) | 15m | warning |
 | `k8s-metrics-stalled` / `k8s-kubelet-metrics-stalled` | no `k8s.pod.phase` / `k8s.pod.cpu.time` for 10m (also on NoData); emailed | 5m | critical |
 | `job-failed` | a Job gets failed pods (fires once, 6h after it first shows) | 0 | warning |
@@ -161,3 +164,6 @@ Backtests over 7 days of these rules:
 | `container-restart-loop` | an ARC listener (79 ids/15m at peak), `gitea-runner-0` act-runner (409 restarts), a brief `cheogram-sip` episode; none on the 2026-10-18 collector-upgrade burst, which the series-count form flagged | as specified |
 | `k8s-metrics-stalled`, `k8s-kubelet-metrics-stalled` | nothing (newest sample seconds old) | as specified |
 | `job-failed` | the two failed `synapse-media-sweep` jobs, once each | as specified |
+| `pvc-full`, `pvc-above-85` (2026-11-12 to 11-21) | `forgejo/forgejo-git` over 85% from 11-13 10:00 and 95% from 11-13 23:00 (77% at the end of 11-12); the 20Gi `remote-docker-ci` graphs (prune at 80%) over 95% about ten times for 15m-85m and over 85% most days; none for the static CephFS mounts | as specified; the CI graphs need a lower prune threshold or more space |
+| `pvc-fill-24h` / `-4h`, cheaper form | identical output to the old expression without its ≥ 97% branch, apart from the volumes over 2 TiB, which no longer fire (the archive filesystem's seven PVCs and the userdata three did, at once) | as specified |
+| critical rules, from Grafana's state history (2026-11-09 to 11-23) | `pvc-fill-4h` 160 times; after the 2 TiB filter, forgejo-git (already 100% full, 11-17 to 11-21) and the CI graphs (a blip to 95%, pruned) remain, about 30 a fortnight, none needing more than `pvc-full`. `workload-unavailable` 56 times since 11-16, all but ten for under 10m beyond its 5m (sabnzbd and paperclip restarts); the ten are two Ceph outages | `pvc-fill-4h` warning; `workload-unavailable` `for` 15m |

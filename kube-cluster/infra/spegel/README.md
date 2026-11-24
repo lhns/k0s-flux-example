@@ -10,6 +10,9 @@ from a peer instead of re-pulling upstream.
 - `vnet.yaml` — kube-vnet allowance so spegel pods can reach each other's libp2p
   router (`:5001`, pod-to-pod). Without it the cluster-isolation baseline denies
   P2P and Spegel silently falls back to upstream.
+- `grafana.yaml`, `dashboards/` — the *Spegel* dashboard (Cluster folder).
+- Metrics: `podAnnotations` in `release.yaml` + the `spegel-scrape-ingress` binding in
+  `vnet.yaml` + `spegel` in the otel collector's namespace list. Without all three nothing is scraped.
 
 ## Host prerequisite (not managed here)
 Spegel needs two containerd settings on each **worker**, delivered by the k0s

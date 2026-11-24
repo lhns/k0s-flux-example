@@ -1,7 +1,7 @@
 # forgejo
 
 [Forgejo](https://forgejo.org) — git forge at `forgejo.example.com` (traefik ingress, wildcard TLS).
-Image `codeberg.org/forgejo/forgejo`. Replaces [`../gitea`](../gitea/README.md) (retired); see *The migration from Gitea* below for why they
+Image `codeberg.org/forgejo/forgejo`. Replaces Gitea (removed; its database and volumes are kept); see *The migration from Gitea* below for why they
 could not simply share a database.
 
 ## Shape
@@ -172,8 +172,8 @@ what has not landed. **Gitea is never written to**, so it remains a complete rol
 - **Gitea kept receiving pushes after the cut.** The real repos were compared ref by ref on
   2026-10-10 and the missing refs fast-forwarded into Forgejo from Gitea (`bctrl`, `crdt-acl`,
   `fin-al`, `mc-dependency-provider`, `raptorpath`). No repo had diverged; all 19 real/dead repos
-  are now ref-identical. Re-run that comparison before retiring Gitea — until pushes go to Forgejo,
-  it drifts again.
+  are now ref-identical. Compared again on 2026-11-17, before Gitea was removed: every Gitea
+  branch head and tag is in Forgejo.
 - The releases API lists none for the real/dead repos on either side (the 13 counted are
   presumably tag-only rows); their tags match.
 - `migrate.sh` no longer puts secrets on argv: the auth header and request body reach `curl` as
@@ -184,8 +184,7 @@ what has not landed. **Gitea is never written to**, so it remains a complete rol
 - **Rotate the Forgejo admin token** (`write:repository`, `write:user`) — owner's call. The argv
   leak that motivated it is patched (above); a fragment leaked into an assistant transcript on
   2026-08-11.
-- **No push mirror for `lhns/mc-dependency-provider`**: not wanted. Gitea's still exists and fails
-  (its PAT lacks `workflow` scope); it goes with Gitea.
+- **No push mirror for `lhns/mc-dependency-provider`**: not wanted.
 - **Mirror syncs blocked by stale `.lock` files.** Forgejo's repos carry ~300 `*.lock` files
   (`HEAD.lock`, ref locks, commit-graph locks), left when git was killed mid-sync — including by the
   mirror timeout (`[git.timeout] MIRROR`, default 300 s; `eden` logs `context deadline exceeded`).
@@ -195,8 +194,9 @@ what has not landed. **Gitea is never written to**, so it remains a complete rol
   removing once, with no sync running.
 - **`mirror_updated` is not evidence of a working mirror** — it advances on failed syncs too
   (all 156 looked fresh while the above failed). Compare `git ls-remote --heads` against upstream.
-- Gitea is retired (`replicas: 0`, component suspended); `gitea.example.com`,
-  `gitea.kube.example.com` and `git.example.com` redirect here (`routing.yaml`). Push to Forgejo.
+- Gitea is removed from the cluster. Its `gitea` database and role, the `gitea-git` PV and the
+  PVCs in the `gitea` namespace are kept until deliberately deleted. `gitea.example.com`,
+  `gitea.kube.example.com` and `git.example.com` redirect here (`routing.yaml`).
 
 ### Four things learned the hard way, worth not rediscovering
 
@@ -222,7 +222,7 @@ what has not landed. **Gitea is never written to**, so it remains a complete rol
   would otherwise be a Traefik pod.
 - **`DEFAULT_ACTIONS_URL` differs from Gitea's**, which defaults to `github.com`. Forgejo's is
   `data.forgejo.org`, and it is what `uses: actions/checkout@v4` resolves against.
-- **`[mailer] FROM` is mandatory** on a fresh install. `apps/gitea` has no `FROM` only because it
+- **`[mailer] FROM` is mandatory** on a fresh install. Gitea had no `FROM` only because it
   inherited one from the `app.ini` it migrated; without it, mail silently does not send.
 - **Registration stays enabled**, which looks wrong and is not: an SSO login by an unknown user
   *is* a registration. `ALLOW_ONLY_EXTERNAL_REGISTRATION` is what makes Authelia the only path, and

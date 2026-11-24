@@ -10,13 +10,15 @@
     "trunk_transport",
     "external_address",
     "local_nets",
+    "rtp",
+    "bridge_host",
     "registrations",
     "lines",
     "outbound"
   ],
   "definitions": {
     "sipfield": {
-      "description": "One field of a register line. No whitespace: the rendered table is TAB separated and read by `while read` in /bin/sh, so a tab or a newline here would split one entry into two.",
+      "description": "One field of a registration. No whitespace.",
       "type": "string",
       "minLength": 1,
       "pattern": "^[^\\s]+$"
@@ -126,7 +128,7 @@
       }
     },
     "registrations": {
-      "description": "One outbound REGISTER per entry. The KEY IS THE WIRING: it is also the name of the Secret key holding that entry's password, mounted as a file under /sip-secrets. No password and no key name belongs in these values - they render into a plaintext ConfigMap, which scripts/check-substitution.py exists to keep credential-free. The pattern below is what makes the convention safe to state rather than transform: it is already a legal Kubernetes Secret key, so nothing is normalised at render time and a name that could not be one is rejected here at reconcile.",
+      "description": "One outbound REGISTER per entry. The KEY IS THE WIRING: the Secret key holding the password, the pjsip object name and the dialplan's `peer`. No password belongs in these values, they render into a plaintext ConfigMap. The pattern makes the key a legal Kubernetes Secret key, so nothing is normalised at render time.",
       "type": "object",
       "minProperties": 1,
       "propertyNames": {
@@ -138,10 +140,8 @@
         "required": [
           "user",
           "host",
-          "contact_user",
           "did",
-          "line",
-          "peer_secret_file"
+          "line"
         ],
         "not": {
           "required": [
@@ -151,15 +151,11 @@
         },
         "properties": {
           "user": {
-            "description": "The carrier account, usually the DID in national form.",
+            "description": "The carrier account, usually the DID in national form. Also the Contact user part the carrier echoes back, which is what an inbound call is attributed by while the carrier does so (observed behaviour, not a standard); two entries on one host may not share it.",
             "$ref": "#/definitions/sipfield"
           },
           "host": {
             "description": "The registrar/proxy to REGISTER at. NOT the section an outbound call leaves by: the presented number is pinned per section, so every entry gets one of its own named after the ENTRY, and routing.lua carries that name as `peer`. Several entries may therefore share a host; what an inbound call is attributed to is the section, not this.",
-            "$ref": "#/definitions/sipfield"
-          },
-          "contact_user": {
-            "description": "PJSIP's registration/contact_user: what the carrier dials back, and therefore the extension an inbound call arrives on. It works only while the carrier echoes our registered Contact in the inbound Request-URI - observed behaviour, not a standard. Two entries sharing one on the same host make the dialled number invisible; tests/check-routing.py rejects that.",
             "$ref": "#/definitions/sipfield"
           },
           "did": {
@@ -176,13 +172,8 @@
             "const": true
           },
           "disabled": {
-            "description": "Switched off without being removed: no pjsip object, no registrations.tsv row (so its Secret key is not read), and no inbound attribution. A line whose primary is disabled is off: outbound on it is REFUSED, never rerouted. May not be an entrypoint.",
+            "description": "Switched off without being removed: no pjsip object, no Secret key read, no inbound attribution. A line whose primary is disabled is off: outbound on it is REFUSED, never rerouted. May not be an entrypoint.",
             "const": true
-          },
-          "peer_secret_file": {
-            "description": "Names the #include the initContainer writes this entry's password into, and pjsip.conf must #include it under exactly this name. Required: the object set is hand-written, so this is the only place a password can land.",
-            "type": "string",
-            "pattern": "^[a-z0-9-]+\\.conf$"
           }
         }
       }
@@ -309,6 +300,32 @@
           }
         }
       }
+    },
+    "rtp": {
+      "description": "The UDP port range Asterisk hands out, rendered into rtp.conf. cheogram-sip-lb forwards exactly these ports; tests/check-routing.py holds the two together.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start",
+        "end"
+      ],
+      "properties": {
+        "start": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65535
+        },
+        "end": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65535
+        }
+      }
+    },
+    "bridge_host": {
+      "description": "The matrix-sip-bridge Service host: the [matrixbridge] AOR contact and the Request-URI of an inbound SMS handed to it.",
+      "type": "string",
+      "pattern": "^[a-z0-9.-]+$"
     }
   }
 }

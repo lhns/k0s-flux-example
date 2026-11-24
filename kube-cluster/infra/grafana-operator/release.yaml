@@ -9,7 +9,8 @@ spec:
   url: oci://ghcr.io/grafana/helm-charts/grafana-operator
   ref:
     # Bump to roll a new version; the chart's CRDs upgrade with it.
-    tag: "5.25.0"
+    tag: "5.26.0"
+    digest: sha256:ed199fff9f727777762762496c5663047d46fc208889ba568420e3f11e490539
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease

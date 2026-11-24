@@ -114,7 +114,8 @@ processors:
 
   transform/docker-logs-resource-attributes:
     error_mode: silent
-    flatten_data: true
+    flatten:
+      log: true
     log_statements:
       - context: log
         statements:

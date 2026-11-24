@@ -30,5 +30,8 @@ from Docker Swarm into the cluster. Public at `auth.example.com`. Everything SSO
   per-client isolation would need split-horizon DNS on the router (`auth.example.com` → the Traefik VIP
   `10.20.176.210`), which is outside this repo.
 - **user-info**: the `/info` page (group→app access matrix), behind the authelia middleware.
+- **Basic-auth users**: `authelia-basicauth` serves navidrome's Subsonic API. `authelia-basic-only`
+  (endpoint `forward-auth-basic`: Basic only, 401 instead of a login redirect, results cached 5
+  minutes) serves the public OTLP endpoint `otlp.example.com` (LDAP group `otel`, `infra/opentelemetry-gateway`).
 - **forwardAuth**: the reflected `authelia` / `authelia-basicauth` Middlewares (`routing.yaml`) protect
   every app, at the in-cluster `authelia.authelia.svc:9091` (a single Traefik→Authelia hop).

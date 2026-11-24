@@ -1,12 +1,9 @@
 ---
-# The routing table is a Helm chart (routing/) so that Helm checks it against
-# values.schema.json before rendering: the table IS the chart's values, which is the only
-# arrangement that gets that check for free. A .Files.Get of the same YAML would render
-# unvalidated.
+# The routing table is a Helm chart (routing/): the table is the chart's values, so Helm
+# checks it against values.schema.json before anything renders.
 #
-# The chart comes from its own ExternalArtifact, like the generator charts (ADR 0047): its
-# revision is a hash of routing/, so the release upgrades only when the table changes, not on
-# every commit to the repo. Helm wants the chart under a top-level directory, hence routing/.
+# Its own ExternalArtifact, like the generator charts (ADR 0047): the revision is a hash of
+# routing/, so the release upgrades only when the table changes.
 apiVersion: source.extensions.fluxcd.io/v1beta1
 kind: ArtifactGenerator
 metadata:

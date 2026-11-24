@@ -2,17 +2,16 @@
 # Regenerate the Flux bootstrap manifests under <cluster>/flux-system/ instead of
 # hand-editing those generated files. Review the diff, then commit.
 #
-#   ./scripts/gen-flux.sh && git diff kube-cluster/flux-system
-#   CLUSTER=kube-test-cluster ./scripts/gen-flux.sh
+#   ./scripts/gen-flux.sh && git diff '*/flux-system'     # every cluster
+#   CLUSTER=kube-test-cluster ./scripts/gen-flux.sh        # one cluster
 #
-# The version is read back out of the committed manifests, so a plain re-run reproduces
-# them byte-for-byte rather than rewriting them at whatever version the script last
-# happened to name. To upgrade Flux, say so explicitly:
+# The version is read from each cluster's committed header, so a plain re-run reproduces the
+# files byte-for-byte and never downgrades. To upgrade Flux, name the version:
 #
 #   FLUX_VERSION=v2.9.6 ./scripts/gen-flux.sh
 #
-# Requires the `flux` CLI on PATH — any version works, `--version` pins which manifest
-# set is fetched.
+# Renovate upgrades by bumping the header and re-running this (README, "Upgrading Flux").
+# The CLI used is that version's: the `flux` on PATH if it matches, else a checksummed download.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -27,68 +26,94 @@ COMPONENTS_EXTRA="source-watcher"
 NAMESPACE="flux-system"
 GIT_URL="https://github.com/example/k0s-flux.git"
 GIT_BRANCH="main"
-CLUSTER="${CLUSTER:-kube-cluster}"   # the cluster's directory; also its sync path
-[ -d "${CLUSTER}/flux-system" ] || { echo "no ${CLUSTER}/flux-system" >&2; exit 1; }
-GIT_PATH="./${CLUSTER}/flux-system"
 GIT_SECRET="flux-system"   # secret the GitRepository authenticates with (deploy key / token)
-SOURCE_INTERVAL="1h"       # how often to poll git (a webhook Receiver makes pushes instant)
+# How often to poll git: hourly where infra/flux-webhook makes pushes instant, else 5 minutes.
+SOURCE_INTERVAL_WEBHOOK="1h"
+SOURCE_INTERVAL_POLL="5m"
 SYNC_INTERVAL="10m"
-
-OUT="${CLUSTER}/flux-system"
 # ─────────────────────────────────────────────────────────────────────────────
 
 # `flux install --export` writes "# Flux Version: vX.Y.Z" as the third line; that header is
 # the only authoritative record of what the committed manifests were built from.
 committed_version() {
-  [ -f "${OUT}/gotk-components.yaml" ] || return 0
+  [ -f "$1/gotk-components.yaml" ] || return 0
   sed -n 's/^# Flux Version: \(v[0-9][^[:space:]]*\)[[:space:]]*$/\1/p' \
-    "${OUT}/gotk-components.yaml" | head -1
+    "$1/gotk-components.yaml" | head -1
 }
 
-FLUX_VERSION="${FLUX_VERSION:-}"
+tmp="$(mktemp -d)"
+trap 'rm -rf "${tmp}"' EXIT
 
-if [ -n "${FLUX_VERSION}" ]; then
-  echo "flux ${FLUX_VERSION} (requested)"
-else
-  FLUX_VERSION="$(committed_version)"
-  if [ -n "${FLUX_VERSION}" ]; then
-    echo "flux ${FLUX_VERSION} (from ${OUT}/gotk-components.yaml; FLUX_VERSION=vX.Y.Z to upgrade)"
-  else
-    # No manifests to read, or they were hand-edited past recognition. Never guess silently.
-    echo "no Flux version found in ${OUT}/gotk-components.yaml" >&2
-    if [ -t 0 ]; then
-      read -rp "version to install [latest]: " FLUX_VERSION
-    else
-      echo "not a terminal; using latest" >&2
-    fi
-    FLUX_VERSION="${FLUX_VERSION:-latest}"
+# Puts the flux CLI of version $1 (vX.Y.Z) first on PATH.
+use_flux_cli() {
+  local v="$1" os arch asset dir url sum
+  [ "$(flux version --client 2>/dev/null || true)" = "flux: ${v}" ] && return 0
+  case "$(uname -s)" in
+    Linux) os=linux ;; MINGW*|MSYS*|CYGWIN*) os=windows ;;
+    *) echo "no flux CLI download for $(uname -s)" >&2; exit 1 ;;
+  esac
+  case "$(uname -m)" in
+    x86_64|amd64) arch=amd64 ;; aarch64|arm64) arch=arm64 ;;
+    *) echo "no flux CLI download for $(uname -m)" >&2; exit 1 ;;
+  esac
+  asset="flux_${v#v}_${os}_${arch}.tar.gz"
+  [ "${os}" = windows ] && asset="${asset%.tar.gz}.zip"
+  url="https://github.com/fluxcd/flux2/releases/download/${v}"
+  dir="${tmp}/cli-${v}"
+  mkdir -p "${dir}"
+  echo "downloading flux CLI ${v} (${asset})"
+  curl -fsSL --retry 3 -o "${dir}/${asset}" "${url}/${asset}"
+  sum="$(curl -fsSL --retry 3 "${url}/flux_${v#v}_checksums.txt" | awk -v a="${asset}" '$2 == a {print $1}')"
+  if [ -z "${sum}" ] || ! echo "${sum}  ${dir}/${asset}" | sha256sum -c --quiet -; then
+    echo "checksum mismatch for ${asset}" >&2; exit 1
   fi
+  if [ "${os}" = windows ]; then unzip -q "${dir}/${asset}" flux.exe -d "${dir}"
+  else tar -xzf "${dir}/${asset}" -C "${dir}" flux; fi
+  PATH="${dir}:${PATH}"
+}
+
+# Writes the cluster's two files into ${tmp}/<cluster>/.
+gen_cluster() {
+  local cluster="$1" out="${tmp}/$1" version
+  version="${FLUX_VERSION:-$(committed_version "${cluster}/flux-system")}"
+  case "${version}" in
+    v[0-9]*) ;;
+    "") # Hand-edited past recognition, or a new cluster. Never guess silently.
+      echo "no Flux version in ${cluster}/flux-system/gotk-components.yaml; set FLUX_VERSION=vX.Y.Z" >&2
+      exit 1 ;;
+    *) echo "FLUX_VERSION must look like v2.9.6 (got '${version}')" >&2; exit 1 ;;
+  esac
+  use_flux_cli "${version}"
+  mkdir "${out}"
+
+  echo "-> ${cluster}/flux-system/gotk-components.yaml (flux ${version})"
+  flux install --export \
+    --version="${version}" \
+    --namespace="${NAMESPACE}" \
+    --components="${COMPONENTS}" \
+    ${COMPONENTS_EXTRA:+--components-extra="${COMPONENTS_EXTRA}"} \
+    > "${out}/gotk-components.yaml"
+
+  echo "-> ${cluster}/flux-system/gotk-sync.yaml"
+  {
+    echo "# This manifest was generated by flux. DO NOT EDIT."
+    flux create source git "${NAMESPACE}" \
+      --url="${GIT_URL}" --branch="${GIT_BRANCH}" \
+      --interval="$([ -d "${cluster}/infra/flux-webhook" ] && echo "${SOURCE_INTERVAL_WEBHOOK}" || echo "${SOURCE_INTERVAL_POLL}")" \n      --secret-ref="${GIT_SECRET}" --export
+    flux create kustomization "${NAMESPACE}" \
+      --source="GitRepository/${NAMESPACE}" --path="./${cluster}/flux-system" \
+      --prune=true --interval="${SYNC_INTERVAL}" --export
+  } > "${out}/gotk-sync.yaml"
+}
+
+if [ -n "${CLUSTER:-}" ]; then
+  [ -d "${CLUSTER}/flux-system" ] || { echo "no ${CLUSTER}/flux-system" >&2; exit 1; }
+  clusters=("${CLUSTER}")
+else
+  clusters=()
+  for f in */flux-system/gotk-components.yaml; do clusters+=("${f%%/*}"); done
 fi
-
-case "${FLUX_VERSION}" in
-  latest)   version_arg=() ;;
-  v[0-9]*)  version_arg=(--version="${FLUX_VERSION}") ;;
-  *) echo "FLUX_VERSION must look like v2.9.5, or be 'latest' (got '${FLUX_VERSION}')" >&2
-     exit 1 ;;
-esac
-
-echo "-> ${OUT}/gotk-components.yaml"
-flux install --export \
-  ${version_arg[@]+"${version_arg[@]}"} \
-  --namespace="${NAMESPACE}" \
-  --components="${COMPONENTS}" \
-  ${COMPONENTS_EXTRA:+--components-extra="${COMPONENTS_EXTRA}"} \
-  > "${OUT}/gotk-components.yaml"
-
-echo "-> ${OUT}/gotk-sync.yaml"
-{
-  echo "# This manifest was generated by flux. DO NOT EDIT."
-  flux create source git "${NAMESPACE}" \
-    --url="${GIT_URL}" --branch="${GIT_BRANCH}" \
-    --interval="${SOURCE_INTERVAL}" --secret-ref="${GIT_SECRET}" --export
-  flux create kustomization "${NAMESPACE}" \
-    --source="GitRepository/${NAMESPACE}" --path="${GIT_PATH}" \
-    --prune=true --interval="${SYNC_INTERVAL}" --export
-} > "${OUT}/gotk-sync.yaml"
-
-echo "done, wrote $(committed_version). review 'git diff ${OUT}' and commit."
+for c in "${clusters[@]}"; do gen_cluster "${c}"; done
+# Only once every cluster generated: a failed run leaves the committed files intact.
+for c in "${clusters[@]}"; do mv "${tmp}/${c}"/gotk-*.yaml "${c}/flux-system/"; done
+echo "done. review 'git diff -- */flux-system' and commit."

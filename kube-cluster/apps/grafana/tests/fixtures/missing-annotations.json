@@ -1,0 +1,24 @@
+{
+ "alerts": [
+  {
+   "status": "firing",
+   "labels": {
+    "alertname": "Rule without text",
+    "grafana_folder": "Ceph",
+    "severity": "warning"
+   },
+   "annotations": {},
+   "generatorURL": "https://grafana.example.com/alerting/grafana/no-text/view?orgId=1"
+  },
+  {
+   "status": "firing",
+   "labels": {
+    "alertname": "Rule without text",
+    "grafana_folder": "Ceph",
+    "severity": "warning"
+   },
+   "annotations": {},
+   "generatorURL": "https://grafana.example.com/alerting/grafana/no-text/view?orgId=1"
+  }
+ ]
+}

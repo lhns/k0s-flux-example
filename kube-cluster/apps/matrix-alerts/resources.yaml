@@ -12,11 +12,18 @@ spec:
       app.kubernetes.io/name: matrix-alerts
   template:
     metadata:
+      # Scraped by the otel `cluster` collector; `matrix-alerts` must also be in its `namespaces.names`
+      # (infra/opentelemetry-monitoring/release.yaml).
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: /metrics
       labels:
         app.kubernetes.io/name: matrix-alerts
         app.kubernetes.io/instance: matrix-alerts
         # receive from the grafana pod
         kube-vnet/net.matrix-alerts: ingress
+        kube-vnet/net.opentelemetry.otel-scrape: ingress
     spec:
       enableServiceLinks: false
       automountServiceAccountToken: false

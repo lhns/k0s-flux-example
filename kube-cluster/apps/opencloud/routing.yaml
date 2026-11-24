@@ -1,0 +1,71 @@
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: opencloud
+  namespace: opencloud
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`opencloud.example.com`)
+      services:
+        - {name: opencloud, port: 9200}
+  tls: {}
+---
+# Upstream's compose sets this: without it the editor's websocket does not open.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: euro-office-proto
+  namespace: opencloud
+spec:
+  headers:
+    customRequestHeaders:
+      X-Forwarded-Proto: https
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: euro-office
+  namespace: opencloud
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`euro-office.example.com`)
+      services:
+        - {name: euro-office, port: 80}
+      middlewares:
+        - name: euro-office-proto
+  tls: {}
+---
+# Same origin as OpenCloud, so the websocket needs no CSP entry. Not through OpenCloud's proxy:
+# yjs checks each connection's token itself, and this needs no vnet between the pods.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: yjs
+  namespace: opencloud
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`opencloud.example.com`) && PathPrefix(`/yjs`)
+      services:
+        - {name: yjs, port: 1234}
+  tls: {}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: drawio
+  namespace: opencloud
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`drawio.example.com`)
+      services:
+        - {name: drawio, port: 8080}
+  tls: {}

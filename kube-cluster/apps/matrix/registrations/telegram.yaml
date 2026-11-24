@@ -7,8 +7,6 @@ namespaces:
       regex: '@telegram_.*:example\.com'
     - exclusive: true
       regex: '@telegrambot:example\.com'
-    - exclusive: false
-      regex: ^@.*:example\.com$
     aliases:
     - exclusive: true
       regex: \#telegram_.*:example\.com

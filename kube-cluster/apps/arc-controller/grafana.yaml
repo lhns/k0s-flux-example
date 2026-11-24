@@ -35,6 +35,7 @@ spec:
       title: ARC runner listener down
       condition: C
       for: 20m
+      keepFiringFor: 15m
       noDataState: OK
       execErrState: KeepLast
       data:
@@ -61,3 +62,7 @@ spec:
         description: 'No jobs are picked up for this runner scale set. Listener restarts under 20 minutes are normal. Check the listener pod and the GitHub token.'
       notificationSettings:
         receiver: matrix
+        group_by: [grafana_folder, alertname]
+        group_wait: 1m
+        group_interval: 10m
+        repeat_interval: 24h

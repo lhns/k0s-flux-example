@@ -15,7 +15,7 @@ One Deployment, `replicas: 1`, `strategy: Recreate`, one Pod with two containers
 - **`runner`** — `code.forgejo.org/forgejo/runner`, no privileges at all
   (`drop: [ALL]`, `RuntimeDefault`), reaching the daemon at `tcp://127.0.0.1:2375`.
 
-## What changed from `../gitea-runner`
+## What changed from gitea-runner (removed)
 
 This started as a copy of `apps/gitea-runner` and stopped being one. `forgejo-runner` v13 is a fork
 of `act_runner` that rewrote exactly the part that manifest is most opinionated about — identity.

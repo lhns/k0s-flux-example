@@ -31,7 +31,7 @@ spec:
     spec:
       containers:
         - name: firefox-sync
-          image: ghcr.io/lhns/syncstorage-rs-docker:v2.0.0-postgres
+          image: ghcr.io/lhns/syncstorage-rs-docker:v2.0.1-postgres@sha256:5313eea3f087485841199e5d3b64d5c1e470cd0fbfa737eba61c1c0215c6d859
           env:
             - name: TZ
               value: Europe/Berlin

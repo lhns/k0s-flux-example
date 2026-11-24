@@ -5,3 +5,15 @@ kind: Kustomization
 resources:
 - release.yaml
 - vnet.yaml
+- grafana.yaml
+configMapGenerator:
+- name: infra-spegel-dashboards
+  namespace: grafana
+  options:
+    disableNameSuffixHash: true
+    labels:
+      app.kubernetes.io/managed-by: grafana-operator
+    annotations:
+      kustomize.toolkit.fluxcd.io/substitute: disabled
+  files:
+  - dashboards/spegel.json

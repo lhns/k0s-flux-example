@@ -1,0 +1,4136 @@
+{
+  "uid": "jellyfin-playback",
+  "title": "Jellyfin playback",
+  "description": "Where video playback is bottlenecked, hop by hop and per path, for one Jellyfin instance (kube-cluster/apps/jellyfin README, \"Playback dashboard\").",
+  "tags": [
+    "jellyfin",
+    "media"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "1m",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "links": [
+    {
+      "type": "link",
+      "title": "GPU Usage",
+      "icon": "dashboard",
+      "url": "/d/deh5coyhzwyyob",
+      "keepTime": true,
+      "tooltip": "The GPU host's own dashboard"
+    },
+    {
+      "type": "link",
+      "title": "Servers",
+      "icon": "dashboard",
+      "url": "/d/servers/servers",
+      "keepTime": true,
+      "tooltip": "Host CPU, disks and network"
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "name": "Direct play",
+        "enable": true,
+        "iconColor": "rgba(115, 191, 105, 0.4)",
+        "datasource": {
+          "type": "victoriametrics-metrics-datasource",
+          "uid": "${ds}"
+        },
+        "expr": "(sum(max_over_time(http_requests_in_progress{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetVideoStream|GetVideoStreamByContainer|GetAudioStream|GetAudioStreamByContainer|GetUniversalAudioStream\"}[5m]))) > 0",
+        "step": "1m",
+        "titleFormat": "Direct play",
+        "textFormat": "",
+        "useValueForTime": false
+      },
+      {
+        "name": "ffmpeg path",
+        "enable": true,
+        "iconColor": "rgba(87, 148, 242, 0.4)",
+        "datasource": {
+          "type": "victoriametrics-metrics-datasource",
+          "uid": "${ds}"
+        },
+        "expr": "(sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) * ${segment_s}) > 0",
+        "step": "1m",
+        "titleFormat": "ffmpeg path",
+        "textFormat": "",
+        "useValueForTime": false
+      }
+    ]
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "ds",
+        "label": "Datasource",
+        "type": "datasource",
+        "query": "victoriametrics-metrics-datasource",
+        "refresh": 1,
+        "current": {},
+        "hide": 0
+      },
+      {
+        "name": "instance",
+        "label": "Instance",
+        "type": "custom",
+        "hide": 0,
+        "description": "Text: the Jellyfin Deployment. Value: its ffmpeg worker's Swarm service.",
+        "query": "jellyfin : jellyfin-ffmpeg_jellyfin-ffmpeg-worker, jellyfin-sqlite : jellyfin-ffmpeg_jellyfin-ffmpeg-worker-12",
+        "current": {
+          "selected": true,
+          "text": "jellyfin-sqlite",
+          "value": "jellyfin-ffmpeg_jellyfin-ffmpeg-worker-12"
+        },
+        "options": [
+          {
+            "selected": false,
+            "text": "jellyfin",
+            "value": "jellyfin-ffmpeg_jellyfin-ffmpeg-worker"
+          },
+          {
+            "selected": true,
+            "text": "jellyfin-sqlite",
+            "value": "jellyfin-ffmpeg_jellyfin-ffmpeg-worker-12"
+          }
+        ],
+        "multi": false,
+        "includeAll": false
+      },
+      {
+        "name": "node",
+        "label": "Node",
+        "type": "query",
+        "hide": 2,
+        "datasource": {
+          "type": "victoriametrics-metrics-datasource",
+          "uid": "${ds}"
+        },
+        "refresh": 2,
+        "description": "The kube worker running the selected instance's pod.",
+        "query": {
+          "query": "label_values({__name__=\"k8s.pod.phase\", k8s.namespace.name=\"jellyfin\", k8s.pod.name=~\"${instance:text}-[0-9a-f]+-[0-9a-z]+\"}, k8s.node.name)",
+          "refId": "node"
+        },
+        "definition": "label_values({__name__=\"k8s.pod.phase\", k8s.namespace.name=\"jellyfin\", k8s.pod.name=~\"${instance:text}-[0-9a-f]+-[0-9a-z]+\"}, k8s.node.name)",
+        "regex": "",
+        "current": {},
+        "options": [],
+        "multi": false,
+        "includeAll": false
+      },
+      {
+        "name": "segment_s",
+        "label": "HLS segment length (s)",
+        "type": "constant",
+        "hide": 2,
+        "description": "The -hls_time Jellyfin passes ffmpeg (3 s in the 12.4 instance's FFmpeg logs).",
+        "query": "3"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "How to read this",
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 9,
+        "h": 6
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "Top row: the outcome first (**pace**: content seconds fetched per wall second per stream, below 1 the buffer drains), then **transcode speed**, which tells an encoder at its limit (near 1) from serving or delivery (well above 1), then the verdict. A tile counts only while its path is active for the selected instance, else *idle*. Green, yellow, red is against what one stream needs; each tile's description says what it includes.\n\n- **Direct play**: Jellyfin streams the file itself.\n- **ffmpeg path**: every remux and transcode; ffmpeg runs on the GPU worker, Jellyfin serves its HLS segments from the transcode dir.\n\n**Not separable: segment serving and delivery.** No metric ends at the first byte; most of a slow segment is Jellyfin's wait before it. *Delivery share* and *Segments over 4.1 s* are context."
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Worst stage now",
+      "description": "ffmpeg path, judged by pace (content seconds fetched per wall second per HLS session). Pace 0.9 or more: ok. Below: transcode speed under 1.3 means the encoder is at its limit, named by its hottest stage past yellow (GPU host CPU, NVENC, NVDEC, GPU memory or power, HDD OSD mean); otherwise Jellyfin node CPU or the transcode-dir read if past yellow, else segment serving or delivery (mostly Jellyfin's wait before the first byte; speed far above 1, e.g. over 3, also fits a client that stopped fetching). Scored by pace: 1 at 0.9, 2 at 0.7. Direct play: the hottest of its stages. 0-1 ok, 1-2 watch, 2 and up bottleneck.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "range",
+              "options": {
+                "from": 0,
+                "to": 1,
+                "result": {
+                  "text": "ok",
+                  "color": "green"
+                }
+              }
+            },
+            {
+              "type": "range",
+              "options": {
+                "from": 1,
+                "to": 2,
+                "result": {
+                  "text": "watch",
+                  "color": "yellow"
+                }
+              }
+            },
+            {
+              "type": "range",
+              "options": {
+                "from": 2,
+                "to": 1000000000.0,
+                "result": {
+                  "text": "bottleneck",
+                  "color": "red"
+                }
+              }
+            }
+          ],
+          "noValue": "idle"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(1, (label_replace((clamp_max((((sum(rate(cephfs_client_latency_seconds_total{pv=\"jellyfin-media-stream\", node=\"$node\", op=\"read\"}[5m])) / sum(rate(cephfs_client_ops_total{pv=\"jellyfin-media-stream\", node=\"$node\", op=\"read\"}[5m]))))) / 2, 1) + clamp_min(clamp_max(((((sum(rate(cephfs_client_latency_seconds_total{pv=\"jellyfin-media-stream\", node=\"$node\", op=\"read\"}[5m])) / sum(rate(cephfs_client_ops_total{pv=\"jellyfin-media-stream\", node=\"$node\", op=\"read\"}[5m]))))) - 2) / 4, 1), 0) + clamp_min(((((sum(rate(cephfs_client_latency_seconds_total{pv=\"jellyfin-media-stream\", node=\"$node\", op=\"read\"}[5m])) / sum(rate(cephfs_client_ops_total{pv=\"jellyfin-media-stream\", node=\"$node\", op=\"read\"}[5m]))))) - 6) / 6, 0)) and on() ((sum(max_over_time(http_requests_in_progress{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetVideoStream|GetVideoStreamByContainer|GetAudioStream|GetAudioStreamByContainer|GetUniversalAudioStream\"}[5m]))) > 0), \"stage\", \"CephFS media read\", \"\", \"\") or label_replace((clamp_max((((1 - sum(rate(system.cpu.time{\"host.name\"=\"$node\", state=\"idle\"}[5m])) / sum(rate(system.cpu.time{\"host.name\"=\"$node\"}[5m]))))) / 0.8, 1) + clamp_min(clamp_max(((((1 - sum(rate(system.cpu.time{\"host.name\"=\"$node\", state=\"idle\"}[5m])) / sum(rate(system.cpu.time{\"host.name\"=\"$node\"}[5m]))))) - 0.8) / 0.1499999999999999, 1), 0) + clamp_min(((((1 - sum(rate(system.cpu.time{\"host.name\"=\"$node\", state=\"idle\"}[5m])) / sum(rate(system.cpu.time{\"host.name\"=\"$node\"}[5m]))))) - 0.95) / 0.95, 0)) and on() ((sum(max_over_time(http_requests_in_progress{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetVideoStream|GetVideoStreamByContainer|GetAudioStream|GetAudioStreamByContainer|GetUniversalAudioStream\"}[5m]))) > 0), \"stage\", \"Jellyfin node CPU\", \"\", \"\") or label_replace((clamp_max((((sum(rate(ceph_osd_op_r_latency_sum[5m]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"})) / sum(rate(ceph_osd_op_r_latency_count[5m]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"}))))) / 2, 1) + clamp_min(clamp_max(((((sum(rate(ceph_osd_op_r_latency_sum[5m]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"})) / sum(rate(ceph_osd_op_r_latency_count[5m]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"}))))) - 2) / 4, 1), 0) + clamp_min(((((sum(rate(ceph_osd_op_r_latency_sum[5m]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"})) / sum(rate(ceph_osd_op_r_latency_count[5m]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"}))))) - 6) / 6, 0)) and on() ((sum(max_over_time(http_requests_in_progress{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetVideoStream|GetVideoStreamByContainer|GetAudioStream|GetAudioStreamByContainer|GetUniversalAudioStream\"}[5m]))) > 0), \"stage\", \"HDD OSD read latency (mean)\", \"\", \"\"))) or (topk(1, (((topk(1, ((label_replace((clamp_max((((sum(rate(process.cpu.time{\"host.name\"=\"docker-d\",\"process.executable.name\"=~\"ffmpeg.*\"}[5m])) / count(count by (cpu) (system.cpu.time{\"host.name\"=\"docker-d\", state=\"idle\"}))))) / 0.8, 1) + clamp_min(clamp_max(((((sum(rate(process.cpu.time{\"host.name\"=\"docker-d\",\"process.executable.name\"=~\"ffmpeg.*\"}[5m])) / count(count by (cpu) (system.cpu.time{\"host.name\"=\"docker-d\", state=\"idle\"}))))) - 0.8) / 0.1499999999999999, 1), 0) + clamp_min(((((sum(rate(process.cpu.time{\"host.name\"=\"docker-d\",\"process.executable.name\"=~\"ffmpeg.*\"}[5m])) / count(count by (cpu) (system.cpu.time{\"host.name\"=\"docker-d\", state=\"idle\"}))))) - 0.95) / 0.95, 0)), \"stage\", \"GPU host CPU\", \"\", \"\") or label_replace((clamp_max(((max(avg_over_time(gpu.enc.utilization{gpu.name=\"Quadro P2200\"}[5m])) / 100)) / 0.7, 1) + clamp_min(clamp_max((((max(avg_over_time(gpu.enc.utilization{gpu.name=\"Quadro P2200\"}[5m])) / 100)) - 0.7) / 0.20000000000000007, 1), 0) + clamp_min((((max(avg_over_time(gpu.enc.utilization{gpu.name=\"Quadro P2200\"}[5m])) / 100)) - 0.9) / 0.9, 0)), \"stage\", \"NVENC\", \"\", \"\") or label_replace((clamp_max(((max(avg_over_time(gpu.dec.utilization{gpu.name=\"Quadro P2200\"}[5m])) / 100)) / 0.7, 1) + clamp_min(clamp_max((((max(avg_over_time(gpu.dec.utilization{gpu.name=\"Quadro P2200\"}[5m])) / 100)) - 0.7) / 0.20000000000000007, 1), 0) + clamp_min((((max(avg_over_time(gpu.dec.utilization{gpu.name=\"Quadro P2200\"}[5m])) / 100)) - 0.9) / 0.9, 0)), \"stage\", \"NVDEC\", \"\", \"\") or label_replace((clamp_max(((max(gpu.memory.used{gpu.name=\"Quadro P2200\"}) / max(gpu.memory.total{gpu.name=\"Quadro P2200\"}))) / 0.8, 1) + clamp_min(clamp_max((((max(gpu.memory.used{gpu.name=\"Quadro P2200\"}) / max(gpu.memory.total{gpu.name=\"Quadro P2200\"}))) - 0.8) / 0.1499999999999999, 1), 0) + clamp_min((((max(gpu.memory.used{gpu.name=\"Quadro P2200\"}) / max(gpu.memory.total{gpu.name=\"Quadro P2200\"}))) - 0.95) / 0.95, 0)), \"stage\", \"GPU memory\", \"\", \"\") or label_replace((clamp_max(((max(gpu.power.draw{gpu.name=\"Quadro P2200\"}) / max(gpu.power.limit{gpu.name=\"Quadro P2200\"}))) / 0.85, 1) + clamp_min(clamp_max((((max(gpu.power.draw{gpu.name=\"Quadro P2200\"}) / max(gpu.power.limit{gpu.name=\"Quadro P2200\"}))) - 0.85) / 0.12, 1), 0) + clamp_min((((max(gpu.power.draw{gpu.name=\"Quadro P2200\"}) / max(gpu.power.limit{gpu.name=\"Quadro P2200\"}))) - 0.97) / 0.97, 0)), \"stage\", \"GPU power / limit\", \"\", \"\") or label_replace((clamp_max((((sum(rate(ceph_osd_op_r_latency_sum[5m]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"})) / sum(rate(ceph_osd_op_r_latency_count[5m]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"}))))) / 2, 1) + clamp_min(clamp_max(((((sum(rate(ceph_osd_op_r_latency_sum[5m]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"})) / sum(rate(ceph_osd_op_r_latency_count[5m]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"}))))) - 2) / 4, 1), 0) + clamp_min(((((sum(rate(ceph_osd_op_r_latency_sum[5m]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"})) / sum(rate(ceph_osd_op_r_latency_count[5m]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"}))))) - 6) / 6, 0)), \"stage\", \"HDD OSD read latency (mean)\", \"\", \"\")) >= 1) or label_replace(vector(0.5), \"stage\", \"Encoder at its limit\", \"\", \"\")) and on() ((sum(rate(process.disk.io{\"host.name\"=\"docker-d\",\"process.executable.name\"=~\"ffmpeg.*\",direction=\"write\"}[5m])) / sum(rate(traefik_service_responses_bytes_total{service.name=\"traefik-cluster\", service=~\"jellyfin-${instance:text}(-extra)?-[0-9a-f]{20}@kubernetescrd\"}[5m]))) < 1.3)) or (topk(1, ((label_replace((clamp_max((((1 - sum(rate(system.cpu.time{\"host.name\"=\"$node\", state=\"idle\"}[5m])) / sum(rate(system.cpu.time{\"host.name\"=\"$node\"}[5m]))))) / 0.8, 1) + clamp_min(clamp_max(((((1 - sum(rate(system.cpu.time{\"host.name\"=\"$node\", state=\"idle\"}[5m])) / sum(rate(system.cpu.time{\"host.name\"=\"$node\"}[5m]))))) - 0.8) / 0.1499999999999999, 1), 0) + clamp_min(((((1 - sum(rate(system.cpu.time{\"host.name\"=\"$node\", state=\"idle\"}[5m])) / sum(rate(system.cpu.time{\"host.name\"=\"$node\"}[5m]))))) - 0.95) / 0.95, 0)), \"stage\", \"Jellyfin node CPU\", \"\", \"\") or label_replace((clamp_max((((sum(rate(cephfs_client_latency_seconds_total{pv=\"${instance:text}-transcodes\", node=\"$node\", op=\"read\"}[5m])) / sum(rate(cephfs_client_ops_total{pv=\"${instance:text}-transcodes\", node=\"$node\", op=\"read\"}[5m]))))) / 0.5, 1) + clamp_min(clamp_max(((((sum(rate(cephfs_client_latency_seconds_total{pv=\"${instance:text}-transcodes\", node=\"$node\", op=\"read\"}[5m])) / sum(rate(cephfs_client_ops_total{pv=\"${instance:text}-transcodes\", node=\"$node\", op=\"read\"}[5m]))))) - 0.5) / 1.0, 1), 0) + clamp_min(((((sum(rate(cephfs_client_latency_seconds_total{pv=\"${instance:text}-transcodes\", node=\"$node\", op=\"read\"}[5m])) / sum(rate(cephfs_client_ops_total{pv=\"${instance:text}-transcodes\", node=\"$node\", op=\"read\"}[5m]))))) - 1.5) / 1.5, 0)), \"stage\", \"CephFS transcode-dir read\", \"\", \"\")) >= 1) or label_replace(vector(0.5), \"stage\", \"Segment serving or delivery\", \"\", \"\")) unless on() ((sum(rate(process.disk.io{\"host.name\"=\"docker-d\",\"process.executable.name\"=~\"ffmpeg.*\",direction=\"write\"}[5m])) / sum(rate(traefik_service_responses_bytes_total{service.name=\"traefik-cluster\", service=~\"jellyfin-${instance:text}(-extra)?-[0-9a-f]{20}@kubernetescrd\"}[5m]))) < 1.3))) unless on() (((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[2m])) * ${segment_s}) / ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=\"ReportPlaybackProgress\"}[2m])) * 10 - (sum(max_over_time(http_requests_in_progress{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetVideoStream|GetVideoStreamByContainer|GetAudioStream|GetAudioStreamByContainer|GetUniversalAudioStream\"}[2m])) or vector(0))) > 0.5)) >= 0.9)) or label_replace(vector(-1), \"stage\", \"All stages\", \"\", \"\")) * 0 + on() group_left() clamp_min((1.1 - ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[2m])) * ${segment_s}) / ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=\"ReportPlaybackProgress\"}[2m])) * 10 - (sum(max_over_time(http_requests_in_progress{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetVideoStream|GetVideoStreamByContainer|GetAudioStream|GetAudioStreamByContainer|GetUniversalAudioStream\"}[2m])) or vector(0))) > 0.5))) / 0.2, 0))",
+          "legendFormat": "{{stage}}",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 51,
+      "type": "stat",
+      "title": "Pace",
+      "description": "Content seconds fetched per wall second per HLS session: HLS segment rate x segment length / sessions (progress reports x 10 minus direct streams), 2 m window. Below 1 the player's buffer drains; above 1 it fills. Idle for the first 1-2 minutes of a session. A client that reports progress while paused reads as stalled. Yellow below 0.9, red below 0.7.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 4,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "green",
+                "value": 0.9
+              }
+            ]
+          },
+          "noValue": "idle",
+          "mappings": [],
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[2m])) * ${segment_s}) / ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=\"ReportPlaybackProgress\"}[2m])) * 10 - (sum(max_over_time(http_requests_in_progress{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetVideoStream|GetVideoStreamByContainer|GetAudioStream|GetAudioStreamByContainer|GetUniversalAudioStream\"}[2m])) or vector(0))) > 0.5))",
+          "legendFormat": "",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 48,
+      "type": "stat",
+      "title": "Delivery share",
+      "description": "Context: mean time Jellyfin takes per HLS segment request / segment length. Most of it is Jellyfin's wait before the first byte, not the download, and a session's first segment (25-40 s on a 4K source) lifts it for 5 minutes, so it is not a verdict input.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 17,
+        "y": 0,
+        "w": 4,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "idle",
+          "mappings": [],
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(rate(http_request_duration_seconds_sum{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) / sum(rate(http_request_duration_seconds_count{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) / ${segment_s}) and on() ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) * ${segment_s}) > 0)",
+          "legendFormat": "",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 49,
+      "type": "stat",
+      "title": "Segments over 4.1 s",
+      "description": "Context: share of HLS segment requests slower than 4.096 s (a histogram bucket edge), the download included. Healthy and stalling sessions overlap here, so it has no threshold.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 21,
+        "y": 0,
+        "w": 3,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "idle",
+          "mappings": [],
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((sum(rate(http_request_duration_seconds_count{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) - sum(rate(http_request_duration_seconds_bucket{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\", le=\"4.096\"}[5m]))) / sum(rate(http_request_duration_seconds_count{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m]))) and on() ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) * ${segment_s}) > 0)",
+          "legendFormat": "",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 50,
+      "type": "stat",
+      "title": "Transcode speed",
+      "description": "Estimate: ffmpeg's write rate on docker-d / the instance's Traefik bytes out, so it floors near 1 when the encoder limits and the player keeps up. It is the verdict's classifier, not an outcome: with pace low, below 1.3 means the encoder is the limit, well above 1 means serving, delivery or a client not fetching. Under-reads while a player fills its buffer; counts every ffmpeg on the shared GPU host.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 10,
+        "y": 0,
+        "w": 4,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:x",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "idle",
+          "mappings": [],
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(rate(process.disk.io{\"host.name\"=\"docker-d\",\"process.executable.name\"=~\"ffmpeg.*\",direction=\"write\"}[5m])) / sum(rate(traefik_service_responses_bytes_total{service.name=\"traefik-cluster\", service=~\"jellyfin-${instance:text}(-extra)?-[0-9a-f]{20}@kubernetescrd\"}[5m]))) and on() ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) * ${segment_s}) > 0)",
+          "legendFormat": "",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "HLS sessions",
+      "description": "Playback progress reports x 10 (clients report every ~10 s, paused ones too) minus direct streams, 2 m window: the remuxes and transcodes of the selected instance. Unlike the segment rate it stays up while a player stalls.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 14,
+        "y": 0,
+        "w": 3,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "idle",
+          "mappings": [],
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "round(((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=\"ReportPlaybackProgress\"}[2m])) * 10 - (sum(max_over_time(http_requests_in_progress{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetVideoStream|GetVideoStreamByContainer|GetAudioStream|GetAudioStreamByContainer|GetUniversalAudioStream\"}[2m])) or vector(0))) > 0.5))",
+          "legendFormat": "",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "state-timeline",
+      "title": "Stages over time",
+      "description": "The verdict's stages, one row each, coloured like the tiles while their path was active, empty while idle. Pace is the outcome; Transcode speed is red while pace is low and speed is below 1.3 (the encoder limits). Trace a past stall to the rows that were red.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 9,
+        "y": 5,
+        "w": 15,
+        "h": 6
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "range",
+              "options": {
+                "from": 0,
+                "to": 1,
+                "result": {
+                  "text": "ok",
+                  "color": "green"
+                }
+              }
+            },
+            {
+              "type": "range",
+              "options": {
+                "from": 1,
+                "to": 2,
+                "result": {
+                  "text": "watch",
+                  "color": "yellow"
+                }
+              }
+            },
+            {
+              "type": "range",
+              "options": {
+                "from": 2,
+                "to": 1000000000.0,
+                "result": {
+                  "text": "bottleneck",
+                  "color": "red"
+                }
+              }
+            }
+          ],
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "alignValue": "left",
+        "legend": {
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "label_replace((clamp_max(((sum(rate(cephfs_client_latency_seconds_total{pv=\"jellyfin-media-stream\", node=\"$node\", op=\"read\"}[5m])) / sum(rate(cephfs_client_ops_total{pv=\"jellyfin-media-stream\", node=\"$node\", op=\"read\"}[5m])))) / 2, 1) + clamp_min(clamp_max((((sum(rate(cephfs_client_latency_seconds_total{pv=\"jellyfin-media-stream\", node=\"$node\", op=\"read\"}[5m])) / sum(rate(cephfs_client_ops_total{pv=\"jellyfin-media-stream\", node=\"$node\", op=\"read\"}[5m])))) - 2) / 4, 1), 0) + clamp_min((((sum(rate(cephfs_client_latency_seconds_total{pv=\"jellyfin-media-stream\", node=\"$node\", op=\"read\"}[5m])) / sum(rate(cephfs_client_ops_total{pv=\"jellyfin-media-stream\", node=\"$node\", op=\"read\"}[5m])))) - 6) / 6, 0)) and on() ((sum(max_over_time(http_requests_in_progress{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetVideoStream|GetVideoStreamByContainer|GetAudioStream|GetAudioStreamByContainer|GetUniversalAudioStream\"}[5m]))) > 0), \"stage\", \"CephFS media read\", \"\", \"\")",
+          "legendFormat": "CephFS media read",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "B",
+          "expr": "label_replace((clamp_max(((1 - sum(rate(system.cpu.time{\"host.name\"=\"$node\", state=\"idle\"}[5m])) / sum(rate(system.cpu.time{\"host.name\"=\"$node\"}[5m])))) / 0.8, 1) + clamp_min(clamp_max((((1 - sum(rate(system.cpu.time{\"host.name\"=\"$node\", state=\"idle\"}[5m])) / sum(rate(system.cpu.time{\"host.name\"=\"$node\"}[5m])))) - 0.8) / 0.1499999999999999, 1), 0) + clamp_min((((1 - sum(rate(system.cpu.time{\"host.name\"=\"$node\", state=\"idle\"}[5m])) / sum(rate(system.cpu.time{\"host.name\"=\"$node\"}[5m])))) - 0.95) / 0.95, 0)) and on() (((sum(max_over_time(http_requests_in_progress{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetVideoStream|GetVideoStreamByContainer|GetAudioStream|GetAudioStreamByContainer|GetUniversalAudioStream\"}[5m]))) > 0) or ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) * ${segment_s}) > 0)), \"stage\", \"Jellyfin node CPU\", \"\", \"\")",
+          "legendFormat": "Jellyfin node CPU",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "C",
+          "expr": "label_replace((clamp_max((((sum(rate(ceph_osd_op_r_latency_sum[5m]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"})) / sum(rate(ceph_osd_op_r_latency_count[5m]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"}))))) / 2, 1) + clamp_min(clamp_max(((((sum(rate(ceph_osd_op_r_latency_sum[5m]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"})) / sum(rate(ceph_osd_op_r_latency_count[5m]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"}))))) - 2) / 4, 1), 0) + clamp_min(((((sum(rate(ceph_osd_op_r_latency_sum[5m]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"})) / sum(rate(ceph_osd_op_r_latency_count[5m]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"}))))) - 6) / 6, 0)) and on() (((sum(max_over_time(http_requests_in_progress{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetVideoStream|GetVideoStreamByContainer|GetAudioStream|GetAudioStreamByContainer|GetUniversalAudioStream\"}[5m]))) > 0) or ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) * ${segment_s}) > 0)), \"stage\", \"HDD OSD read latency (mean)\", \"\", \"\")",
+          "legendFormat": "HDD OSD read latency (mean)",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "D",
+          "expr": "label_replace((clamp_max(((sum(rate(cephfs_client_latency_seconds_total{pv=\"${instance:text}-transcodes\", node=\"$node\", op=\"read\"}[5m])) / sum(rate(cephfs_client_ops_total{pv=\"${instance:text}-transcodes\", node=\"$node\", op=\"read\"}[5m])))) / 0.5, 1) + clamp_min(clamp_max((((sum(rate(cephfs_client_latency_seconds_total{pv=\"${instance:text}-transcodes\", node=\"$node\", op=\"read\"}[5m])) / sum(rate(cephfs_client_ops_total{pv=\"${instance:text}-transcodes\", node=\"$node\", op=\"read\"}[5m])))) - 0.5) / 1.0, 1), 0) + clamp_min((((sum(rate(cephfs_client_latency_seconds_total{pv=\"${instance:text}-transcodes\", node=\"$node\", op=\"read\"}[5m])) / sum(rate(cephfs_client_ops_total{pv=\"${instance:text}-transcodes\", node=\"$node\", op=\"read\"}[5m])))) - 1.5) / 1.5, 0)) and on() ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) * ${segment_s}) > 0), \"stage\", \"CephFS transcode-dir read\", \"\", \"\")",
+          "legendFormat": "CephFS transcode-dir read",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "E",
+          "expr": "label_replace((clamp_max(((sum(rate(process.cpu.time{\"host.name\"=\"docker-d\",\"process.executable.name\"=~\"ffmpeg.*\"}[5m])) / count(count by (cpu) (system.cpu.time{\"host.name\"=\"docker-d\", state=\"idle\"})))) / 0.8, 1) + clamp_min(clamp_max((((sum(rate(process.cpu.time{\"host.name\"=\"docker-d\",\"process.executable.name\"=~\"ffmpeg.*\"}[5m])) / count(count by (cpu) (system.cpu.time{\"host.name\"=\"docker-d\", state=\"idle\"})))) - 0.8) / 0.1499999999999999, 1), 0) + clamp_min((((sum(rate(process.cpu.time{\"host.name\"=\"docker-d\",\"process.executable.name\"=~\"ffmpeg.*\"}[5m])) / count(count by (cpu) (system.cpu.time{\"host.name\"=\"docker-d\", state=\"idle\"})))) - 0.95) / 0.95, 0)) and on() ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) * ${segment_s}) > 0), \"stage\", \"GPU host CPU\", \"\", \"\")",
+          "legendFormat": "GPU host CPU",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "F",
+          "expr": "label_replace((clamp_max(((max(avg_over_time(gpu.enc.utilization{gpu.name=\"Quadro P2200\"}[5m])) / 100)) / 0.7, 1) + clamp_min(clamp_max((((max(avg_over_time(gpu.enc.utilization{gpu.name=\"Quadro P2200\"}[5m])) / 100)) - 0.7) / 0.20000000000000007, 1), 0) + clamp_min((((max(avg_over_time(gpu.enc.utilization{gpu.name=\"Quadro P2200\"}[5m])) / 100)) - 0.9) / 0.9, 0)) and on() ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) * ${segment_s}) > 0), \"stage\", \"NVENC\", \"\", \"\")",
+          "legendFormat": "NVENC",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "G",
+          "expr": "label_replace((clamp_max(((max(avg_over_time(gpu.dec.utilization{gpu.name=\"Quadro P2200\"}[5m])) / 100)) / 0.7, 1) + clamp_min(clamp_max((((max(avg_over_time(gpu.dec.utilization{gpu.name=\"Quadro P2200\"}[5m])) / 100)) - 0.7) / 0.20000000000000007, 1), 0) + clamp_min((((max(avg_over_time(gpu.dec.utilization{gpu.name=\"Quadro P2200\"}[5m])) / 100)) - 0.9) / 0.9, 0)) and on() ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) * ${segment_s}) > 0), \"stage\", \"NVDEC\", \"\", \"\")",
+          "legendFormat": "NVDEC",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "H",
+          "expr": "label_replace((clamp_max(((max(gpu.memory.used{gpu.name=\"Quadro P2200\"}) / max(gpu.memory.total{gpu.name=\"Quadro P2200\"}))) / 0.8, 1) + clamp_min(clamp_max((((max(gpu.memory.used{gpu.name=\"Quadro P2200\"}) / max(gpu.memory.total{gpu.name=\"Quadro P2200\"}))) - 0.8) / 0.1499999999999999, 1), 0) + clamp_min((((max(gpu.memory.used{gpu.name=\"Quadro P2200\"}) / max(gpu.memory.total{gpu.name=\"Quadro P2200\"}))) - 0.95) / 0.95, 0)) and on() ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) * ${segment_s}) > 0), \"stage\", \"GPU memory\", \"\", \"\")",
+          "legendFormat": "GPU memory",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "I",
+          "expr": "label_replace((clamp_max(((max(gpu.power.draw{gpu.name=\"Quadro P2200\"}) / max(gpu.power.limit{gpu.name=\"Quadro P2200\"}))) / 0.85, 1) + clamp_min(clamp_max((((max(gpu.power.draw{gpu.name=\"Quadro P2200\"}) / max(gpu.power.limit{gpu.name=\"Quadro P2200\"}))) - 0.85) / 0.12, 1), 0) + clamp_min((((max(gpu.power.draw{gpu.name=\"Quadro P2200\"}) / max(gpu.power.limit{gpu.name=\"Quadro P2200\"}))) - 0.97) / 0.97, 0)) and on() ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) * ${segment_s}) > 0), \"stage\", \"GPU power / limit\", \"\", \"\")",
+          "legendFormat": "GPU power / limit",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "J",
+          "expr": "label_replace(clamp_min((1.1 - ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[2m])) * ${segment_s}) / ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=\"ReportPlaybackProgress\"}[2m])) * 10 - (sum(max_over_time(http_requests_in_progress{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetVideoStream|GetVideoStreamByContainer|GetAudioStream|GetAudioStreamByContainer|GetUniversalAudioStream\"}[2m])) or vector(0))) > 0.5))) / 0.2, 0), \"stage\", \"Pace\", \"\", \"\")",
+          "legendFormat": "Pace",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "K",
+          "expr": "label_replace(2 * ((sum(rate(process.disk.io{\"host.name\"=\"docker-d\",\"process.executable.name\"=~\"ffmpeg.*\",direction=\"write\"}[5m])) / sum(rate(traefik_service_responses_bytes_total{service.name=\"traefik-cluster\", service=~\"jellyfin-${instance:text}(-extra)?-[0-9a-f]{20}@kubernetescrd\"}[5m]))) < bool 1.3) * (((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[2m])) * ${segment_s}) / ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=\"ReportPlaybackProgress\"}[2m])) * 10 - (sum(max_over_time(http_requests_in_progress{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetVideoStream|GetVideoStreamByContainer|GetAudioStream|GetAudioStreamByContainer|GetUniversalAudioStream\"}[2m])) or vector(0))) > 0.5)) < bool 0.9), \"stage\", \"Transcode speed\", \"\", \"\")",
+          "legendFormat": "Transcode speed",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 52,
+      "type": "row",
+      "title": "Sessions from the Jellyfin API (sessions exporter; empty until its keys exist)",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 11,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 53,
+      "type": "timeseries",
+      "title": "Pace per session (API)",
+      "description": "Content seconds played per wall second, from the playback position. Paused sessions are excluded. The position moves on the client's progress reports (about every 10 s), so read it over a window.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 8,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "dashed"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "green",
+                "value": 0.9
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "deriv(jellyfin_session_position_seconds{jellyfin=\"${instance:text}\"}[2m]) unless on (jellyfin, session) (jellyfin_session_paused{jellyfin=\"${instance:text}\"} == 1)",
+          "legendFormat": "{{play_method}} {{session}}",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 54,
+      "type": "timeseries",
+      "title": "Transcode speed per session (API)",
+      "description": "ffmpeg output fps / source fps, from Jellyfin's own transcode info. Unlike the top row's estimate it is per session and can read below 1. It disappears when ffmpeg has finished its run-ahead.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 12,
+        "w": 8,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix:x",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "jellyfin_session_transcode_speed{jellyfin=\"${instance:text}\"}",
+          "legendFormat": "{{session}}",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 55,
+      "type": "timeseries",
+      "title": "Sessions by play method (API)",
+      "description": "Playing sessions by how Jellyfin serves them, and how many of them are paused.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 12,
+        "w": 4,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (play_method) (jellyfin_sessions{jellyfin=\"${instance:text}\"})",
+          "legendFormat": "{{play_method}}",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "B",
+          "expr": "sum(jellyfin_session_paused{jellyfin=\"${instance:text}\"})",
+          "legendFormat": "paused",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 56,
+      "type": "bargauge",
+      "title": "Transcode reasons (API)",
+      "description": "Sessions per reason Jellyfin gives for transcoding; a session with several reasons counts in each.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 12,
+        "w": 4,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count by (reason) (jellyfin_session_transcode_reason{jellyfin=\"${instance:text}\"})",
+          "legendFormat": "{{reason}}",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 57,
+      "type": "row",
+      "title": "Standing probe (jellyfin-sqlite, every 6 h; skipped while anyone streams)",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 58,
+      "type": "stat",
+      "title": "Probe pace",
+      "description": "Content seconds played per wall second after startup, last probe run per mode: 1 without stalls. Yellow below 0.9, red below 0.7.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 6,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "green",
+                "value": 0.9
+              }
+            ]
+          },
+          "noValue": "no run in 25 h",
+          "mappings": [],
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (mode) (last_over_time(jellyfin_probe_pace{jellyfin=\"${instance:text}\"}[25h]))",
+          "legendFormat": "{{mode}}",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 59,
+      "type": "stat",
+      "title": "Probe startup",
+      "description": "From PlaybackInfo to 3 s buffered, last run per mode. A 4K transcode takes 25-40 s, most of it ffmpeg probing the source.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 21,
+        "w": 6,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "no run in 25 h",
+          "mappings": [],
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (mode) (last_over_time(jellyfin_probe_startup_seconds{jellyfin=\"${instance:text}\"}[25h]))",
+          "legendFormat": "{{mode}}",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 60,
+      "type": "stat",
+      "title": "Probe segment TTFB",
+      "description": "Time to first byte of the HLS segments after the first, last transcode run: p50 and p95. Mostly Jellyfin's wait before it serves a segment ffmpeg has long written.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 21,
+        "w": 6,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "no run in 25 h",
+          "mappings": [],
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(last_over_time(jellyfin_probe_ttfb_p50_seconds{jellyfin=\"${instance:text}\"}[25h]))",
+          "legendFormat": "p50",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": false,
+          "instant": true
+        },
+        {
+          "refId": "B",
+          "expr": "max(last_over_time(jellyfin_probe_ttfb_p95_seconds{jellyfin=\"${instance:text}\"}[25h]))",
+          "legendFormat": "p95",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 61,
+      "type": "stat",
+      "title": "Probe runs (7 d)",
+      "description": "Runs by result over 7 days: ok, skipped (someone streamed or ffmpeg ran) and error (see the CronJob's pod log).",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 21,
+        "w": 6,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "no run in 25 h",
+          "mappings": [],
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (result) (count_over_time(jellyfin_probe_runs{jellyfin=\"${instance:text}\"}[7d]))",
+          "legendFormat": "{{result}}",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": false,
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "row",
+      "title": "Direct play: client ← cluster Traefik ← Jellyfin ← CephFS media mount ← HDD OSDs",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 29,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Direct streams",
+      "description": "Direct-play requests of the selected instance in flight (max over 5 min). Zero: idle.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 4,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "idle",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "idle"
+                }
+              }
+            }
+          ],
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(max_over_time(http_requests_in_progress{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetVideoStream|GetVideoStreamByContainer|GetAudioStream|GetAudioStreamByContainer|GetUniversalAudioStream\"}[5m]))",
+          "legendFormat": "",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "CephFS media read",
+      "description": "Average read latency of the kernel client of the media mount (PV jellyfin-media-stream on $node), network and OSD queues included; both instances share it when they run on one node. The mount reads ahead 64 MiB, 16 objects of 4 MiB in flight, which a 4K remux at 10 MB/s drains in about 6.5 s: a read slower than that stalls the stream. Yellow 2 s, red 6 s. Not backtested: infra/cephfs-client-metrics is new.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 30,
+        "w": 5,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 2
+              },
+              {
+                "color": "red",
+                "value": 6
+              }
+            ]
+          },
+          "noValue": "idle",
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(rate(cephfs_client_latency_seconds_total{pv=\"jellyfin-media-stream\", node=\"$node\", op=\"read\"}[5m])) / sum(rate(cephfs_client_ops_total{pv=\"jellyfin-media-stream\", node=\"$node\", op=\"read\"}[5m]))) and on() ((sum(max_over_time(http_requests_in_progress{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetVideoStream|GetVideoStreamByContainer|GetAudioStream|GetAudioStreamByContainer|GetUniversalAudioStream\"}[5m]))) > 0)",
+          "legendFormat": "",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Jellyfin node CPU",
+      "description": "CPU busy on the kube worker running the selected instance's pod ($node), every pod on it included; counts for direct play and, past yellow, in the ffmpeg verdict. Yellow 80%, red 95%.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 9,
+        "y": 30,
+        "w": 5,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.8
+              },
+              {
+                "color": "red",
+                "value": 0.95
+              }
+            ]
+          },
+          "noValue": "idle",
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(1 - sum(rate(system.cpu.time{\"host.name\"=\"$node\", state=\"idle\"}[5m])) / sum(rate(system.cpu.time{\"host.name\"=\"$node\"}[5m]))) and on() (((sum(max_over_time(http_requests_in_progress{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetVideoStream|GetVideoStreamByContainer|GetAudioStream|GetAudioStreamByContainer|GetUniversalAudioStream\"}[5m]))) > 0) or ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) * ${segment_s}) > 0))",
+          "legendFormat": "",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Jellyfin node NIC",
+      "description": "Busier direction of $node's VM NIC (Proxmox), in Mbit/s. Carries client traffic and the CephFS reads. Not in the verdict: Proxmox reports no link speed.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 14,
+        "y": 30,
+        "w": 5,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "idle",
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(max(rate({__name__=~\"proxmox_vm_net(in|out)_total\", name=\"$node\"}[5m]) keep_metric_names) * 8) and on() (((sum(max_over_time(http_requests_in_progress{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetVideoStream|GetVideoStreamByContainer|GetAudioStream|GetAudioStreamByContainer|GetUniversalAudioStream\"}[5m]))) > 0) or ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) * ${segment_s}) > 0))",
+          "legendFormat": "",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "HDD OSD read latency",
+      "description": "Read-weighted mean latency of all HDD OSDs (network and queue included), with the slowest OSD (reads of at least 0.05/s) below it as context: one slow OSD showed 2.8 s while a direct-play client read without a blocked read. The archive pool lives on the HDDs, but no metric maps a pool to its OSDs. Yellow 2 s, red 6 s, the readahead budget of the CephFS media tile. Both paths read the source from this pool.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 19,
+        "y": 30,
+        "w": 5,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 2
+              },
+              {
+                "color": "red",
+                "value": 6
+              }
+            ]
+          },
+          "noValue": "idle",
+          "mappings": []
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": null
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value_and_name",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(rate(ceph_osd_op_r_latency_sum[5m]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"})) / sum(rate(ceph_osd_op_r_latency_count[5m]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"}))) and on() (((sum(max_over_time(http_requests_in_progress{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetVideoStream|GetVideoStreamByContainer|GetAudioStream|GetAudioStreamByContainer|GetUniversalAudioStream\"}[5m]))) > 0) or ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) * ${segment_s}) > 0))",
+          "legendFormat": "mean",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "B",
+          "expr": "max(((sum by (ceph_daemon) (rate(ceph_osd_op_r_latency_sum[5m])) / (sum by (ceph_daemon) (rate(ceph_osd_op_r_latency_count[5m])) > 0.05)) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"}))) and on() (((sum(max_over_time(http_requests_in_progress{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetVideoStream|GetVideoStreamByContainer|GetAudioStream|GetAudioStreamByContainer|GetUniversalAudioStream\"}[5m]))) > 0) or ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) * ${segment_s}) > 0))",
+          "legendFormat": "worst",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "ffmpeg path (remux and transcode): Jellyfin → SSH → GPU worker on docker-d → transcode dir → Jellyfin",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 35,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "CephFS transcode-dir read",
+      "description": "Read latency of the pod's kernel client on the selected instance's transcode dir (PV <instance>-transcodes on $node), waiting for the worker's caps included: Jellyfin serves the segments the GPU worker wrote there. A segment is 3 s: yellow 0.5 s, red 1.5 s. In the ffmpeg verdict once past yellow.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 1.5
+              }
+            ]
+          },
+          "noValue": "idle",
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(rate(cephfs_client_latency_seconds_total{pv=\"${instance:text}-transcodes\", node=\"$node\", op=\"read\"}[5m])) / sum(rate(cephfs_client_ops_total{pv=\"${instance:text}-transcodes\", node=\"$node\", op=\"read\"}[5m]))) and on() ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) * ${segment_s}) > 0)",
+          "legendFormat": "",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "GPU host NIC",
+      "description": "Busier direction of docker-d's VM NIC (Proxmox), in Mbit/s: the worker's CephFS reads of the source come in, the segments it writes to the transcode dir go out. Not in the verdict: Proxmox reports no link speed.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 36,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "idle",
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(max(rate({__name__=~\"proxmox_vm_net(in|out)_total\", name=\"docker-d\"}[5m]) keep_metric_names) * 8) and on() ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) * ${segment_s}) > 0)",
+          "legendFormat": "",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Source read (ffmpeg)",
+      "description": "ffmpeg's read rate on docker-d, the CephFS source over the network included, and the HDD OSDs' read-weighted mean latency (yellow 2 s, red 6 s). Approximates the CephFS client on this host, which has no exporter.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 36,
+        "w": 6,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "idle",
+          "mappings": []
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 2
+                    },
+                    {
+                      "color": "red",
+                      "value": 6
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value_and_name",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(process.disk.io{\"host.name\"=\"docker-d\",\"process.executable.name\"=~\"ffmpeg.*\",direction=\"read\"}[5m])) and on() ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) * ${segment_s}) > 0)",
+          "legendFormat": "read",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "B",
+          "expr": "((sum(rate(ceph_osd_op_r_latency_sum[5m]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"})) / sum(rate(ceph_osd_op_r_latency_count[5m]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"})))) and on() ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) * ${segment_s}) > 0)",
+          "legendFormat": "OSD mean",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 47,
+      "type": "text",
+      "title": "Gap: CephFS on the GPU host",
+      "gridPos": {
+        "x": 18,
+        "y": 36,
+        "w": 6,
+        "h": 5
+      },
+      "options": {
+        "mode": "markdown",
+        "content": "docker-d runs no CephFS exporter (`infra/cephfs-client-metrics` covers the kube workers only), so the source read there has no latency of its own. *Source read* approximates it: ffmpeg's read rate plus the HDD OSD mean."
+      }
+    },
+    {
+      "id": 16,
+      "type": "stat",
+      "title": "GPU host CPU",
+      "description": "ffmpeg's CPU on docker-d as a share of the host's logical CPUs (the big number), and in cores. Software decode and filters land here; other processes on the host are not counted. Yellow 80%, red 95%.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 41,
+        "w": 5,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.8
+              },
+              {
+                "color": "red",
+                "value": 0.95
+              }
+            ]
+          },
+          "noValue": "idle",
+          "mappings": [],
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": null
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value_and_name",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(rate(process.cpu.time{\"host.name\"=\"docker-d\",\"process.executable.name\"=~\"ffmpeg.*\"}[5m])) / count(count by (cpu) (system.cpu.time{\"host.name\"=\"docker-d\", state=\"idle\"}))) and on() ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) * ${segment_s}) > 0)",
+          "legendFormat": "of host",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(process.cpu.time{\"host.name\"=\"docker-d\",\"process.executable.name\"=~\"ffmpeg.*\"}[5m])) and on() ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) * ${segment_s}) > 0)",
+          "legendFormat": "cores",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "stat",
+      "title": "NVENC",
+      "description": "Encoder utilization of the Quadro P2200, shared by both workers. NVIDIA lists no session limit for Quadro cards, so the encoder engine itself is the limit. 5-minute mean: a 60 s sample of the bursty engine swings from 0 to 0.9 within one healthy stream. Yellow 70%, red 90%.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 5,
+        "y": 41,
+        "w": 5,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          },
+          "noValue": "idle",
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(max(avg_over_time(gpu.enc.utilization{gpu.name=\"Quadro P2200\"}[5m])) / 100) and on() ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) * ${segment_s}) > 0)",
+          "legendFormat": "",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "type": "stat",
+      "title": "NVDEC",
+      "description": "Decoder utilization of the P2200. 5-minute mean: a 60 s sample of the bursty engine swings from 0 to 0.9 within one healthy stream. Yellow 70%, red 90%.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 10,
+        "y": 41,
+        "w": 5,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "red",
+                "value": 0.9
+              }
+            ]
+          },
+          "noValue": "idle",
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(max(avg_over_time(gpu.dec.utilization{gpu.name=\"Quadro P2200\"}[5m])) / 100) and on() ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) * ${segment_s}) > 0)",
+          "legendFormat": "",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "type": "stat",
+      "title": "GPU memory",
+      "description": "Used of the P2200's 5 GiB; when full, new sessions fail to start. Yellow 80%, red 95%.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 15,
+        "y": 41,
+        "w": 5,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.8
+              },
+              {
+                "color": "red",
+                "value": 0.95
+              }
+            ]
+          },
+          "noValue": "idle",
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(max(gpu.memory.used{gpu.name=\"Quadro P2200\"}) / max(gpu.memory.total{gpu.name=\"Quadro P2200\"})) and on() ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) * ${segment_s}) > 0)",
+          "legendFormat": "",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "GPU power / limit",
+      "description": "Power draw against the board limit (75 W). At the limit the clocks drop: a throttling hint. Yellow 85%, red 97%.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 41,
+        "w": 4,
+        "h": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.85
+              },
+              {
+                "color": "red",
+                "value": 0.97
+              }
+            ]
+          },
+          "noValue": "idle",
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "last"
+          ],
+          "values": false,
+          "fields": ""
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(max(gpu.power.draw{gpu.name=\"Quadro P2200\"}) / max(gpu.power.limit{gpu.name=\"Quadro P2200\"})) and on() ((sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[5m])) * ${segment_s}) > 0)",
+          "legendFormat": "",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "type": "row",
+      "title": "Delivery: Traefik and Jellyfin requests",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 46,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 22,
+      "type": "timeseries",
+      "title": "Bytes to clients",
+      "description": "Response bytes/s. Cluster Traefik per route of the selected instance (HLS only: a direct-play range stream closed by the client is recorded with no bytes), the Jellyfin pod's network transmit (direct play included, plus the SSH session to the GPU worker), and the edge line, all cluster traffic (the edge forwards everything to one service, so it cannot be split per app).",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 47,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (service) (rate(traefik_service_responses_bytes_total{service.name=\"traefik-cluster\", service=~\"jellyfin-${instance:text}(-extra)?-[0-9a-f]{20}@kubernetescrd\"}[$__rate_interval]))",
+          "legendFormat": "cluster {{service}}",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(traefik_service_responses_bytes_total{service.name=\"traefik\", service=\"kube-traefik-websecure@file\"}[$__rate_interval]))",
+          "legendFormat": "edge (all cluster apps)",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "C",
+          "expr": "sum(rate(k8s.pod.network.io{\"k8s.namespace.name\"=\"jellyfin\", \"k8s.pod.name\"=~\"${instance:text}-[0-9a-f]+-[0-9a-z]+\", direction=\"transmit\"}[$__rate_interval]))",
+          "legendFormat": "Jellyfin pod transmit",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "type": "timeseries",
+      "title": "Average request time per hop",
+      "description": "Average request time at the edge (all cluster traffic), the cluster Traefik and Jellyfin (selected instance). Not hop delay: the request sets differ, and long streams and websockets dominate each average as they end. A hop that adds whole seconds still shows as a gap.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 47,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(traefik_service_request_duration_seconds_sum{service.name=\"traefik\", service=\"kube-traefik-websecure@file\"}[$__rate_interval])) / sum(rate(traefik_service_request_duration_seconds_count{service.name=\"traefik\", service=\"kube-traefik-websecure@file\"}[$__rate_interval]))",
+          "legendFormat": "edge Traefik (all)",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(traefik_service_request_duration_seconds_sum{service.name=\"traefik-cluster\", service=~\"jellyfin-${instance:text}(-extra)?-[0-9a-f]{20}@kubernetescrd\"}[$__rate_interval])) / sum(rate(traefik_service_request_duration_seconds_count{service.name=\"traefik-cluster\", service=~\"jellyfin-${instance:text}(-extra)?-[0-9a-f]{20}@kubernetescrd\"}[$__rate_interval]))",
+          "legendFormat": "cluster Traefik",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "C",
+          "expr": "sum(rate(http_request_duration_seconds_sum{app_kubernetes_io_name=\"${instance:text}\", endpoint!~\"/health|/metrics|System/Ping|\"}[$__rate_interval])) / sum(rate(http_request_duration_seconds_count{app_kubernetes_io_name=\"${instance:text}\", endpoint!~\"/health|/metrics|System/Ping|\"}[$__rate_interval]))",
+          "legendFormat": "Jellyfin",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "type": "timeseries",
+      "title": "HLS segment time",
+      "description": "Time Jellyfin takes per HLS segment request, against the segment length (red dashed). A segment slower than its length stalls playback.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 55,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "segment length"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(http_request_duration_seconds_bucket{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[$__rate_interval])))",
+          "legendFormat": "p50",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[$__rate_interval])))",
+          "legendFormat": "p95",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[$__rate_interval])))",
+          "legendFormat": "p99",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "D",
+          "expr": "${segment_s}",
+          "legendFormat": "segment length",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 25,
+      "type": "timeseries",
+      "title": "Sessions by path",
+      "description": "Direct-play requests in flight; ffmpeg sessions as progress reports x 10 minus those (what the HLS sessions tile shows); the segment rate x length as a cross-check, which falls while a player stalls.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 55,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(max_over_time(http_requests_in_progress{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetVideoStream|GetVideoStreamByContainer|GetAudioStream|GetAudioStreamByContainer|GetUniversalAudioStream\"}[$__rate_interval]))",
+          "legendFormat": "direct play",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "B",
+          "expr": "(sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=\"ReportPlaybackProgress\"}[$__rate_interval])) * 10 - (sum(max_over_time(http_requests_in_progress{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetVideoStream|GetVideoStreamByContainer|GetAudioStream|GetAudioStreamByContainer|GetUniversalAudioStream\"}[$__rate_interval])) or vector(0)))",
+          "legendFormat": "ffmpeg path",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "C",
+          "expr": "sum(rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", action=~\"GetHlsVideoSegment|GetHlsAudioSegment|GetHlsVideoSegmentLegacy|GetHlsAudioSegmentLegacy\"}[$__rate_interval])) * ${segment_s}",
+          "legendFormat": "segment rate x length",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 26,
+      "type": "timeseries",
+      "title": "Requests by Jellyfin action",
+      "description": "Top 10 actions of the selected instance by request rate, probes excluded.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 63,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(10, sum by (action) (rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", endpoint!~\"/health|/metrics|System/Ping|\"}[$__rate_interval])))",
+          "legendFormat": "{{action}}",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 27,
+      "type": "timeseries",
+      "title": "Errors",
+      "description": "5xx answers per second at the cluster Traefik for the selected instance, and Jellyfin's own 5xx.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 63,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (code) (rate(traefik_service_requests_total{service.name=\"traefik-cluster\", service=~\"jellyfin-${instance:text}(-extra)?-[0-9a-f]{20}@kubernetescrd\", code=~\"5..\"}[$__rate_interval]))",
+          "legendFormat": "traefik {{code}}",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (code) (rate(http_requests_received_total{app_kubernetes_io_name=\"${instance:text}\", code=~\"5..\"}[$__rate_interval]))",
+          "legendFormat": "jellyfin {{code}}",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 28,
+      "type": "row",
+      "title": "Jellyfin pod and its node ($node)",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 71,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 29,
+      "type": "timeseries",
+      "title": "CPU",
+      "description": "The selected instance's pod in cores, and its node's CPU busy (right axis).",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 72,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "node busy"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(k8s.pod.cpu.usage{\"k8s.namespace.name\"=\"jellyfin\", \"k8s.pod.name\"=~\"${instance:text}-[0-9a-f]+-[0-9a-z]+\"})",
+          "legendFormat": "pod (cores)",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "B",
+          "expr": "1 - sum(rate(system.cpu.time{\"host.name\"=\"$node\", state=\"idle\"}[$__rate_interval])) / sum(rate(system.cpu.time{\"host.name\"=\"$node\"}[$__rate_interval]))",
+          "legendFormat": "node busy",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 30,
+      "type": "timeseries",
+      "title": "Pod network",
+      "description": "The pod's own traffic: clients and the SSH session to the GPU worker. CephFS reads are the node kernel's and are not in it (see Node NIC).",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 72,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (direction) (rate(k8s.pod.network.io{\"k8s.namespace.name\"=\"jellyfin\", \"k8s.pod.name\"=~\"${instance:text}-[0-9a-f]+-[0-9a-z]+\"}[$__rate_interval]))",
+          "legendFormat": "{{direction}}",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 31,
+      "type": "timeseries",
+      "title": "Node NIC",
+      "description": "The VM NIC of $node from Proxmox (in-guest counters on the kube workers only see the collector pod's network namespace). Includes the CephFS kernel client.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 80,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(proxmox_vm_netin_total{name=\"$node\"}[$__rate_interval])",
+          "legendFormat": "in",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "B",
+          "expr": "rate(proxmox_vm_netout_total{name=\"$node\"}[$__rate_interval])",
+          "legendFormat": "out",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 32,
+      "type": "timeseries",
+      "title": "Pod memory",
+      "description": "Working set of the selected instance's pod; the limit is 4 GiB.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 80,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(k8s.pod.memory.working_set{\"k8s.namespace.name\"=\"jellyfin\", \"k8s.pod.name\"=~\"${instance:text}-[0-9a-f]+-[0-9a-z]+\"})",
+          "legendFormat": "working set",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 33,
+      "type": "row",
+      "title": "Storage: CephFS clients, archive pool, OSDs",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 88,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 34,
+      "type": "timeseries",
+      "title": "CephFS client read latency",
+      "description": "Kernel clients of the media mount and of the selected instance's transcode dir, per node. Reconstructed from the kernel's lifetime average, so noisy with few reads (infra/cephfs-client-metrics).",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 89,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (pv, node) (rate(cephfs_client_latency_seconds_total{pv=~\"jellyfin-media-stream|${instance:text}-transcodes\", op=\"read\"}[5m])) / sum by (pv, node) (rate(cephfs_client_ops_total{pv=~\"jellyfin-media-stream|${instance:text}-transcodes\", op=\"read\"}[5m]))",
+          "legendFormat": "{{pv}} {{node}}",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 35,
+      "type": "timeseries",
+      "title": "CephFS client requests",
+      "description": "Read and metadata requests per second on the same mounts. With 64 MiB readahead a media read is one object of up to 4 MiB. Read bytes are not shown: on kernel 6.12 they stay 0 on most mounts.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 89,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (pv, op) (rate(cephfs_client_ops_total{pv=~\"jellyfin-media-stream|${instance:text}-transcodes\", op=~\"read|metadata\"}[$__rate_interval]))",
+          "legendFormat": "{{op}} {{pv}}",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 36,
+      "type": "timeseries",
+      "title": "Archive pool reads",
+      "description": "Client reads of the archive data pool (cephfs.archive.data, id 42), everyone's.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 97,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "ops/s"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "reqps"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(ceph_pool_rd_bytes{pool_id=\"42\"}[$__rate_interval]))",
+          "legendFormat": "bytes/s",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(ceph_pool_rd{pool_id=\"42\"}[$__rate_interval]))",
+          "legendFormat": "ops/s",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 37,
+      "type": "timeseries",
+      "title": "Slowest 10 HDD OSDs",
+      "description": "Read latency per HDD OSD with at least 0.05 reads/s, and the read-weighted average of all HDD OSDs (dashed). A single OSD far above the average points at its disk; a whole host at the host.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 97,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "all HDD OSDs (read-weighted)"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(10, (sum by (ceph_daemon, hostname) (rate(ceph_osd_op_r_latency_sum[$__rate_interval])) / (sum by (ceph_daemon, hostname) (rate(ceph_osd_op_r_latency_count[$__rate_interval])) > 0.05)) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"}))",
+          "legendFormat": "{{ceph_daemon}} ({{hostname}})",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(ceph_osd_op_r_latency_sum[$__rate_interval]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"})) / sum(rate(ceph_osd_op_r_latency_count[$__rate_interval]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"}))",
+          "legendFormat": "all HDD OSDs (read-weighted)",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 38,
+      "type": "timeseries",
+      "title": "OSD read latency by host",
+      "description": "Read-weighted average over each Ceph host's HDD OSDs.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 105,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (hostname) (rate(ceph_osd_op_r_latency_sum[$__rate_interval]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"})) / sum by (hostname) (rate(ceph_osd_op_r_latency_count[$__rate_interval]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"}))",
+          "legendFormat": "{{hostname}}",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 39,
+      "type": "timeseries",
+      "title": "OSD read throughput by host",
+      "description": "Bytes/s the HDD OSDs of each host return to clients.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 105,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (hostname) (rate(ceph_osd_op_r_out_bytes[$__rate_interval]) * on (ceph_daemon) group_left () max by (ceph_daemon) (ceph_osd_metadata{device_class=\"hdd\"}))",
+          "legendFormat": "{{hostname}}",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 40,
+      "type": "row",
+      "title": "ffmpeg path: GPU worker on docker-d",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 113,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 41,
+      "type": "timeseries",
+      "title": "GPU engines",
+      "description": "Quadro P2200, shared by both workers (and anything else on the GPU).",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 114,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(gpu.enc.utilization{gpu.name=\"Quadro P2200\"}) / 100",
+          "legendFormat": "NVENC",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "B",
+          "expr": "max(gpu.dec.utilization{gpu.name=\"Quadro P2200\"}) / 100",
+          "legendFormat": "NVDEC",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "C",
+          "expr": "max(gpu.utilization{gpu.name=\"Quadro P2200\"}) / 100",
+          "legendFormat": "core",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 42,
+      "type": "timeseries",
+      "title": "GPU memory and power",
+      "description": "Memory used against total, power draw against the limit (right axis).",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 114,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "power.*"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "watt"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(gpu.memory.used{gpu.name=\"Quadro P2200\"}) / max(gpu.memory.total{gpu.name=\"Quadro P2200\"})",
+          "legendFormat": "memory",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "B",
+          "expr": "max(gpu.power.draw{gpu.name=\"Quadro P2200\"})",
+          "legendFormat": "power (W)",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "C",
+          "expr": "max(gpu.power.limit{gpu.name=\"Quadro P2200\"})",
+          "legendFormat": "power limit (W)",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "type": "timeseries",
+      "title": "ffmpeg processes",
+      "description": "All ffmpeg processes on docker-d (both workers, one series): CPU in cores, and I/O as /proc/<pid>/io reports it. Reads are the transcode input and include CephFS: in a sampled transcode they matched the VM's network input (1.5 GB in the same 75 s). Writes are the segments. Gaps: no ffmpeg running.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 122,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "read|write"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "Bps"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(process.cpu.time{\"host.name\"=\"docker-d\", \"process.executable.name\"=\"ffmpeg\"}[$__rate_interval]))",
+          "legendFormat": "CPU (cores)",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (direction) (rate(process.disk.io{\"host.name\"=\"docker-d\", \"process.executable.name\"=\"ffmpeg\"}[$__rate_interval]))",
+          "legendFormat": "{{direction}}",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 44,
+      "type": "timeseries",
+      "title": "Worker containers CPU",
+      "description": "Cores used by each ffmpeg worker service (cAdvisor; the selected instance's is ${instance}), and the host's CPU busy (right axis).",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 122,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "host busy"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (container_label_com_docker_swarm_service_name) (rate(container_cpu_usage_seconds_total{container_label_com_docker_swarm_service_name=~\"jellyfin-ffmpeg_.*\"}[$__rate_interval]))",
+          "legendFormat": "{{container_label_com_docker_swarm_service_name}}",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "B",
+          "expr": "1 - sum(rate(system.cpu.time{\"host.name\"=\"docker-d\", state=\"idle\"}[$__rate_interval])) / sum(rate(system.cpu.time{\"host.name\"=\"docker-d\"}[$__rate_interval]))",
+          "legendFormat": "host busy",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 45,
+      "type": "timeseries",
+      "title": "GPU host NIC",
+      "description": "docker-d's VM NIC from Proxmox: the worker's CephFS reads of the source come in here, the segments it writes to the transcode dir go out.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 130,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(proxmox_vm_netin_total{name=\"docker-d\"}[$__rate_interval])",
+          "legendFormat": "in",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        },
+        {
+          "refId": "B",
+          "expr": "rate(proxmox_vm_netout_total{name=\"docker-d\"}[$__rate_interval])",
+          "legendFormat": "out",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    },
+    {
+      "id": 46,
+      "type": "timeseries",
+      "title": "Worker containers network",
+      "description": "The containers' own interfaces: the SSH session from Jellyfin. CephFS is the host kernel's and is not in it.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 130,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (container_label_com_docker_swarm_service_name, direction) (label_replace(rate(container_network_receive_bytes_total{container_label_com_docker_swarm_service_name=~\"jellyfin-ffmpeg_.*\"}[$__rate_interval]), \"direction\", \"rx\", \"\", \"\") or label_replace(rate(container_network_transmit_bytes_total{container_label_com_docker_swarm_service_name=~\"jellyfin-ffmpeg_.*\"}[$__rate_interval]), \"direction\", \"tx\", \"\", \"\"))",
+          "legendFormat": "{{container_label_com_docker_swarm_service_name}} {{direction}}",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "range": true,
+          "instant": false
+        }
+      ]
+    }
+  ]
+}

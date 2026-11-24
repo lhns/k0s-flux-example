@@ -1,0 +1,30 @@
+---
+# attic's login role in the shared CNPG cluster (miniflux/mealie/homebox precedent).
+# Password from secret/attic-db (postgres ns). retain: never drop on delete.
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: attic
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: attic
+  ensure: present
+  login: true
+  passwordSecret:
+    name: attic-db
+  databaseRoleReclaimPolicy: retain
+---
+# Empty at creation: atticd (monolithic mode) runs its migrations on start.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: attic
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: attic
+  owner: attic
+  databaseReclaimPolicy: retain

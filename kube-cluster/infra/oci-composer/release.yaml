@@ -10,7 +10,8 @@ spec:
   ref:
     # Pinned release; bump to roll a new version. validate.sh derives the CRD schema kubeconform
     # checks against from this string.
-    tag: "0.6.3"
+    tag: "0.6.6"
+    digest: sha256:ddd499ef90d12a7ed3a085116d37febc2fa7842a30e56e04ace01466aa621883
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -93,13 +94,15 @@ spec:
         # this volume loses images that pods still reference by digest.
         enabled: true
         storageClass: cephfs
-        size: 20Gi
+        # Rendered as the PVC's request: it can grow (cephfs expands online), never go below the
+        # live capacity, or the Helm upgrade fails.
+        size: 40Gi
 
     # push.writeRefTo targets. The label makes a new digest reconcile the consumer at once.
     # Exact names only, no pattern: a moved component's gen-<name> goes here, rolled out before
     # its writeRefTo points there, or the controller stalls the object (check-substitution.py).
     refExport:
-      namespaces: [flux-system, gen-app-freshrss, gen-app-github-runner, gen-app-hermes, gen-app-jetkvm, gen-app-matrix, gen-app-snikket, gen-infra-opentelemetry-gateway]
+      namespaces: [flux-system, gen-app-freshrss, gen-app-github-runner, gen-app-hermes, gen-app-matrix, gen-app-ocapps, gen-app-opencloud, gen-app-snikket, gen-app-webtop, gen-infra-opentelemetry-gateway]
       labels: reconcile.fluxcd.io/watch=Enabled
 
     defaultRegistry:

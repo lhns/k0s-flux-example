@@ -74,7 +74,7 @@ spec:
       initContainers:
         # Everything here is idempotent — safe on every restart, does real work only once.
         - name: seed-config
-          image: alpine/git:2.54.0
+          image: alpine/git:v2.54.1@sha256:29cff25811f790b9f72fc266bf8009a5a911714c0e03c31c47339c50909d9aef
           resources:
             requests:
               memory: 64Mi
@@ -167,7 +167,7 @@ spec:
               mountPath: /config
       containers:
         - name: homeassistant
-          image: ghcr.io/home-assistant/home-assistant:2026.10.2
+          image: ghcr.io/home-assistant/home-assistant:2026.11.3@sha256:24e541ddae5818bf8eb27898b9ba00d0c344a655aa5097e9e9bd4b19356be847
           env:
             - name: TZ
               value: Europe/Berlin

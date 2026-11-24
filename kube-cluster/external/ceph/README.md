@@ -84,7 +84,7 @@ Nothing to edit: `otelcol` places on every host and `otelcol-mgr` on the `mgr` l
 
 ## Dashboards
 
-Eight Grafana Operator `GrafanaDashboard`s in folder *Ceph* (`grafana.yaml`, JSON in
+Nine Grafana Operator `GrafanaDashboard`s in folder *Ceph* (`grafana.yaml`, JSON in
 `dashboards/`) for the cephadm cluster, from the exporter and mgr series its collector
 scrapes (above). They derive from ceph-mixin v20.2.4
 (`monitoring/ceph-mixin/dashboards_out`), adapted to this pipeline: the `ds` variable, no `job` or
@@ -103,6 +103,11 @@ expression was run against the live series; the dashboards link to each other an
   inodes and strays, memory, journal. The last eight panels are not from the mixin.
 - **Ceph RGW** (`/d/ceph-rgw`) and **Ceph RGW instance** (`/d/ceph-rgw-detail`): latency, requests and
   bandwidth per gateway.
+- **Ceph storage** (`/d/ceph-storage-owners`, provisioned from `apps/storage-usage`): what uses the
+  space. Its first two rows are built from the mgr metrics alone (raw capacity by device class,
+  pools with growth and time to full, filesystems and their pools, MDS strays) and work without the
+  exporter; the rows below are per owner and come from the
+  [storage-usage exporter](../../apps/storage-usage/README.md). Not from the mixin.
 
 #### Runbook
 
@@ -138,13 +143,37 @@ Ceph series are hours old), so they were backtested over what exists.
 
 | Rule | Fires when | For | Severity |
 | --- | --- | --- | --- |
-| `ceph-health-check` | a curated `ceph_health_detail` check is raised (OSD, pool, PG, MON, MDS and device checks, `SLOW_OPS`, `RECENT_CRASH`); one alert per check. `PG_DEGRADED` is left out: recovery after a reboot is normal and `PG_AVAILABILITY` covers the dangerous case | 5m | warning |
+| `ceph-health-check` | a curated `ceph_health_detail` check is raised (OSD, pool, PG, MON, MDS and device checks, `RECENT_CRASH`); one alert per check. `PG_DEGRADED` is left out: recovery after a reboot is normal and `PG_AVAILABILITY` covers the dangerous case | 5m | warning |
+| `ceph-health-slow` | `SLOW_OPS`, `MDS_SLOW_REQUEST` or `MDS_SLOW_METADATA_IO` is raised; one alert per check. Split off because they come and go under load | 15m | warning |
 | `ceph-health-error-other` | any other check of error severity, except `AUTH_INSECURE_*` (known, accepted for now) | 15m | warning |
 | `ceph-metrics-stale` | no `ceph_health_status` sample for 5m (also on NoData); emailed | 2m | critical |
 | `ceph-exporter-down` | `up` is 0 for a ceph-exporter, per host (also on NoData) | 10m | warning |
-| `ceph-osd-time-to-full` | an OSD over 80% full reaches the full ratio within 7d (24h trend), or is past it | 1h | warning |
-| `ceph-pool-time-to-full` | a pool over 1 GB reaches `max_avail` 0 within 7d (24h trend), or is at it | 1h | warning |
+| `ceph-osd-time-to-full` | an OSD over 80% and below the nearfull ratio reaches the full ratio within 7d (24h trend); `OSD_NEARFULL` takes over from there | 1h | warning |
+| `ceph-pool-time-to-full` | a pool over 1 GB and below 85% used reaches `max_avail` 0 within 7d (24h trend); `ceph-pool-above-85`/`-92` take over from there | 1h | warning |
+| `ceph-pool-above-85` / `-92` | `ceph_pool_percent_used` 85-92% / > 92%, per pool | 1h | warning / critical |
 | `ceph-pg-inactive` | a pool has PGs that are not active | 5m | critical |
+
+Rule group `ext-ceph-opencas` (same folder), from the host script `otelcol-opencas.sh` in the Ansible repo
+(`opencas.cache_running`, `opencas.cache.*`, `opencas.core.*`); runbook (not published):
+"Runbook: cache errors". A write error clears a cache's running state and its cleaner stops for good.
+
+| Rule | Fires when | For | Severity |
+| --- | --- | --- | --- |
+| `opencas-cache-not-running` | `opencas.cache_running` is 0 | 2m | critical |
+| `opencas-cache-errors` | cache read or write errors increased over 15m | 0 | critical |
+| `opencas-core-errors` | core (HDD) read or write errors increased over 1h, per core and device | 0 | warning |
+| `opencas-metrics-absent` | a cache seen in the last day sent no `opencas.cache_running` | 10m | warning |
+| `opencas-ioclass-core-class` | `opencas.ioclass_core_class_ok` is 0 (core in another io class than its role needs) | 15m | warning |
+| `opencas-ioclass-check-error` | `opencas.ioclass_check_error` is 1 | 0 | warning |
+| `opencas-ioclass-differences` | `opencas.ioclass_check_diffs` > 0 or `opencas.ioclass_file_drift` is 1 | 1h | warning |
+| `opencas-ioclass-check-stale` | `opencas.ioclass_check_timestamp_seconds` older than 2 days or absent on a host with caches (the check runs daily from Semaphore) | 0 | warning |
+
+A stalled-cleaner rule waits for a week of `opencas.cache.dirty_blocks` to set its threshold. `opencas-metrics-absent`
+also covers a cache that vanished (NVMe missing, not loaded at boot); it fires for up to a day after a cache is removed on purpose.
+
+Both health rules keep firing for 30m after a check clears (`keepFiringFor`), so a check that blinks does not
+resolve and re-fire. The warning rules here use `group_interval: 1h` instead of the cluster's 10m: a group whose
+checks change sends at most one update an hour. The critical ones keep 10m.
 
 `ceph-health-check` carries Ceph's own severity in `check_severity` and the rule keeps a fixed
 `severity: warning`. The health series appear only for checks in the mgr's built-in list or once raised, so
@@ -157,8 +186,9 @@ Backtests, over the 2 hours or so of Ceph history:
 | `ceph-health-check` | nothing: no curated check was raised | as specified |
 | `ceph-health-error-other` | `MGR_MODULE_ERROR` for the whole window: real, a mgr module fails | as specified |
 | `ceph-metrics-stale`, `ceph-exporter-down`, `ceph-pg-inactive` | nothing | as specified |
-| `ceph-osd-time-to-full` | eight OSDs crossed, two of them for over an hour: the fastest-growing ones (about 2.5% a day) while the fullest are at 94% of a 96.8% full ratio; the trend is noisy over this little history | as specified; expect noise until a day of history exists |
-| `ceph-pool-time-to-full` | the seven pools sharing the nvme `max_avail` crossed together for 35m (a growth burst) | as specified; they fire together by design, one per pool |
+| `ceph-osd-time-to-full` | eight OSDs crossed, two of them for over an hour: the fastest-growing ones (about 2.5% a day) while the fullest are at 94% of a 96.8% full ratio; the trend is noisy over this little history | as specified; expect noise until a day of history exists. Guard added: 14 days of state history, 55 of 115 firings began at or above nearfull (95%); 61 ten-minute buckets with a firing become 43 |
+| `ceph-pool-time-to-full` | the seven pools sharing the nvme `max_avail` crossed together for 35m (a growth burst) | as specified; they fire together by design, one per pool. Guard added: 14 days of state history, 10 of 58 firings began on a pool at or above 85% (`cephfs.archive.data`, `cephfs.appdata.data`), none of them alone in its ten-minute bucket |
+| `ceph-pool-above-85` / `-92` (7 days, 2026-11-14 to 11-21) | `cephfs.archive.data` over 92% throughout, one interval (93.6-99.97%); `cephfs.appdata.data` 85-92% most of the week and over 92% three times for 1h40-11h; `cephfs.userdata.data` over 92% once for 5h on 11-20; `default.rgw.buckets.data` and `rbd.vms` crossed both levels on 11-20 for under an hour each (a `max_avail` dip), no alert | as specified; the archive pool fires from the start |
 
 ## Decisions
 

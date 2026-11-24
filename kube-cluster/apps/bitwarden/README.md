@@ -16,17 +16,19 @@ Swarm. Public at `bitwarden.example.com` (its own vault login **plus** OpenID SS
 - **Updates**: `strategy: RollingUpdate` with `maxUnavailable: 0` / `maxSurge: 1` = **start-first**
   (matches the Swarm `order: start-first`) — new pod up before old down, zero-downtime. RWX CephFS
   lets both mount `/data` during the brief rollover.
-- **Config is env-only**. Secrets (`app-secret.yaml`, SOPS): the OIDC `sso-client-secret` and the
-  `push-installation-key`; the DB password comes from the reflected CNPG role secret.
+- **Config is env-only**: anything saved in /admin lands in `data/config.json` and overrides the
+  env, so keep the panel empty. Secrets (SOPS): `app-secret.yaml` holds the OIDC `sso-client-secret`
+  and the `push-installation-key`, `admin-token-secret.yaml` the `ADMIN_TOKEN`; the DB
+  password comes from the reflected CNPG role secret.
 - **OIDC**: confidential Authelia client (`vaultwarden`) — **already registered** in the Authelia
   config with redirect_uris for both `bitwarden.example.com` and `bitwarden.kube.example.com`, PKCE/S256, and
   a policy requiring `group:admin`/`group:bitwarden` + 2FA. `DOMAIN` (the canonical host) drives the
   callback + generated links. Nothing to change on Authelia — just be in `group:bitwarden`/`admin`.
-- **/admin** panel: no `ADMIN_TOKEN` set; the panel is protected by the reflected `authelia`
+- **/admin** panel: `ADMIN_TOKEN` plus the reflected `authelia`
   forwardAuth middleware on a higher-priority `PathPrefix(/admin)` route (see `routing.yaml`).
   No Authelia rule names `bitwarden.example.com`, so the `*.example.com` catch-all applies: `group:admin`
   only, two-factor. `group:bitwarden` members cannot reach it.
 - **kube-vnet**: `net.traefik.traefik: ingress` + `net.postgres.postgres: egress` (OIDC to
   auth.example.com, the push relay, and icon fetches are external egress).
-- The Swarm `smtp` postfix relay is dropped (Vaultwarden had no SMTP config); wire to `msmtpd` later
-  if mail is wanted.
+- **Mail** (email 2FA codes) goes through `msmtpd` (`SMTP_*` env), sender
+  `admin+bitwarden@example.com`.

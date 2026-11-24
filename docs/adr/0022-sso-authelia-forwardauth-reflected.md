@@ -54,4 +54,4 @@ A route can reference a Middleware in another namespace only through Traefik's g
   `ca8f458c`, `1b3af452`..`34d78b8d`, `d4452189`, `abd926e3`.
 - Conversation 2026-07-16 to 2026-07-19 (reflector design), 2026-07-23 (SMTP relay),
   2026-10-05 (why reflection).
-- [infra/traefik-reflector](../../kube-cluster/infra/traefik-reflector/README.md).
+- [infra/traefik-reflector](../../shared/infra/traefik-reflector/README.md).

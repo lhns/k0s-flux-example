@@ -1,0 +1,12 @@
+# Patch onto shared/infra/traefik-reflector: this cluster's chart version. A whole OCIRepository
+# shape so Renovate's flux manager reads it.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: kube-traefik-reflector
+  namespace: traefik-reflector
+spec:
+  url: oci://ghcr.io/lhns/charts/kube-traefik-reflector
+  ref:
+    tag: "0.1.2"
+    digest: sha256:e5e9abc0cb4d07699e878b35be3fb77502d5443eb6d03a6ea184a3d06d0eec23

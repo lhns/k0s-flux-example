@@ -1,0 +1,24 @@
+# The Notes web extension, a release zip only. Its backend is apps/ocapps: bump the two together.
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageComposition
+metadata:
+  name: app-notes
+  namespace: opencloud
+spec:
+  interval: 1h
+  # No `base`: files mounted into the OpenCloud image at /web/apps/notes.
+  layers:
+    - name: notes
+      fetch:
+        # renovate: datasource=github-releases depName=gnacho/ocnotes extractVersion=^notes-v(?<version>.+)$
+        url: https://github.com/gnacho/ocnotes/releases/download/notes-v0.1.9/notes-0.1.9.zip
+        digest: sha256:4dccdc63add7935249632791553e7fe4323b6a90980685138c339613c4322ed4
+        unpack: zip
+        subpath: notes
+      to: /
+  push:
+    history: 10
+    writeRefTo:
+      namespace: gen-app-opencloud
+      keys:
+        ref: OPENCLOUD_APP_NOTES_REF

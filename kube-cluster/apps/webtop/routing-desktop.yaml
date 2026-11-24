@@ -1,0 +1,19 @@
+---
+# desktop.example.com -> the per-user desktop gateway. The `authelia` middleware sets Remote-User and
+# Remote-Groups, which the gateway trusts, so it is the only gate; same pattern as routing.yaml.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: desktop
+  namespace: webtop
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`desktop.example.com`)
+      services:
+        - name: desktops-gateway
+          port: 80
+      middlewares:
+        - name: authelia
+  tls: {}

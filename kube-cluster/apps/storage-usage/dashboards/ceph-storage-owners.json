@@ -1,0 +1,3140 @@
+{
+  "uid": "ceph-storage-owners",
+  "title": "Ceph storage",
+  "description": "Ceph capacity, pools and their growth, and who uses the space: raw bytes per consumer, app and volume, snapshots and residuals. The first two rows come from the Ceph mgr and need no exporter; the rest is measured by the storage-usage exporter (kube-cluster/apps/storage-usage).",
+  "tags": [
+    "ceph",
+    "storage"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "5m",
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "links": [
+    {
+      "type": "link",
+      "title": "Ceph cluster",
+      "icon": "dashboard",
+      "url": "/d/ceph-cluster/ceph-cluster",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "Health, capacity, throughput and PGs",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph pools",
+      "icon": "dashboard",
+      "url": "/d/ceph-pools/ceph-pools",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "All pools",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph OSDs",
+      "icon": "dashboard",
+      "url": "/d/ceph-osds/ceph-osds",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "All OSDs",
+      "targetBlank": false
+    },
+    {
+      "type": "link",
+      "title": "Ceph CephFS",
+      "icon": "dashboard",
+      "url": "/d/ceph-cephfs/ceph-cephfs",
+      "includeVars": true,
+      "keepTime": true,
+      "tooltip": "Metadata servers",
+      "targetBlank": false
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "ds",
+        "label": "Datasource",
+        "type": "datasource",
+        "query": "victoriametrics-metrics-datasource",
+        "refresh": 1,
+        "current": {},
+        "hide": 0
+      },
+      {
+        "name": "cluster",
+        "label": "Cluster",
+        "type": "query",
+        "datasource": {
+          "type": "victoriametrics-metrics-datasource",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "label_values(ceph_health_status, cluster)",
+          "refId": "cluster"
+        },
+        "definition": "label_values(ceph_health_status, cluster)",
+        "regex": "",
+        "refresh": 2,
+        "sort": 1,
+        "multi": false,
+        "includeAll": false,
+        "hide": 0,
+        "current": {},
+        "description": "Applies to the Ceph mgr rows only."
+      },
+      {
+        "name": "topk",
+        "label": "Top N",
+        "type": "custom",
+        "query": "5,10,15,25",
+        "current": {
+          "text": "10",
+          "value": "10"
+        },
+        "options": [
+          {
+            "text": "5",
+            "value": "5",
+            "selected": false
+          },
+          {
+            "text": "10",
+            "value": "10",
+            "selected": true
+          },
+          {
+            "text": "15",
+            "value": "15",
+            "selected": false
+          },
+          {
+            "text": "25",
+            "value": "25",
+            "selected": false
+          }
+        ],
+        "hide": 0
+      },
+      {
+        "name": "device_class",
+        "label": "Device class",
+        "type": "query",
+        "datasource": {
+          "type": "victoriametrics-metrics-datasource",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "label_values(ceph_usage_bytes, device_class)",
+          "refId": "device_class"
+        },
+        "definition": "label_values(ceph_usage_bytes, device_class)",
+        "regex": "",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "hide": 0
+      },
+      {
+        "name": "consumer",
+        "label": "Consumer",
+        "type": "query",
+        "datasource": {
+          "type": "victoriametrics-metrics-datasource",
+          "uid": "${ds}"
+        },
+        "query": {
+          "query": "label_values(ceph_usage_bytes, consumer)",
+          "refId": "consumer"
+        },
+        "definition": "label_values(ceph_usage_bytes, consumer)",
+        "regex": "",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "hide": 0
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Capacity and pools (Ceph mgr metrics)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "id": 1
+    },
+    {
+      "id": 2,
+      "type": "bargauge",
+      "title": "Raw capacity used by device class",
+      "description": "Used share of the raw capacity per OSD device class, and the fullest OSD of each class. Orange from the nearfull ratio, red from the full ratio; the thresholds are set by hand to the ratios shown on the right. One query sorted by class, so the bars keep their order. Source: ceph_osd_stat_bytes(_used) by ceph_osd_metadata.device_class.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 10,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sort_by_label(label_set(sum by (device_class) (max by (ceph_daemon) (ceph_osd_stat_bytes_used) * on (ceph_daemon) group_left (device_class) max by (ceph_daemon, device_class) (ceph_osd_metadata)) / sum by (device_class) (max by (ceph_daemon) (ceph_osd_stat_bytes) * on (ceph_daemon) group_left (device_class) max by (ceph_daemon, device_class) (ceph_osd_metadata)), \"order\", \"1\", \"what\", \"used\") or label_replace(label_set(topk by (device_class) (1, max by (ceph_daemon) (ceph_osd_stat_bytes_used) / max by (ceph_daemon) (ceph_osd_stat_bytes) * on (ceph_daemon) group_left (device_class) max by (ceph_daemon, device_class) (ceph_osd_metadata)), \"order\", \"2\"), \"what\", \"fullest ($1)\", \"ceph_daemon\", \"(.*)\"), \"device_class\", \"order\")",
+          "legendFormat": "{{device_class}} {{what}}",
+          "refId": "A",
+          "format": "time_series",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.95
+              },
+              {
+                "color": "red",
+                "value": 0.968
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "valueMode": "color",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "legend": {
+          "showLegend": false
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Raw capacity by device class",
+      "description": "OSD raw bytes summed per device class (ceph_osd_metadata.device_class). Source: ceph_osd_stat_bytes(_used).",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 10,
+        "y": 1,
+        "w": 10,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (device_class) (max by (ceph_daemon) (ceph_osd_stat_bytes_used) * on (ceph_daemon) group_left (device_class) max by (ceph_daemon, device_class) (ceph_osd_metadata))",
+          "legendFormat": "",
+          "refId": "A",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (device_class) (max by (ceph_daemon) (ceph_osd_stat_bytes) * on (ceph_daemon) group_left (device_class) max by (ceph_daemon, device_class) (ceph_osd_metadata))",
+          "legendFormat": "",
+          "refId": "B",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (device_class) (max by (ceph_daemon) (ceph_osd_stat_bytes) * on (ceph_daemon) group_left (device_class) max by (ceph_daemon, device_class) (ceph_osd_metadata)) - sum by (device_class) (max by (ceph_daemon) (ceph_osd_stat_bytes_used) * on (ceph_daemon) group_left (device_class) max by (ceph_daemon, device_class) (ceph_osd_metadata))",
+          "legendFormat": "",
+          "refId": "C",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Used"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Free"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": "",
+          "countRows": false
+        }
+      },
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "device_class",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "pattern": "^(device_class|Value #.*)$"
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "device_class": 0,
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3
+            },
+            "renameByName": {
+              "device_class": "Class",
+              "Value #A": "Used",
+              "Value #B": "Total",
+              "Value #C": "Free"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "Used",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Nearfull ratio",
+      "description": "Ratio at which Ceph warns of a nearly full OSD. Source: ceph_osd_nearfull_ratio.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "max(ceph_osd_nearfull_ratio{cluster=~\"$cluster|\"})",
+          "legendFormat": "",
+          "refId": "A",
+          "format": "time_series",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Full ratio",
+      "description": "Ratio at which Ceph stops writes to an OSD. Source: ceph_osd_full_ratio.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 5,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "max(ceph_osd_full_ratio{cluster=~\"$cluster|\"})",
+          "legendFormat": "",
+          "refId": "A",
+          "format": "time_series",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 1,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "red"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Pools",
+      "description": "Factor is raw divided by stored. Stored is the data written by clients, raw what it occupies on disk (replication or erasure coding, before compression savings). Growth is the 7-day trend of stored. Time to full is max avail divided by that growth, only for growing pools that fill within 10 years; max avail is shared by pools on the same OSDs, so the times are not additive. Source: ceph_pool_* metrics of the mgr.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 9,
+        "w": 24,
+        "h": 12
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "max by (pool_id, name) (ceph_pool_metadata{cluster=~\"$cluster|\"})",
+          "legendFormat": "",
+          "refId": "A",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "max by (pool_id) (ceph_pool_stored{cluster=~\"$cluster|\"})",
+          "legendFormat": "",
+          "refId": "B",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "max by (pool_id) (ceph_pool_bytes_used{cluster=~\"$cluster|\"})",
+          "legendFormat": "",
+          "refId": "C",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "max by (pool_id) (ceph_pool_bytes_used{cluster=~\"$cluster|\"}) / (max by (pool_id) (ceph_pool_stored{cluster=~\"$cluster|\"}) > 0)",
+          "legendFormat": "",
+          "refId": "D",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "max by (pool_id) (ceph_pool_percent_used{cluster=~\"$cluster|\"})",
+          "legendFormat": "",
+          "refId": "E",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "max by (pool_id) (ceph_pool_max_avail{cluster=~\"$cluster|\"})",
+          "legendFormat": "",
+          "refId": "F",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "max by (pool_id) (deriv(ceph_pool_stored{cluster=~\"$cluster|\"}[7d])) * 86400",
+          "legendFormat": "",
+          "refId": "G",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "(max by (pool_id) (ceph_pool_max_avail{cluster=~\"$cluster|\"}) / on (pool_id) ((max by (pool_id) (deriv(ceph_pool_stored{cluster=~\"$cluster|\"}[7d])) * 86400) > 0)) < 3650",
+          "legendFormat": "",
+          "refId": "H",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Pool"
+            },
+            "properties": [
+              {
+                "id": "custom.minWidth",
+                "value": 170
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Stored"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Raw"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Raw factor"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "% used"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.8
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.9
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Max avail"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Growth / day"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time to full"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "d"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 30
+                    },
+                    {
+                      "color": "green",
+                      "value": 90
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": "",
+          "countRows": false
+        }
+      },
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "pool_id",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "pattern": "^(name|Value #[B-H])$"
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "name": 0,
+              "Value #B": 1,
+              "Value #C": 2,
+              "Value #D": 3,
+              "Value #E": 4,
+              "Value #F": 5,
+              "Value #G": 6,
+              "Value #H": 7
+            },
+            "renameByName": {
+              "name": "Pool",
+              "Value #B": "Stored",
+              "Value #C": "Raw",
+              "Value #D": "Factor",
+              "Value #E": "% used",
+              "Value #F": "Max avail",
+              "Value #G": "Growth / day",
+              "Value #H": "Time to full"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "Raw",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Pool trends, filesystems and MDS (Ceph mgr metrics)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 24,
+        "h": 1
+      },
+      "id": 7
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Pool stored over time (top $topk)",
+      "description": "Stacked client data per pool. Source: ceph_pool_stored.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "topk($topk, max by (pool_id) (ceph_pool_stored{cluster=~\"$cluster|\"}) * on (pool_id) group_left (name) max by (pool_id, name) (ceph_pool_metadata{cluster=~\"$cluster|\"}))",
+          "legendFormat": "{{name}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 25,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "gradientMode": "none"
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Pool growth per day (top $topk)",
+      "description": "Trend of stored over the preceding day, in bytes per day. Negative while a pool shrinks. Source: deriv of ceph_pool_stored.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 22,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "topk($topk, (max by (pool_id) (deriv(ceph_pool_stored{cluster=~\"$cluster|\"}[1d])) * 86400) * on (pool_id) group_left (name) max by (pool_id, name) (ceph_pool_metadata{cluster=~\"$cluster|\"}))",
+          "legendFormat": "{{name}}",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "gradientMode": "none"
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "Filesystems and their pools",
+      "description": "From ceph_fs_metadata: pool ids (see the Pools table for names). Data stored sums the pools named cephfs.<fs>.data*, which is the naming the mgr creates; a pool named otherwise is missing from the sum. Source: ceph_fs_metadata, ceph_pool_stored.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "max by (name, fs_id, data_pools, metadata_pool) (ceph_fs_metadata{cluster=~\"$cluster|\"})",
+          "legendFormat": "",
+          "refId": "A",
+          "format": "table",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "sum by (name) (label_replace(max by (pool_id) (ceph_pool_stored{cluster=~\"$cluster|\"}) * on (pool_id) group_left (name) max by (pool_id, name) (ceph_pool_metadata{name=~\"cephfs\\\\..+\\\\.data.*\"}), \"name\", \"$1\", \"name\", \"cephfs\\\\.([^.]+)\\\\..*\"))",
+          "legendFormat": "",
+          "refId": "B",
+          "format": "table",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Data stored"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false,
+          "reducer": [
+            "sum"
+          ],
+          "fields": "",
+          "countRows": false
+        }
+      },
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "name",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "pattern": "^(name|data_pools|metadata_pool|Value #B)$"
+            }
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "name": 0,
+              "data_pools": 1,
+              "metadata_pool": 2,
+              "Value #B": 3
+            },
+            "renameByName": {
+              "name": "Filesystem",
+              "data_pools": "Data pool ids",
+              "metadata_pool": "Metadata pool id",
+              "Value #B": "Data stored"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "Data stored",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "MDS strays (deleted files waiting to be purged)",
+      "description": "Deleted inodes the MDS has not purged yet, per active MDS. They are still stored, so they sit in the CephFS residual below until the purge queue catches up; a count that keeps rising means it is behind. Source: ceph_mds_cache_num_strays.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 31,
+        "w": 12,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          },
+          "expr": "max by (ceph_daemon) (ceph_mds_cache_num_strays) * on (ceph_daemon) group_left (fs_id) max by (ceph_daemon, fs_id) (ceph_mds_metadata{fs_id!=\"-1\"}) * on (fs_id) group_left (name) max by (fs_id, name) (ceph_fs_metadata{cluster=~\"$cluster|\"})",
+          "legendFormat": "{{name}} ({{ceph_daemon}})",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "showPoints": "never",
+            "spanNulls": true,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "row",
+      "title": "Usage by owner (storage-usage exporter)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 24,
+        "h": 1
+      },
+      "id": 12
+    },
+    {
+      "id": 13,
+      "type": "volkovlabs-echarts-panel",
+      "title": "Raw bytes by owner (click to drill down)",
+      "description": "Raw bytes (replication and erasure coding included) per device class > pool > consumer > app > volume > live, snapshot or residual. Click a block to drill down, the breadcrumb goes back. Negative residuals show as 0. Source: storage-usage exporter (ceph_usage_*).",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 39,
+        "w": 24,
+        "h": 17
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "clamp_min(max by (source, device_class, pool, fs, consumer, app, volume, item, vmid, kind) (last_over_time(ceph_usage_bytes{device_class=~\"$device_class\", consumer=~\"$consumer\", source!=\"rbd-k8s\"}[1h]) or last_over_time(ceph_usage_bytes{device_class=~\"$device_class\", consumer=~\"$consumer\", source=\"rbd-k8s\"}[26h])), 0) * on (pool) group_left () max by (pool) (last_over_time(ceph_usage_pool_raw_ratio[1h]))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "A",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "max by (vmid, name) (last_over_time(proxmox_vm_uptime[1d]))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "B",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        }
+      ],
+      "options": {
+        "editorMode": "code",
+        "renderer": "canvas",
+        "map": "none",
+        "getOption": "const dark = context.grafana?.theme?.isDark !== false;\nconst text = dark ? '#ccccdc' : '#24292e';\nconst frames = context.panel.data.series || [];\n// One object per sample: its labels (time series frames) or string columns (table frames) plus `value`.\nconst rows = (f) => {\n  const num = f.fields.find((x) => x.type === 'number');\n  if (!num) return [];\n  const dims = f.fields.filter((x) => x.type === 'string');\n  const vals = Array.from(num.values);\n  return vals.map((v, i) => {\n    const r = { ...(num.labels || {}), value: Number(v) };\n    dims.forEach((d) => (r[d.name] = d.values[i]));\n    return r;\n  });\n};\nconst isNames = (f) => f.fields.some((x) => x.name === 'name');\nconst names = {};\nframes.filter(isNames).flatMap(rows).forEach((r) => (names[r.vmid] = r.name));\nconst data = frames.filter((f) => !isNames(f)).flatMap(rows).filter((r) => r.value > 0);\nconst appName = (r) => (r.consumer === 'proxmox' && names[r.app] ? names[r.app] + ' (' + r.app + ')' : r.app);\nconst iec = (v) => {\n  const u = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];\n  let i = 0;\n  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }\n  return v.toFixed(i ? 1 : 0) + ' ' + u[i];\n};\n// Nests the rows by the keys of `path(row)`; a parent's value is the sum of its children (ECharts does that).\nconst nest = (path) => {\n  const root = new Map();\n  data.forEach((r) => {\n    let level = root;\n    path(r).forEach((k, i, p) => {\n      if (!level.has(k)) level.set(k, { value: 0, kids: new Map() });\n      const n = level.get(k);\n      if (i === p.length - 1) n.value += r.value;\n      level = n.kids;\n    });\n  });\n  const out = (m) => [...m].map(([name, n]) => (n.kids.size ? { name, children: out(n.kids) } : { name, value: n.value }));\n  const total = (n) => (n.children ? n.children.reduce((s, c) => s + total(c), 0) : n.value);\n  const sorted = (arr) => arr.map((n) => (n.children ? { ...n, children: sorted(n.children) } : n)).sort((a, b) => total(b) - total(a));\n  return sorted(out(root));\n};\nconst tip = { formatter: (p) => p.treePathInfo.slice(1).map((n) => n.name).join(' / ') + '<br/><b>' + iec(p.value) + '</b> raw' };\n\n// k8s-static leaves share their PVC name (one PV can cover many walked directories): show the path.\nconst tree = nest((r) => [r.device_class, r.pool, r.consumer, appName(r), r.consumer === 'k8s-static' ? r.item : r.volume, r.kind]);\nreturn {\n  backgroundColor: 'transparent',\n  tooltip: tip,\n  series: [{\n    type: 'treemap',\n    data: tree,\n    left: 0, right: 0, top: 0, bottom: 28,\n    roam: false,\n    leafDepth: 2, // two levels at a time; a click drills down, the breadcrumb goes back\n    nodeClick: 'zoomToNode',\n    breadcrumb: { show: true, bottom: 0, height: 24, itemStyle: { color: dark ? '#2a2d36' : '#e8e8ee', textStyle: { color: text } } },\n    upperLabel: { show: true, height: 22, color: '#fff', formatter: (p) => p.name + '  ' + iec(p.value) },\n    label: { show: true, color: '#fff', overflow: 'truncate', formatter: (p) => p.name + '\\n' + iec(p.value) },\n    itemStyle: { borderColor: dark ? '#181b1f' : '#fff', borderWidth: 1, gapWidth: 1 },\n    levels: [\n      { itemStyle: { borderWidth: 0, gapWidth: 4 } },\n      { colorSaturation: [0.35, 0.6], itemStyle: { borderColorSaturation: 0.7, gapWidth: 3, borderWidth: 2 } },\n      { colorSaturation: [0.35, 0.55], itemStyle: { borderColorSaturation: 0.65, gapWidth: 2, borderWidth: 2 } },\n      { colorSaturation: [0.3, 0.5], itemStyle: { gapWidth: 1 } },\n      { colorSaturation: [0.3, 0.5], itemStyle: { gapWidth: 1 } },\n      { colorSaturation: [0.3, 0.5], itemStyle: { gapWidth: 1 } },\n    ],\n  }],\n};\n"
+      }
+    },
+    {
+      "id": 14,
+      "type": "volkovlabs-echarts-panel",
+      "title": "Raw bytes by consumer",
+      "description": "Raw bytes per device class > consumer > app; the inner ring is the device class. Hover for the path and size. Source: storage-usage exporter (ceph_usage_*).",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 12,
+        "h": 14
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (device_class, consumer, app) (clamp_min(max by (source, device_class, pool, fs, consumer, app, volume, item, vmid, kind) (last_over_time(ceph_usage_bytes{device_class=~\"$device_class\", consumer=~\"$consumer\", source!=\"rbd-k8s\"}[1h]) or last_over_time(ceph_usage_bytes{device_class=~\"$device_class\", consumer=~\"$consumer\", source=\"rbd-k8s\"}[26h])), 0) * on (pool) group_left () max by (pool) (last_over_time(ceph_usage_pool_raw_ratio[1h])))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "A",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "max by (vmid, name) (last_over_time(proxmox_vm_uptime[1d]))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "B",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        }
+      ],
+      "options": {
+        "editorMode": "code",
+        "renderer": "canvas",
+        "map": "none",
+        "getOption": "const dark = context.grafana?.theme?.isDark !== false;\nconst text = dark ? '#ccccdc' : '#24292e';\nconst frames = context.panel.data.series || [];\n// One object per sample: its labels (time series frames) or string columns (table frames) plus `value`.\nconst rows = (f) => {\n  const num = f.fields.find((x) => x.type === 'number');\n  if (!num) return [];\n  const dims = f.fields.filter((x) => x.type === 'string');\n  const vals = Array.from(num.values);\n  return vals.map((v, i) => {\n    const r = { ...(num.labels || {}), value: Number(v) };\n    dims.forEach((d) => (r[d.name] = d.values[i]));\n    return r;\n  });\n};\nconst isNames = (f) => f.fields.some((x) => x.name === 'name');\nconst names = {};\nframes.filter(isNames).flatMap(rows).forEach((r) => (names[r.vmid] = r.name));\nconst data = frames.filter((f) => !isNames(f)).flatMap(rows).filter((r) => r.value > 0);\nconst appName = (r) => (r.consumer === 'proxmox' && names[r.app] ? names[r.app] + ' (' + r.app + ')' : r.app);\nconst iec = (v) => {\n  const u = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];\n  let i = 0;\n  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }\n  return v.toFixed(i ? 1 : 0) + ' ' + u[i];\n};\n// Nests the rows by the keys of `path(row)`; a parent's value is the sum of its children (ECharts does that).\nconst nest = (path) => {\n  const root = new Map();\n  data.forEach((r) => {\n    let level = root;\n    path(r).forEach((k, i, p) => {\n      if (!level.has(k)) level.set(k, { value: 0, kids: new Map() });\n      const n = level.get(k);\n      if (i === p.length - 1) n.value += r.value;\n      level = n.kids;\n    });\n  });\n  const out = (m) => [...m].map(([name, n]) => (n.kids.size ? { name, children: out(n.kids) } : { name, value: n.value }));\n  const total = (n) => (n.children ? n.children.reduce((s, c) => s + total(c), 0) : n.value);\n  const sorted = (arr) => arr.map((n) => (n.children ? { ...n, children: sorted(n.children) } : n)).sort((a, b) => total(b) - total(a));\n  return sorted(out(root));\n};\nconst tip = { formatter: (p) => p.treePathInfo.slice(1).map((n) => n.name).join(' / ') + '<br/><b>' + iec(p.value) + '</b> raw' };\n\nconst tree = nest((r) => [r.device_class, r.consumer, appName(r)]);\nreturn {\n  backgroundColor: 'transparent',\n  tooltip: tip,\n  series: [{\n    type: 'sunburst',\n    data: tree,\n    radius: ['10%', '95%'],\n    sort: 'desc',\n    emphasis: { focus: 'ancestor' },\n    itemStyle: { borderColor: dark ? '#181b1f' : '#fff', borderWidth: 1 },\n    label: { color: dark ? '#0b0c0e' : '#111', minAngle: 6, overflow: 'truncate' },\n    levels: [\n      {},\n      { r0: '10%', r: '38%', label: { rotate: 'tangential' } },\n      { r0: '38%', r: '62%', label: { rotate: 'tangential' } },\n      { r0: '62%', r: '95%', label: { rotate: 'radial' } },\n    ],\n  }],\n};\n"
+      }
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Growth per app (raw bytes per day, 7 d trend)",
+      "description": "The ten fastest growing apps: linear trend of their raw bytes over the previous 7 days, per day. Negative means shrinking; a consumer of (residual) is snapshot or pending-purge space of a pool. Source: storage-usage exporter (ceph_usage_*).",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 56,
+        "w": 12,
+        "h": 14
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((topk(10, sum by (consumer, app) (deriv(sum by (consumer, app, pool) (max by (source, device_class, pool, fs, consumer, app, volume, item, vmid, kind) (last_over_time(ceph_usage_bytes{device_class=~\"$device_class\", consumer=~\"$consumer\", source!=\"rbd-k8s\"}[1h]) or last_over_time(ceph_usage_bytes{device_class=~\"$device_class\", consumer=~\"$consumer\", source=\"rbd-k8s\"}[26h])))[7d:6h]) * on (pool) group_left () max by (pool) (last_over_time(ceph_usage_pool_raw_ratio[1h]))) * 86400)) * on (consumer, app) group_left (name) label_replace(label_replace((topk by (vmid) (1, last_over_time(proxmox_vm_uptime[1d])) * 0 + 1), \"app\", \"$1\", \"vmid\", \"(.*)\"), \"consumer\", \"proxmox\", \"vmid\", \".*\")) or ((topk(10, sum by (consumer, app) (deriv(sum by (consumer, app, pool) (max by (source, device_class, pool, fs, consumer, app, volume, item, vmid, kind) (last_over_time(ceph_usage_bytes{device_class=~\"$device_class\", consumer=~\"$consumer\", source!=\"rbd-k8s\"}[1h]) or last_over_time(ceph_usage_bytes{device_class=~\"$device_class\", consumer=~\"$consumer\", source=\"rbd-k8s\"}[26h])))[7d:6h]) * on (pool) group_left () max by (pool) (last_over_time(ceph_usage_pool_raw_ratio[1h]))) * 86400)) unless on (consumer, app) label_replace(label_replace((topk by (vmid) (1, last_over_time(proxmox_vm_uptime[1d])) * 0 + 1), \"app\", \"$1\", \"vmid\", \"(.*)\"), \"consumer\", \"proxmox\", \"vmid\", \".*\"))",
+          "format": "time_series",
+          "instant": false,
+          "range": true,
+          "legendFormat": "{{consumer}}/{{app}} {{name}}",
+          "interval": "1d",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        }
+      ],
+      "timeFrom": "30d",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 16,
+      "type": "table",
+      "title": "Per app",
+      "description": "One row per app (Kubernetes namespace, Swarm stack, Proxmox VM, S3 bucket owner or top directory). A directory several apps mount (a shared static PV) is the app, named after the directory, and Used by lists the namespaces. Live and snapshot are stored bytes; raw is stored times the pool's replication or erasure-coding ratio and includes the residuals. Source: storage-usage exporter (ceph_usage_*).",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 70,
+        "w": 14,
+        "h": 12
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((sum by (consumer, app, used_by) (max by (source, device_class, pool, fs, consumer, app, volume, item, vmid, kind, used_by) (last_over_time(ceph_usage_bytes{kind=\"live\", device_class=~\"$device_class\", consumer=~\"$consumer\", source!=\"rbd-k8s\"}[1h]) or last_over_time(ceph_usage_bytes{kind=\"live\", device_class=~\"$device_class\", consumer=~\"$consumer\", source=\"rbd-k8s\"}[26h])))) * on (consumer, app) group_left (name) label_replace(label_replace((topk by (vmid) (1, last_over_time(proxmox_vm_uptime[1d])) * 0 + 1), \"app\", \"$1\", \"vmid\", \"(.*)\"), \"consumer\", \"proxmox\", \"vmid\", \".*\")) or ((sum by (consumer, app, used_by) (max by (source, device_class, pool, fs, consumer, app, volume, item, vmid, kind, used_by) (last_over_time(ceph_usage_bytes{kind=\"live\", device_class=~\"$device_class\", consumer=~\"$consumer\", source!=\"rbd-k8s\"}[1h]) or last_over_time(ceph_usage_bytes{kind=\"live\", device_class=~\"$device_class\", consumer=~\"$consumer\", source=\"rbd-k8s\"}[26h])))) unless on (consumer, app) label_replace(label_replace((topk by (vmid) (1, last_over_time(proxmox_vm_uptime[1d])) * 0 + 1), \"app\", \"$1\", \"vmid\", \"(.*)\"), \"consumer\", \"proxmox\", \"vmid\", \".*\"))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "A",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "((sum by (consumer, app, used_by) (max by (source, device_class, pool, fs, consumer, app, volume, item, vmid, kind, used_by) (last_over_time(ceph_usage_bytes{kind=\"snapshot\", device_class=~\"$device_class\", consumer=~\"$consumer\", source!=\"rbd-k8s\"}[1h]) or last_over_time(ceph_usage_bytes{kind=\"snapshot\", device_class=~\"$device_class\", consumer=~\"$consumer\", source=\"rbd-k8s\"}[26h])))) * on (consumer, app) group_left (name) label_replace(label_replace((topk by (vmid) (1, last_over_time(proxmox_vm_uptime[1d])) * 0 + 1), \"app\", \"$1\", \"vmid\", \"(.*)\"), \"consumer\", \"proxmox\", \"vmid\", \".*\")) or ((sum by (consumer, app, used_by) (max by (source, device_class, pool, fs, consumer, app, volume, item, vmid, kind, used_by) (last_over_time(ceph_usage_bytes{kind=\"snapshot\", device_class=~\"$device_class\", consumer=~\"$consumer\", source!=\"rbd-k8s\"}[1h]) or last_over_time(ceph_usage_bytes{kind=\"snapshot\", device_class=~\"$device_class\", consumer=~\"$consumer\", source=\"rbd-k8s\"}[26h])))) unless on (consumer, app) label_replace(label_replace((topk by (vmid) (1, last_over_time(proxmox_vm_uptime[1d])) * 0 + 1), \"app\", \"$1\", \"vmid\", \"(.*)\"), \"consumer\", \"proxmox\", \"vmid\", \".*\"))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "B",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "((sum by (consumer, app, used_by) (clamp_min(max by (source, device_class, pool, fs, consumer, app, volume, item, vmid, kind, used_by) (last_over_time(ceph_usage_bytes{device_class=~\"$device_class\", consumer=~\"$consumer\", source!=\"rbd-k8s\"}[1h]) or last_over_time(ceph_usage_bytes{device_class=~\"$device_class\", consumer=~\"$consumer\", source=\"rbd-k8s\"}[26h])), 0) * on (pool) group_left () max by (pool) (last_over_time(ceph_usage_pool_raw_ratio[1h])))) * on (consumer, app) group_left (name) label_replace(label_replace((topk by (vmid) (1, last_over_time(proxmox_vm_uptime[1d])) * 0 + 1), \"app\", \"$1\", \"vmid\", \"(.*)\"), \"consumer\", \"proxmox\", \"vmid\", \".*\")) or ((sum by (consumer, app, used_by) (clamp_min(max by (source, device_class, pool, fs, consumer, app, volume, item, vmid, kind, used_by) (last_over_time(ceph_usage_bytes{device_class=~\"$device_class\", consumer=~\"$consumer\", source!=\"rbd-k8s\"}[1h]) or last_over_time(ceph_usage_bytes{device_class=~\"$device_class\", consumer=~\"$consumer\", source=\"rbd-k8s\"}[26h])), 0) * on (pool) group_left () max by (pool) (last_over_time(ceph_usage_pool_raw_ratio[1h])))) unless on (consumer, app) label_replace(label_replace((topk by (vmid) (1, last_over_time(proxmox_vm_uptime[1d])) * 0 + 1), \"app\", \"$1\", \"vmid\", \"(.*)\"), \"consumer\", \"proxmox\", \"vmid\", \".*\"))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "C",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "source": true,
+              "vmid": true,
+              "item": true,
+              "volume": true,
+              "fs": true,
+              "pool": true,
+              "image": true,
+              "snapshot": true,
+              "device_class": true,
+              "task": true,
+              "kind": true,
+              "namespace": true,
+              "pod": true,
+              "ceph_daemon": true
+            },
+            "indexByName": {
+              "consumer": 0,
+              "app": 1,
+              "used_by": 2,
+              "name": 3,
+              "Value #A": 4,
+              "Value #B": 5,
+              "Value #C": 6
+            },
+            "renameByName": {
+              "consumer": "Consumer",
+              "app": "App",
+              "name": "VM name",
+              "Value #A": "Live (stored)",
+              "Value #B": "Snapshot (stored)",
+              "Value #C": "Raw total",
+              "used_by": "Used by"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Live (stored)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Snapshot (stored)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Raw total"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Raw total",
+            "desc": true
+          }
+        ]
+      }
+    },
+    {
+      "id": 17,
+      "type": "bargauge",
+      "title": "Top 20 apps by raw bytes",
+      "description": "The 20 apps with the most raw bytes (stored times replication or erasure-coding ratio). Source: storage-usage exporter (ceph_usage_*).",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 14,
+        "y": 70,
+        "w": 10,
+        "h": 12
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sort_desc(((topk(20, sum by (consumer, app) (clamp_min(max by (source, device_class, pool, fs, consumer, app, volume, item, vmid, kind) (last_over_time(ceph_usage_bytes{device_class=~\"$device_class\", consumer=~\"$consumer\", source!=\"rbd-k8s\"}[1h]) or last_over_time(ceph_usage_bytes{device_class=~\"$device_class\", consumer=~\"$consumer\", source=\"rbd-k8s\"}[26h])), 0) * on (pool) group_left () max by (pool) (last_over_time(ceph_usage_pool_raw_ratio[1h]))))) * on (consumer, app) group_left (name) label_replace(label_replace((topk by (vmid) (1, last_over_time(proxmox_vm_uptime[1d])) * 0 + 1), \"app\", \"$1\", \"vmid\", \"(.*)\"), \"consumer\", \"proxmox\", \"vmid\", \".*\")) or ((topk(20, sum by (consumer, app) (clamp_min(max by (source, device_class, pool, fs, consumer, app, volume, item, vmid, kind) (last_over_time(ceph_usage_bytes{device_class=~\"$device_class\", consumer=~\"$consumer\", source!=\"rbd-k8s\"}[1h]) or last_over_time(ceph_usage_bytes{device_class=~\"$device_class\", consumer=~\"$consumer\", source=\"rbd-k8s\"}[26h])), 0) * on (pool) group_left () max by (pool) (last_over_time(ceph_usage_pool_raw_ratio[1h]))))) unless on (consumer, app) label_replace(label_replace((topk by (vmid) (1, last_over_time(proxmox_vm_uptime[1d])) * 0 + 1), \"app\", \"$1\", \"vmid\", \"(.*)\"), \"consumer\", \"proxmox\", \"vmid\", \".*\")))",
+          "format": "time_series",
+          "instant": true,
+          "range": false,
+          "legendFormat": "{{consumer}}/{{app}} {{name}}",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "min": 0,
+          "color": {
+            "mode": "continuous-BlPu"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "valueMode": "color",
+        "namePlacement": "left",
+        "sizing": "auto",
+        "minVizHeight": 12,
+        "minVizWidth": 8,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 18,
+      "type": "table",
+      "title": "Per volume",
+      "description": "One row per measured volume, path, image or bucket. Live and snapshot are stored bytes (CephFS snapshots are a lower bound); raw includes replication or erasure coding. Source: storage-usage exporter (ceph_usage_*).",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 82,
+        "w": 24,
+        "h": 14
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((sum by (consumer, app, used_by, volume, fs, pool, item) (max by (source, device_class, pool, fs, consumer, app, volume, item, vmid, kind, used_by) (last_over_time(ceph_usage_bytes{kind=\"live\", device_class=~\"$device_class\", consumer=~\"$consumer\", source!=\"rbd-k8s\"}[1h]) or last_over_time(ceph_usage_bytes{kind=\"live\", device_class=~\"$device_class\", consumer=~\"$consumer\", source=\"rbd-k8s\"}[26h])))) * on (consumer, app) group_left (name) label_replace(label_replace((topk by (vmid) (1, last_over_time(proxmox_vm_uptime[1d])) * 0 + 1), \"app\", \"$1\", \"vmid\", \"(.*)\"), \"consumer\", \"proxmox\", \"vmid\", \".*\")) or ((sum by (consumer, app, used_by, volume, fs, pool, item) (max by (source, device_class, pool, fs, consumer, app, volume, item, vmid, kind, used_by) (last_over_time(ceph_usage_bytes{kind=\"live\", device_class=~\"$device_class\", consumer=~\"$consumer\", source!=\"rbd-k8s\"}[1h]) or last_over_time(ceph_usage_bytes{kind=\"live\", device_class=~\"$device_class\", consumer=~\"$consumer\", source=\"rbd-k8s\"}[26h])))) unless on (consumer, app) label_replace(label_replace((topk by (vmid) (1, last_over_time(proxmox_vm_uptime[1d])) * 0 + 1), \"app\", \"$1\", \"vmid\", \"(.*)\"), \"consumer\", \"proxmox\", \"vmid\", \".*\"))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "A",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "((sum by (consumer, app, used_by, volume, fs, pool, item) (max by (source, device_class, pool, fs, consumer, app, volume, item, vmid, kind, used_by) (last_over_time(ceph_usage_bytes{kind=\"snapshot\", device_class=~\"$device_class\", consumer=~\"$consumer\", source!=\"rbd-k8s\"}[1h]) or last_over_time(ceph_usage_bytes{kind=\"snapshot\", device_class=~\"$device_class\", consumer=~\"$consumer\", source=\"rbd-k8s\"}[26h])))) * on (consumer, app) group_left (name) label_replace(label_replace((topk by (vmid) (1, last_over_time(proxmox_vm_uptime[1d])) * 0 + 1), \"app\", \"$1\", \"vmid\", \"(.*)\"), \"consumer\", \"proxmox\", \"vmid\", \".*\")) or ((sum by (consumer, app, used_by, volume, fs, pool, item) (max by (source, device_class, pool, fs, consumer, app, volume, item, vmid, kind, used_by) (last_over_time(ceph_usage_bytes{kind=\"snapshot\", device_class=~\"$device_class\", consumer=~\"$consumer\", source!=\"rbd-k8s\"}[1h]) or last_over_time(ceph_usage_bytes{kind=\"snapshot\", device_class=~\"$device_class\", consumer=~\"$consumer\", source=\"rbd-k8s\"}[26h])))) unless on (consumer, app) label_replace(label_replace((topk by (vmid) (1, last_over_time(proxmox_vm_uptime[1d])) * 0 + 1), \"app\", \"$1\", \"vmid\", \"(.*)\"), \"consumer\", \"proxmox\", \"vmid\", \".*\"))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "B",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "((sum by (consumer, app, used_by, volume, fs, pool, item) (clamp_min(max by (source, device_class, pool, fs, consumer, app, volume, item, vmid, kind, used_by) (last_over_time(ceph_usage_bytes{device_class=~\"$device_class\", consumer=~\"$consumer\", source!=\"rbd-k8s\"}[1h]) or last_over_time(ceph_usage_bytes{device_class=~\"$device_class\", consumer=~\"$consumer\", source=\"rbd-k8s\"}[26h])), 0) * on (pool) group_left () max by (pool) (last_over_time(ceph_usage_pool_raw_ratio[1h])))) * on (consumer, app) group_left (name) label_replace(label_replace((topk by (vmid) (1, last_over_time(proxmox_vm_uptime[1d])) * 0 + 1), \"app\", \"$1\", \"vmid\", \"(.*)\"), \"consumer\", \"proxmox\", \"vmid\", \".*\")) or ((sum by (consumer, app, used_by, volume, fs, pool, item) (clamp_min(max by (source, device_class, pool, fs, consumer, app, volume, item, vmid, kind, used_by) (last_over_time(ceph_usage_bytes{device_class=~\"$device_class\", consumer=~\"$consumer\", source!=\"rbd-k8s\"}[1h]) or last_over_time(ceph_usage_bytes{device_class=~\"$device_class\", consumer=~\"$consumer\", source=\"rbd-k8s\"}[26h])), 0) * on (pool) group_left () max by (pool) (last_over_time(ceph_usage_pool_raw_ratio[1h])))) unless on (consumer, app) label_replace(label_replace((topk by (vmid) (1, last_over_time(proxmox_vm_uptime[1d])) * 0 + 1), \"app\", \"$1\", \"vmid\", \"(.*)\"), \"consumer\", \"proxmox\", \"vmid\", \".*\"))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "C",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "source": true,
+              "vmid": true,
+              "image": true,
+              "snapshot": true,
+              "device_class": true,
+              "task": true,
+              "kind": true,
+              "namespace": true,
+              "pod": true,
+              "ceph_daemon": true
+            },
+            "indexByName": {
+              "consumer": 0,
+              "app": 1,
+              "used_by": 2,
+              "name": 3,
+              "volume": 4,
+              "fs": 5,
+              "pool": 6,
+              "item": 7,
+              "Value #A": 8,
+              "Value #B": 9,
+              "Value #C": 10
+            },
+            "renameByName": {
+              "consumer": "Consumer",
+              "app": "App",
+              "name": "VM name",
+              "volume": "Volume",
+              "fs": "Filesystem",
+              "pool": "Pool",
+              "item": "Item",
+              "Value #A": "Live (stored)",
+              "Value #B": "Snapshot (stored)",
+              "Value #C": "Raw total",
+              "used_by": "Used by"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Live (stored)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Snapshot (stored)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Raw total"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Raw total",
+            "desc": true
+          }
+        ]
+      }
+    },
+    {
+      "id": 33,
+      "type": "row",
+      "title": "Kubernetes volumes (kubelet stats, storage-usage exporter)",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 96,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 30,
+      "type": "table",
+      "title": "Dynamic PVC fill level",
+      "description": "Fill level of the dynamic (provisioned) PVCs a pod has mounted, from the kubelet's volume stats (k8s.volume.capacity and k8s.volume.available, via the cluster collector). A PVC no pod mounts has no stats. Static PVs are left out by joining ceph_usage_pv_info{static=\"false\"}, which the exporter emits from the PersistentVolume list, so no PVC name list is kept here. The collector's k8s.namespace.name and k8s.persistentvolumeclaim.name are moved to app and volume to match.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 97,
+        "w": 24,
+        "h": 12
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(((label_move(label_move(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") (last_over_time(k8s.volume.capacity{\"k8s.persistentvolumeclaim.name\"!=\"\"}[15m])), \"k8s.namespace.name\", \"app\"), \"k8s.persistentvolumeclaim.name\", \"volume\")) - (label_move(label_move(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") (last_over_time(k8s.volume.available{\"k8s.persistentvolumeclaim.name\"!=\"\"}[15m])), \"k8s.namespace.name\", \"app\"), \"k8s.persistentvolumeclaim.name\", \"volume\"))) / (label_move(label_move(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") (last_over_time(k8s.volume.capacity{\"k8s.persistentvolumeclaim.name\"!=\"\"}[15m])), \"k8s.namespace.name\", \"app\"), \"k8s.persistentvolumeclaim.name\", \"volume\"))) * on (app, volume) group_left (storage_class) max by (app, volume, storage_class) (last_over_time(ceph_usage_pv_info{static=\"false\"}[1h]))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "A",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "((label_move(label_move(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") (last_over_time(k8s.volume.capacity{\"k8s.persistentvolumeclaim.name\"!=\"\"}[15m])), \"k8s.namespace.name\", \"app\"), \"k8s.persistentvolumeclaim.name\", \"volume\")) - (label_move(label_move(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") (last_over_time(k8s.volume.available{\"k8s.persistentvolumeclaim.name\"!=\"\"}[15m])), \"k8s.namespace.name\", \"app\"), \"k8s.persistentvolumeclaim.name\", \"volume\"))) * on (app, volume) group_left (storage_class) max by (app, volume, storage_class) (last_over_time(ceph_usage_pv_info{static=\"false\"}[1h]))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "B",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "(label_move(label_move(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") (last_over_time(k8s.volume.capacity{\"k8s.persistentvolumeclaim.name\"!=\"\"}[15m])), \"k8s.namespace.name\", \"app\"), \"k8s.persistentvolumeclaim.name\", \"volume\")) * on (app, volume) group_left (storage_class) max by (app, volume, storage_class) (last_over_time(ceph_usage_pv_info{static=\"false\"}[1h]))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "C",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true
+            },
+            "indexByName": {
+              "app": 0,
+              "volume": 1,
+              "storage_class": 2,
+              "Value #A": 3,
+              "Value #B": 4,
+              "Value #C": 5
+            },
+            "renameByName": {
+              "app": "Namespace",
+              "volume": "PVC",
+              "storage_class": "Storage class",
+              "Value #A": "Fill",
+              "Value #B": "Used",
+              "Value #C": "Capacity"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Fill"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.75
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.9
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Used"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Capacity"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Fill",
+            "desc": true
+          }
+        ]
+      }
+    },
+    {
+      "type": "row",
+      "title": "Snapshots (storage-usage exporter)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 109,
+        "w": 24,
+        "h": 1
+      },
+      "id": 19
+    },
+    {
+      "id": 20,
+      "type": "table",
+      "title": "CephFS snapshot directories",
+      "description": "Directories with CephFS snapshots. Pinned bytes are a lower bound: the oldest snapshot's tree minus its live bytes, summed per walked leaf; CephFS has no exclusive snapshot size. A large newest age shows a snapshot schedule that stopped. Source: storage-usage exporter (ceph_usage_*).",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 110,
+        "w": 24,
+        "h": 12
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (fs, item, consumer, app, used_by) (last_over_time(ceph_usage_snapshots{source=\"cephfs\", consumer=~\"$consumer\"}[1h]))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "A",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "time() - max by (fs, item, consumer, app, used_by) (last_over_time(ceph_usage_snapshot_oldest_timestamp_seconds{source=\"cephfs\", consumer=~\"$consumer\"}[1h]))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "B",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "time() - max by (fs, item, consumer, app, used_by) (last_over_time(ceph_usage_snapshot_newest_timestamp_seconds{source=\"cephfs\", consumer=~\"$consumer\"}[1h]))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "C",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        },
+        {
+          "refId": "D",
+          "expr": "max by (fs, item, consumer, app, used_by) (last_over_time(ceph_usage_snapshot_pinned_min_bytes{source=\"cephfs\", consumer=~\"$consumer\"}[1h]))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "D",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "source": true,
+              "vmid": true,
+              "volume": true,
+              "pool": true,
+              "image": true,
+              "snapshot": true,
+              "name": true,
+              "device_class": true,
+              "task": true,
+              "kind": true,
+              "namespace": true,
+              "pod": true,
+              "ceph_daemon": true
+            },
+            "indexByName": {
+              "fs": 0,
+              "item": 1,
+              "consumer": 2,
+              "app": 3,
+              "used_by": 4,
+              "Value #A": 5,
+              "Value #B": 6,
+              "Value #C": 7,
+              "Value #D": 8
+            },
+            "renameByName": {
+              "fs": "Filesystem",
+              "item": "Path",
+              "consumer": "Consumer",
+              "app": "App",
+              "Value #A": "Snapshots",
+              "Value #B": "Oldest age",
+              "Value #C": "Newest age",
+              "Value #D": "Pinned (lower bound)",
+              "used_by": "Used by"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Oldest age"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Newest age"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Pinned (lower bound)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Pinned (lower bound)",
+            "desc": true
+          }
+        ]
+      }
+    },
+    {
+      "id": 21,
+      "type": "table",
+      "title": "RBD snapshots",
+      "description": "RBD images that have snapshots, Proxmox VM disks and Kubernetes volumes in one table: count and age of the oldest and newest snapshot. Proxmox: snapshot-only bytes are exact. Kubernetes volumes (app is the namespace, volume the PVC): the snapshots are Velero's and their space is in the pool residual, so per-volume bytes are not measured. Source: storage-usage exporter (ceph_usage_*), VM names from proxmox_vm_uptime.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 122,
+        "w": 24,
+        "h": 12
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((max by (source, consumer, app, volume, item, pool, vmid) (last_over_time(ceph_usage_snapshots{source=\"rbd-k8s\", consumer=~\"$consumer\"}[26h]) or last_over_time(ceph_usage_snapshots{source=\"rbd-proxmox\", consumer=~\"$consumer\"}[1h]))) * on (consumer, app) group_left (name) label_replace(label_replace((topk by (vmid) (1, last_over_time(proxmox_vm_uptime[1d])) * 0 + 1), \"app\", \"$1\", \"vmid\", \"(.*)\"), \"consumer\", \"proxmox\", \"vmid\", \".*\")) or ((max by (source, consumer, app, volume, item, pool, vmid) (last_over_time(ceph_usage_snapshots{source=\"rbd-k8s\", consumer=~\"$consumer\"}[26h]) or last_over_time(ceph_usage_snapshots{source=\"rbd-proxmox\", consumer=~\"$consumer\"}[1h]))) unless on (consumer, app) label_replace(label_replace((topk by (vmid) (1, last_over_time(proxmox_vm_uptime[1d])) * 0 + 1), \"app\", \"$1\", \"vmid\", \"(.*)\"), \"consumer\", \"proxmox\", \"vmid\", \".*\"))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "A",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "((time() - max by (source, consumer, app, volume, item, pool, vmid) (last_over_time(ceph_usage_snapshot_oldest_timestamp_seconds{source=\"rbd-k8s\", consumer=~\"$consumer\"}[26h]) or last_over_time(ceph_usage_snapshot_oldest_timestamp_seconds{source=\"rbd-proxmox\", consumer=~\"$consumer\"}[1h]))) * on (consumer, app) group_left (name) label_replace(label_replace((topk by (vmid) (1, last_over_time(proxmox_vm_uptime[1d])) * 0 + 1), \"app\", \"$1\", \"vmid\", \"(.*)\"), \"consumer\", \"proxmox\", \"vmid\", \".*\")) or ((time() - max by (source, consumer, app, volume, item, pool, vmid) (last_over_time(ceph_usage_snapshot_oldest_timestamp_seconds{source=\"rbd-k8s\", consumer=~\"$consumer\"}[26h]) or last_over_time(ceph_usage_snapshot_oldest_timestamp_seconds{source=\"rbd-proxmox\", consumer=~\"$consumer\"}[1h]))) unless on (consumer, app) label_replace(label_replace((topk by (vmid) (1, last_over_time(proxmox_vm_uptime[1d])) * 0 + 1), \"app\", \"$1\", \"vmid\", \"(.*)\"), \"consumer\", \"proxmox\", \"vmid\", \".*\"))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "B",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "((time() - max by (source, consumer, app, volume, item, pool, vmid) (last_over_time(ceph_usage_snapshot_newest_timestamp_seconds{source=\"rbd-k8s\", consumer=~\"$consumer\"}[26h]) or last_over_time(ceph_usage_snapshot_newest_timestamp_seconds{source=\"rbd-proxmox\", consumer=~\"$consumer\"}[1h]))) * on (consumer, app) group_left (name) label_replace(label_replace((topk by (vmid) (1, last_over_time(proxmox_vm_uptime[1d])) * 0 + 1), \"app\", \"$1\", \"vmid\", \"(.*)\"), \"consumer\", \"proxmox\", \"vmid\", \".*\")) or ((time() - max by (source, consumer, app, volume, item, pool, vmid) (last_over_time(ceph_usage_snapshot_newest_timestamp_seconds{source=\"rbd-k8s\", consumer=~\"$consumer\"}[26h]) or last_over_time(ceph_usage_snapshot_newest_timestamp_seconds{source=\"rbd-proxmox\", consumer=~\"$consumer\"}[1h]))) unless on (consumer, app) label_replace(label_replace((topk by (vmid) (1, last_over_time(proxmox_vm_uptime[1d])) * 0 + 1), \"app\", \"$1\", \"vmid\", \"(.*)\"), \"consumer\", \"proxmox\", \"vmid\", \".*\"))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "C",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        },
+        {
+          "refId": "D",
+          "expr": "((max by (source, consumer, app, volume, item, pool, vmid) (last_over_time(ceph_usage_bytes{source=\"rbd-proxmox\", kind=\"snapshot\", consumer=~\"$consumer\"}[1h]))) * on (consumer, app) group_left (name) label_replace(label_replace((topk by (vmid) (1, last_over_time(proxmox_vm_uptime[1d])) * 0 + 1), \"app\", \"$1\", \"vmid\", \"(.*)\"), \"consumer\", \"proxmox\", \"vmid\", \".*\")) or ((max by (source, consumer, app, volume, item, pool, vmid) (last_over_time(ceph_usage_bytes{source=\"rbd-proxmox\", kind=\"snapshot\", consumer=~\"$consumer\"}[1h]))) unless on (consumer, app) label_replace(label_replace((topk by (vmid) (1, last_over_time(proxmox_vm_uptime[1d])) * 0 + 1), \"app\", \"$1\", \"vmid\", \"(.*)\"), \"consumer\", \"proxmox\", \"vmid\", \".*\"))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "D",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "vmid": true,
+              "fs": true,
+              "image": true,
+              "snapshot": true,
+              "consumer": true,
+              "device_class": true,
+              "task": true,
+              "kind": true,
+              "namespace": true,
+              "pod": true,
+              "ceph_daemon": true,
+              "source": true
+            },
+            "indexByName": {
+              "name": 0,
+              "app": 1,
+              "volume": 2,
+              "item": 3,
+              "pool": 4,
+              "Value #A": 5,
+              "Value #B": 6,
+              "Value #C": 7,
+              "Value #D": 8
+            },
+            "renameByName": {
+              "name": "VM name",
+              "app": "VMID or namespace",
+              "volume": "Image or PVC",
+              "item": "RBD image",
+              "pool": "Pool",
+              "Value #A": "Snapshots",
+              "Value #B": "Oldest age",
+              "Value #C": "Newest age",
+              "Value #D": "Snapshot-only bytes"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Oldest age"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Newest age"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Snapshot-only bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Oldest age",
+            "desc": true
+          }
+        ]
+      }
+    },
+    {
+      "id": 34,
+      "type": "row",
+      "title": "S3 buckets (storage-usage exporter)",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 134,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 31,
+      "type": "table",
+      "title": "S3 buckets",
+      "description": "Bucket sizes come only from the storage-usage exporter (RGW admin API, size_actual): the Ceph mgr's ceph_rgw_* metrics are request counters and latencies, not usage. Growth is the linear trend over the previous 7 days, per day. Source: ceph_usage_bytes and ceph_usage_rgw_bucket_objects, refreshed hourly.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 135,
+        "w": 12,
+        "h": 11
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (app, volume) (last_over_time(ceph_usage_bytes{source=\"rgw\", kind=\"live\", device_class=~\"$device_class\", consumer=~\"$consumer\"}[2h]))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "A",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "max by (app, volume) (label_replace(last_over_time(ceph_usage_rgw_bucket_objects[2h]), \"volume\", \"$1\", \"bucket\", \"(.*)\"))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "B",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "deriv(max by (app, volume) (last_over_time(ceph_usage_bytes{source=\"rgw\", kind=\"live\", device_class=~\"$device_class\", consumer=~\"$consumer\"}[2h]))[7d:6h]) * 86400",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "C",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true
+            },
+            "indexByName": {
+              "volume": 0,
+              "app": 1,
+              "Value #A": 2,
+              "Value #B": 3,
+              "Value #C": 4
+            },
+            "renameByName": {
+              "volume": "Bucket",
+              "app": "Owner",
+              "Value #A": "Size",
+              "Value #B": "Objects",
+              "Value #C": "Growth per day"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Size"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Objects"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "short"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Growth per day"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Size",
+            "desc": true
+          }
+        ]
+      }
+    },
+    {
+      "id": 32,
+      "type": "timeseries",
+      "title": "Bucket size over time (top $topk)",
+      "description": "Bucket sizes come only from the storage-usage exporter (RGW admin API, size_actual): the Ceph mgr's ceph_rgw_* metrics are request counters and latencies, not usage. Stored bytes of the largest buckets, from ceph_usage_bytes.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 135,
+        "w": 12,
+        "h": 11
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk($topk, max by (volume) (last_over_time(ceph_usage_bytes{source=\"rgw\", kind=\"live\", device_class=~\"$device_class\", consumer=~\"$consumer\"}[2h])))",
+          "format": "time_series",
+          "instant": false,
+          "range": true,
+          "legendFormat": "{{volume}}",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 8,
+            "showPoints": "never",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "type": "row",
+      "title": "Residuals and exporter health (storage-usage exporter)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 146,
+        "w": 24,
+        "h": 1
+      },
+      "id": 23
+    },
+    {
+      "id": 24,
+      "type": "table",
+      "title": "Residual per pool",
+      "description": "Stored bytes of a pool that no leaf accounts for. Signed: positive is snapshots and pending purge (CephFS, RBD) or unattributed data (RGW); negative means the leaves add up to more than the pool stores (for example shared or deduplicated extents). The app column says which. Source: storage-usage exporter (ceph_usage_*).",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 147,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (pool, device_class, app, source) (last_over_time(ceph_usage_bytes{kind=\"residual\", source!=\"rbd-k8s\", device_class=~\"$device_class\"}[1h]) or last_over_time(ceph_usage_bytes{kind=\"residual\", source=\"rbd-k8s\", device_class=~\"$device_class\"}[26h]))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "A",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "max by (pool, device_class, app, source) (last_over_time(ceph_usage_bytes{kind=\"residual\", source!=\"rbd-k8s\", device_class=~\"$device_class\"}[1h]) or last_over_time(ceph_usage_bytes{kind=\"residual\", source=\"rbd-k8s\", device_class=~\"$device_class\"}[26h])) * 0 + on (pool, device_class) group_left () max by (pool, device_class) (last_over_time(ceph_usage_pool_stored_bytes[1h]))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "B",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "max by (pool, device_class, app, source) (last_over_time(ceph_usage_bytes{kind=\"residual\", source!=\"rbd-k8s\", device_class=~\"$device_class\"}[1h]) or last_over_time(ceph_usage_bytes{kind=\"residual\", source=\"rbd-k8s\", device_class=~\"$device_class\"}[26h])) / on (pool, device_class) group_left () max by (pool, device_class) (last_over_time(ceph_usage_pool_stored_bytes[1h]))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "C",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "source": true,
+              "vmid": true,
+              "item": true,
+              "volume": true,
+              "fs": true,
+              "image": true,
+              "snapshot": true,
+              "name": true,
+              "consumer": true,
+              "task": true,
+              "kind": true,
+              "namespace": true,
+              "pod": true,
+              "ceph_daemon": true
+            },
+            "indexByName": {
+              "pool": 0,
+              "device_class": 1,
+              "app": 2,
+              "Value #A": 3,
+              "Value #B": 4,
+              "Value #C": 5
+            },
+            "renameByName": {
+              "pool": "Pool",
+              "device_class": "Device class",
+              "app": "Meaning",
+              "Value #A": "Residual",
+              "Value #B": "Pool stored",
+              "Value #C": "Residual / stored"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Residual"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Pool stored"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Residual / stored"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Residual",
+            "desc": true
+          }
+        ]
+      }
+    },
+    {
+      "id": 25,
+      "type": "table",
+      "title": "Exporter tasks",
+      "description": "State of the exporter's collection tasks. The numbers above are as old as the last success; the cluster-wide tasks run every 10 to 60 minutes, the Kubernetes RBD scan daily. Partial: the last run returned only part of its data (the RBD scan hit its time budget, or a CephFS filesystem failed); what it did measure is shown, the rest is marked unmeasured or stale, and Last run ok is failed. Item errors: images or filesystems skipped on an error, summed per task; ceph_usage_task_item_errors has the filesystem. Source: the task status metrics of the exporter.",
+      "datasource": {
+        "type": "victoriametrics-metrics-datasource",
+        "uid": "${ds}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 156,
+        "w": 24,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time() - max by (task) (last_over_time(ceph_usage_task_last_success_timestamp_seconds[3d]))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "A",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        },
+        {
+          "refId": "B",
+          "expr": "max by (task) (last_over_time(ceph_usage_task_last_duration_seconds[3d]))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "B",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        },
+        {
+          "refId": "C",
+          "expr": "max by (task) (last_over_time(ceph_usage_task_last_run_ok[3d]))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "C",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        },
+        {
+          "refId": "D",
+          "expr": "sum by (task) (max by (task, fs) (last_over_time(ceph_usage_task_item_errors[3d])))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "D",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        },
+        {
+          "refId": "E",
+          "expr": "max by (task) (last_over_time(ceph_usage_task_partial[3d]))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "legendFormat": "E",
+          "datasource": {
+            "type": "victoriametrics-metrics-datasource",
+            "uid": "${ds}"
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "source": true,
+              "vmid": true,
+              "item": true,
+              "volume": true,
+              "fs": true,
+              "pool": true,
+              "image": true,
+              "snapshot": true,
+              "name": true,
+              "app": true,
+              "consumer": true,
+              "device_class": true,
+              "kind": true,
+              "namespace": true,
+              "pod": true,
+              "ceph_daemon": true
+            },
+            "indexByName": {
+              "task": 0,
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3,
+              "Value #E": 4,
+              "Value #D": 5
+            },
+            "renameByName": {
+              "task": "Task",
+              "Value #A": "Last success",
+              "Value #B": "Last duration",
+              "Value #C": "Last run ok",
+              "Value #D": "Item errors",
+              "Value #E": "Partial"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true
+          },
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last success"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last duration"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last run ok"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "failed",
+                        "color": "red"
+                      },
+                      "1": {
+                        "text": "ok",
+                        "color": "green"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Partial"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "0": {
+                        "text": "no"
+                      },
+                      "1": {
+                        "text": "partial",
+                        "color": "orange"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Item errors"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "thresholds"
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Last success",
+            "desc": true
+          }
+        ]
+      }
+    }
+  ]
+}

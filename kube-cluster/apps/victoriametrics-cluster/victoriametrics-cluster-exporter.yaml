@@ -42,6 +42,26 @@ receivers:
           static_configs:
             - targets:
               - 'vmstorage-longterm:8482'
+        # Cardinality via json_exporter's probe pattern; see README, "Cardinality metrics".
+        - job_name: 'victoriametrics-cardinality'
+          scrape_interval: 5m
+          scrape_timeout: 60s
+          metrics_path: /probe
+          params:
+            module: [cardinality]
+            target: ['http://vmselect:8481/select/0/prometheus/api/v1/status/tsdb?topN=50&focusLabel=service.name']
+          static_configs:
+            - targets: ['victoriametrics-cluster-cardinality-exporter:7979']
+        # Takes 30-45 s against vmselect's 1m -search.maxQueryDuration, which also caps a per-request timeout=.
+        - job_name: 'victoriametrics-cardinality-retention'
+          scrape_interval: 1h
+          scrape_timeout: 2m
+          metrics_path: /probe
+          params:
+            module: [retention]
+            target: ['http://vmselect:8481/select/0/prometheus/api/v1/series/count']
+          static_configs:
+            - targets: ['victoriametrics-cluster-cardinality-exporter:7979']
 
   kafka/metrics:
     protocol_version: 2.1.0
@@ -52,6 +72,14 @@ receivers:
         - otlp_metrics
     group_id: victoriametrics-cluster-exporter
     initial_offset: earliest
+    # No effect on one partition; for when the topic has more. Needs autocommit (the default).
+    max_partition_fetch_size: 1048576  # 1 MiB, the default
+    max_fetch_size: 16777216           # 16 MiB
+    partition_processing:
+      independent: true
+      max_prefetch:
+        batches: 2
+        bytes: 67108864                # 64 MiB
     message_marking:
       after: true
       on_error: false
@@ -98,6 +126,14 @@ receivers:
         - otlp_metrics
     group_id: victoriametrics-cluster-exporter-latest
     initial_offset: latest
+    # No effect on one partition; for when the topic has more. Needs autocommit (the default).
+    max_partition_fetch_size: 1048576  # 1 MiB, the default
+    max_fetch_size: 16777216           # 16 MiB
+    partition_processing:
+      independent: true
+      max_prefetch:
+        batches: 2
+        bytes: 67108864                # 64 MiB
     message_marking:
       after: true
       on_error: true
@@ -144,6 +180,14 @@ receivers:
         - otlp_metrics
     group_id: victoriametrics-cluster-exporter-longterm
     initial_offset: earliest
+    # No effect on one partition; for when the topic has more. Needs autocommit (the default).
+    max_partition_fetch_size: 1048576  # 1 MiB, the default
+    max_fetch_size: 16777216           # 16 MiB
+    partition_processing:
+      independent: true
+      max_prefetch:
+        batches: 2
+        bytes: 67108864                # 64 MiB
     message_marking:
       after: true
       on_error: false
@@ -181,6 +225,7 @@ exporters:
 
   otlphttp/victoriametrics:
     metrics_endpoint: http://vminsert:8480/insert/0/opentelemetry/v1/metrics
+    compression: zstd  # default gzip costs more CPU
     http2_read_idle_timeout: 10s
     http2_ping_timeout: 5s
     sending_queue:
@@ -190,6 +235,7 @@ exporters:
 
   otlphttp/victoriametrics_longterm:
     metrics_endpoint: http://vminsert-longterm:8480/insert/0/opentelemetry/v1/metrics
+    compression: zstd  # default gzip costs more CPU
     http2_read_idle_timeout: 10s
     http2_ping_timeout: 5s
     sending_queue:

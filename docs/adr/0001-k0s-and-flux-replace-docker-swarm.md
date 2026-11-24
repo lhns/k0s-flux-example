@@ -1,7 +1,7 @@
 # 0001 — k0s and Flux replace Docker Swarm
 
 - Status: Accepted
-- Date: 2026-07-03, amended 2026-07-08, 2026-07-25 and 2026-07-27
+- Date: 2026-07-03, amended 2026-07-08, 2026-07-25, 2026-07-27 and 2026-10-28
 - Current answer: the services that ran on a Docker Swarm move into a k0s cluster reconciled
   by Flux from this repository. `k0sctl` creates the cluster and is run by hand; it installs
   k0s and the CNI and nothing else. Everything inside the cluster is Flux. The Swarm stays
@@ -37,6 +37,7 @@ what runs in the cluster.
 
 - A cluster change outside Flux (`k0sctl.yaml`, node files under `k0s-files/`) needs a manual
   `k0sctl apply`, and for containerd daemon config a worker restart too.
+  Amendment (2026-10-28): apply drains and restarts a node whose uploaded file changed.
 - k0s versions still move through Flux, by Autopilot: [0018](0018-k0s-upgrades-through-autopilot.md).
 - Large Swarm data was not copied but mounted where it lay:
   [0020](0020-swarm-data-mounted-in-place.md).

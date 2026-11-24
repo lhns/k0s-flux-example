@@ -1,8 +1,6 @@
 {{/*
-Lua string literal. Backslash FIRST, or the backslashes this pass introduces are quoted
-again by the next one. CR/LF are escaped too: Lua 5.1 accepts no raw newline inside a
-quoted string, so one in a value would be a syntax error in the dialplan's routing file
-rather than a bad route.
+Lua string literal. Backslash first, or the backslashes this pass adds are quoted again.
+CR/LF are escaped: Lua 5.1 accepts no raw newline in a quoted string.
 */}}
 {{- define "cheogram-sip-routing.q" -}}
 "{{ . | toString | replace "\\" "\\\\" | replace "\"" "\\\"" | replace "\r" "\\r" | replace "\n" "\\n" }}"
@@ -12,13 +10,10 @@ rather than a bad route.
 -- GENERATED from the cheogram-sip-routing chart's values. Do not edit; edit values.yaml.
 -- to_pattern is anchored here, once, so the dialplan cannot forget to.
 return {
+  bridge_host = {{ include "cheogram-sip-routing.q" .Values.bridge_host }},
   registrations = {
 {{- range $name, $r := .Values.registrations }}
-  {{- /* `peer`: the config section an outbound call on this entry LEAVES BY, and what an
-  inbound one is attributed by. Always the ENTRY NAME, never the host: three registrations
-  share sip.example.net and the presented number is pinned per section, so a section named after
-  the host could present only one of them. It is what CHANNEL(endpoint) hands the dialplan. */}}
-    [{{ include "cheogram-sip-routing.q" $name }}] = { user = {{ include "cheogram-sip-routing.q" $r.user }}, host = {{ include "cheogram-sip-routing.q" $r.host }}, peer = {{ include "cheogram-sip-routing.q" $name }}, contact_user = {{ include "cheogram-sip-routing.q" $r.contact_user }}, did = {{ include "cheogram-sip-routing.q" $r.did }}, line = {{ include "cheogram-sip-routing.q" $r.line }}{{ if $r.entrypoint }}, entrypoint = true{{ end }}{{ if $r.disabled }}, disabled = true{{ end }} },
+    [{{ include "cheogram-sip-routing.q" $name }}] = { user = {{ include "cheogram-sip-routing.q" $r.user }}, host = {{ include "cheogram-sip-routing.q" $r.host }}, contact_user = {{ include "cheogram-sip-routing.q" $r.user }}, did = {{ include "cheogram-sip-routing.q" $r.did }}, line = {{ include "cheogram-sip-routing.q" $r.line }}{{ if $r.entrypoint }}, entrypoint = true{{ end }}{{ if $r.disabled }}, disabled = true{{ end }} },
 {{- end }}
   },
   lines = {
@@ -45,41 +40,15 @@ return {
   },
 }
 {{- end -}}
-
-{{/*
-The registration table, for /bin/sh rather than for Lua: one TAB-separated line per entry,
-name, user, host, contact_user, peer_secret_file. The name doubles as the Secret key holding
-that entry's password, which is why no key is named here -- see values.yaml. printf rather
-than a literal tab so the separator is visible in this file.
-
-peer_secret_file is LAST because it is the only optional field: TAB is IFS whitespace, so
-`read` collapses a run of them and an empty field anywhere else would shift every later one
-into the wrong variable.
-
-A disabled entry has no row, so its Secret key is never read and may be absent.
-*/}}
-{{- define "cheogram-sip-routing.registrations" -}}
-{{- $lines := list -}}
-{{- range $name, $r := .Values.registrations -}}
-{{- if not $r.disabled -}}
-{{- $lines = append $lines (printf "%s\t%s\t%s\t%s\t%s" $name $r.user $r.host $r.contact_user ($r.peer_secret_file | default "")) -}}
-{{- end -}}
-{{- end -}}
-{{ join "\n" $lines }}
-{{- end -}}
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  # Referenced by name from the Deployment's `routing` volume, so it is fixed rather than
-  # release-derived: renaming it here silently leaves the pod mounting a ConfigMap that no
-  # longer exists, and the pod then never starts.
+  # Mounted by name from the Deployment, so fixed rather than release-derived.
   name: cheogram-sip-routing
   namespace: {{ .Release.Namespace }}
   annotations:
-    # pbx_lua re-reads routing.lua per call, so a table edit needs no restart -- and a
-    # restart would drop live calls. Registrations live in their own ConfigMap, unignored,
-    # so the Deployment's `reloader.stakater.com/auto` still rolls the pod for those.
+    # pbx_lua re-reads routing.lua per call; a restart would drop live calls.
     reloader.stakater.com/ignore: "true"
 data:
   routing.lua: |
@@ -88,27 +57,18 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  # NOT cheogram-sip-registrations: that is the Secret holding these entries' passwords.
-  name: cheogram-sip-registration-table
-  namespace: {{ .Release.Namespace }}
-data:
-  registrations.tsv: |
-    {{- include "cheogram-sip-routing.registrations" . | nindent 4 }}
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  # DELIBERATELY NOT in cheogram-sip-routing: that one is reloader-ignored, and Asterisk reads
-  # pjsip.conf once at start. A trunk change there would never reach a running pod.
+  # Not in cheogram-sip-routing, which is reloader-ignored: Asterisk reads pjsip.conf and
+  # rtp.conf once at start, so a change has to roll the pod.
   name: cheogram-sip-pjsip
   namespace: {{ .Release.Namespace }}
 data:
   pjsip.conf: |
     {{- include "cheogram-sip-routing.pjsip" . | nindent 4 }}
+  rtp.conf: |
+    {{- tpl (.Files.Get "files/rtp.conf") . | nindent 4 }}
 ---
 {{- /* The bridge's network.line_members: per line, the literal matrix: ring targets plus
-`members`. tests/check-routing.py recomputes it from the values and compares. A line whose
-primary registration is disabled is off, so it gets nobody. */}}
+`members`; nobody for a line whose primary is disabled. tests/check-routing.py recomputes it. */}}
 {{- $lm := dict }}
 {{- range $name, $l := .Values.lines }}
   {{- if not (index $.Values.registrations $l.primary).disabled }}

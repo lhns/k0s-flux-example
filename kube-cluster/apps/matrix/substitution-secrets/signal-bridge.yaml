@@ -1,0 +1,14 @@
+# EXAMPLE — placeholder values. In the source repo this file is SOPS-encrypted
+# (age, `encrypted_regex: ^(data|stringData)$`). Replace each CHANGEME-* and
+# encrypt with `sops -e -i` before applying.
+apiVersion: v1
+kind: Secret
+type: Opaque
+metadata:
+    name: signal-bridge-values
+    namespace: gen-app-matrix
+stringData:
+    MATRIX_SIGNAL_PICKLE_KEY: CHANGEME-MATRIX_SIGNAL_PICKLE_KEY
+    MATRIX_SIGNAL_PROVISIONING_SECRET: CHANGEME-MATRIX_SIGNAL_PROVISIONING_SECRET
+    MATRIX_SIGNAL_PUBLIC_MEDIA_KEY: CHANGEME-MATRIX_SIGNAL_PUBLIC_MEDIA_KEY
+    MATRIX_SIGNAL_DIRECT_MEDIA_KEY: CHANGEME-MATRIX_SIGNAL_DIRECT_MEDIA_KEY

@@ -45,10 +45,29 @@ spec:
                 exit 0
               fi
               ctrls="$(kubectl get controlnodes -o jsonpath='{.items[*].metadata.name}')"
-              wrkrs="$(kubectl get nodes -o jsonpath='{.items[*].metadata.name}')"
+              # Workers = Nodes minus ControlNodes: a controller+worker host is listed only as a controller.
+              wrkrs=""
+              for n in $(kubectl get nodes -o jsonpath='{.items[*].metadata.name}'); do
+                case " $ctrls " in *" $n "*) ;; *) wrkrs="$wrkrs $n" ;; esac
+              done
               ctrls_yaml="[$(echo $ctrls | tr ' ' ',')]"
               wrkrs_yaml="[$(echo $wrkrs | tr ' ' ',')]"
-              url="https://github.com/k0sproject/k0s/releases/download/$want/k0s-$want-amd64"
+              # Static platform map: controller-only hosts have no Node to discover the arch from.
+              # Nonzero exit on a missing checksum (set -e) fails the Job before the Plan is touched.
+              base="https://github.com/k0sproject/k0s/releases/download/$want"
+              sums="$(curl -fsSL "$base/sha256sums.txt")"
+              sum() { echo "$sums" | awk -v f="k0s-$want-$1" '$2 == "*" f { print $1 }' | grep -E '^[0-9a-f]{64}$'; }
+              sum_amd64="$(sum amd64)"; sum_arm64="$(sum arm64)"; sum_arm="$(sum arm)"
+              # Omit the workers target when empty: an empty static list is not a documented shape.
+              workers_block=""
+              if [ -n "$wrkrs" ]; then
+                workers_block="          workers:
+                          limits:
+                            concurrent: 1
+                          discovery:
+                            static:
+                              nodes: $wrkrs_yaml"
+              fi
               echo "Recreating Plan/autopilot -> $want  controllers=$ctrls_yaml workers=$wrkrs_yaml"
               kubectl delete plan autopilot --ignore-not-found
               cat <<EOF | kubectl create -f -
@@ -64,16 +83,18 @@ spec:
                       version: "$want"
                       platforms:
                         linux-amd64:
-                          url: "$url"
+                          url: "$base/k0s-$want-amd64"
+                          sha256: "$sum_amd64"
+                        linux-arm64:
+                          url: "$base/k0s-$want-arm64"
+                          sha256: "$sum_arm64"
+                        linux-arm:
+                          url: "$base/k0s-$want-arm"
+                          sha256: "$sum_arm"
                       targets:
                         controllers:
                           discovery:
                             static:
                               nodes: $ctrls_yaml
-                        workers:
-                          limits:
-                            concurrent: 1
-                          discovery:
-                            static:
-                              nodes: $wrkrs_yaml
+              $workers_block
               EOF

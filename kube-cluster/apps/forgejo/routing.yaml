@@ -1,6 +1,6 @@
 ---
 # The local login form redirects straight to the Authelia OIDC source, so there
-# is one way in. Same shape as apps/gitea.
+# is one way in.
 #
 # Host-agnostic on purpose ([^/]+ rather than a literal host) so it works on
 # forgejo.kube.example.com during setup and forgejo.example.com after.
@@ -54,7 +54,7 @@ spec:
   tls: {}
 ---
 # forgejo.kube.example.com 301-redirects to the canonical forgejo.example.com, matching
-# every other app here (see apps/miniflux, apps/gitea).
+# every other app here (see apps/miniflux).
 #
 # It SERVED the app during setup instead — the staging URL that SSO, mail and
 # the runner were verified on before anything was published under the canonical

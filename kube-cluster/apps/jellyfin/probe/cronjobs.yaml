@@ -1,0 +1,159 @@
+# Standing playback probe against jellyfin-sqlite as jellyfin-probe (README.md, "Standing probe").
+# The two schedules must stay 30 min apart, or one run's own requests make the other skip.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: jellyfin-probe-transcode
+  namespace: jellyfin
+spec:
+  schedule: "20 5,11,17,23 * * *"
+  timeZone: Europe/Berlin
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # A missed run is just a gap; a retry could land on a viewer.
+      backoffLimit: 0
+      # The deadline SIGTERMs the probe, which then stops its session and transcode.
+      activeDeadlineSeconds: 420
+      ttlSecondsAfterFinished: 604800
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: jellyfin-probe
+            app.kubernetes.io/instance: jellyfin-probe-transcode
+            # The skip check queries vmselect; results go to the OTLP gateway.
+            kube-vnet/net.victoriametrics-cluster.vmselect: egress
+            kube-vnet/net.opentelemetry-gateway.otel-gateway: egress
+        spec:
+          restartPolicy: Never
+          enableServiceLinks: false
+          automountServiceAccountToken: false
+          terminationGracePeriodSeconds: 30
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: probe
+              image: python:3.14.9-slim-trixie@sha256:35caba83af2fe6da9a5d922f9b0156f21d1246a48278c58a08bd253303ba42e8
+              command: [python3, -I, /opt/jellyfin-probe/jellyfin_probe.py]
+              env:
+                # Through the edge and both Traefiks, the path of a LAN client.
+                - name: JELLYFIN_HOST
+                  value: jellyfin.local.example.com
+                - name: JELLYFIN_INSTANCE
+                  value: jellyfin-sqlite
+                - name: MODE
+                  value: transcode
+                # Feature Film A: 4K HEVC Dolby Vision, forced PGS burn-in; the heaviest source.
+                - name: ITEM
+                  value: 00000000000000000000000000000001
+                - name: BITRATE
+                  value: "8000000"
+              resources:
+                requests:
+                  cpu: 20m
+                  memory: 32Mi
+                limits:
+                  memory: 128Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - name: script
+                  mountPath: /opt/jellyfin-probe
+                  readOnly: true
+                - name: password
+                  mountPath: /etc/jellyfin-probe
+                  readOnly: true
+          volumes:
+            - name: script
+              configMap:
+                name: jellyfin-probe
+            - name: password
+              secret:
+                secretName: jellyfin-probe
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: jellyfin-probe-direct
+  namespace: jellyfin
+spec:
+  schedule: "50 5,11,17,23 * * *"
+  timeZone: Europe/Berlin
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 600
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 420
+      ttlSecondsAfterFinished: 604800
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: jellyfin-probe
+            app.kubernetes.io/instance: jellyfin-probe-direct
+            kube-vnet/net.victoriametrics-cluster.vmselect: egress
+            kube-vnet/net.opentelemetry-gateway.otel-gateway: egress
+        spec:
+          restartPolicy: Never
+          enableServiceLinks: false
+          automountServiceAccountToken: false
+          terminationGracePeriodSeconds: 30
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: probe
+              image: python:3.14.9-slim-trixie@sha256:35caba83af2fe6da9a5d922f9b0156f21d1246a48278c58a08bd253303ba42e8
+              command: [python3, -I, /opt/jellyfin-probe/jellyfin_probe.py]
+              env:
+                - name: JELLYFIN_HOST
+                  value: jellyfin.local.example.com
+                - name: JELLYFIN_INSTANCE
+                  value: jellyfin-sqlite
+                - name: MODE
+                  value: direct
+                # Anthology B: 1080p H.264, 11 Mbit/s.
+                - name: ITEM
+                  value: 00000000000000000000000000000002
+                - name: BITRATE
+                  value: "120000000"
+              resources:
+                requests:
+                  cpu: 20m
+                  memory: 32Mi
+                limits:
+                  memory: 128Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: [ALL]
+              volumeMounts:
+                - name: script
+                  mountPath: /opt/jellyfin-probe
+                  readOnly: true
+                - name: password
+                  mountPath: /etc/jellyfin-probe
+                  readOnly: true
+          volumes:
+            - name: script
+              configMap:
+                name: jellyfin-probe
+            - name: password
+              secret:
+                secretName: jellyfin-probe

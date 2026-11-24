@@ -1,0 +1,28 @@
+{
+ "payload": [
+  {
+   "status": "firing",
+   "labels": {
+    "alertname": "Grafana alert rules failing to evaluate could not be evaluated",
+    "severity": "critical",
+    "count": "1"
+   },
+   "annotations": {
+    "description": "Error: [sse.dataQueryError] failed to execute query [A]: Post \"http://vmselect:8481/select/0/prometheus/api/v1/query\": context deadline exceeded",
+    "i0000": "Grafana alert rules failing to evaluate"
+   },
+   "generatorURL": "https://grafana.example.com/alerting/grafana/grafana-rule-evaluations-failing/view?orgId=1"
+  }
+ ],
+ "messages": [
+  {
+   "body": "admin **FIRING** Grafana alert rules failing to evaluate could not be evaluated [critical] \nError: [sse.dataQueryError] failed to execute query [A]: Post \"http://vmselect:8481/select/0/prometheus/api/v1/query\": context deadline exceeded\n \n[Rule](https://grafana.example.com/alerting/grafana/grafana-rule-evaluations-failing/view?orgId=1)",
+   "formatted_body": " <p> <a href=\"https://matrix.to/#/@admin:example.com\">admin</a> <strong><font color=\"red\">FIRING</font></strong> Grafana alert rules failing to evaluate could not be evaluated [critical]  <br/>Error: [sse.dataQueryError] failed to execute query [A]: Post &#34;http://vmselect:8481/select/0/prometheus/api/v1/query&#34;: context deadline exceeded </p>  <p> <a href=\"https://grafana.example.com/alerting/grafana/grafana-rule-evaluations-failing/view?orgId=1\">Rule</a> </p>",
+   "m.mentions": {
+    "user_ids": [
+     "@admin:example.com"
+    ]
+   }
+  }
+ ]
+}

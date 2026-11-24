@@ -1,0 +1,20 @@
+{
+ "alerts": [
+  {
+   "status": "firing",
+   "labels": {
+    "alertname": "No Ceph health metrics",
+    "grafana_folder": "Ceph",
+    "severity": "critical"
+   },
+   "annotations": {
+    "summary": "No Ceph health metrics",
+    "description": "The newest ceph_health_status sample is missing: the mgr prometheus module is down.",
+    "grafana_state_reason": "NoData",
+    "datasource_uid": "bfz43q0alv6kgc",
+    "ref_id": "A"
+   },
+   "generatorURL": "https://grafana.example.com/alerting/grafana/ceph-metrics-stale/view?orgId=1"
+  }
+ ]
+}

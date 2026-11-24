@@ -25,16 +25,24 @@ templating:
         color: limegreen
       when-matching-status: resolved
   # No .SilenceURL: it points at an Alertmanager, not Grafana.
-  # The matrix.to link becomes an m.mentions entry, so only firing warning/critical alerts
-  # notify; resolved and info messages carry an empty m.mentions and notify nobody.
+  # The matrix.to link becomes an m.mentions entry, so only firing critical alerts notify
+  # (ADR 0072); warning, info and resolved messages carry an empty m.mentions.
+  # The receiver templates per alert; Grafana's webhook payload (apps/grafana) already folds a
+  # group into one pseudo-alert per status: .Labels.count instances, one summary each in
+  # the annotations i0000..., which the range below picks out. Without a count label the title
+  # already says how many (rules that could not be evaluated); the list still follows.
   firing-template: '
     <p>
-      {{ if and (eq .Alert.Status "firing") (ne .Alert.Labels.severity "info") }}<a href="https://matrix.to/#/@admin:example.com">admin</a>{{ end }}
+      {{ if and (eq .Alert.Status "firing") (eq .Alert.Labels.severity "critical") }}<a href="https://matrix.to/#/@admin:example.com">admin</a>{{ end }}
       <strong><font color="{{ .ComputedValues.color }}">{{ .Alert.Status | ToUpper }}</font></strong>
       {{ .Alert.Labels.alertname }}
       {{ if .Alert.Labels.severity }}[{{ .Alert.Labels.severity }}]{{ end }}
-      {{ if .Alert.Annotations.summary }}: {{ .Alert.Annotations.summary }}{{ end }}
+      {{ if eq .Alert.Labels.count "1" }}{{ if .Alert.Annotations.summary }}: {{ .Alert.Annotations.summary }}{{ end }}{{ else if .Alert.Labels.count }}&mdash; {{ .Alert.Labels.count }} instances{{ end }}
       {{ if .Alert.Annotations.description }}<br/>{{ .Alert.Annotations.description }}{{ end }}
-      <br/>
+    </p>
+    {{ if ne .Alert.Labels.count "1" }}<ul>
+      {{ range $k, $v := .Alert.Annotations }}{{ if and (ne $k "summary") (ne $k "description") }}<li>{{ $v }}</li>{{ end }}{{ end }}
+    </ul>{{ end }}
+    <p>
       {{ if .GeneratorURL }}<a href="{{ .GeneratorURL }}">Rule</a>{{ else }}<a href="https://grafana.example.com/alerting/list">Alerts</a>{{ end }}
     </p>'

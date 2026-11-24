@@ -1,0 +1,25 @@
+{
+ "payload": [
+  {
+   "status": "firing",
+   "labels": {
+    "alertname": "Ceph health check raised",
+    "severity": "warning",
+    "count": "1"
+   },
+   "annotations": {
+    "summary": "Ceph MDS_SLOW_METADATA_IO (warning)",
+    "description": "Ceph has raised health check MDS_SLOW_METADATA_IO for 5 minutes. `ceph health detail` names the affected daemons.",
+    "i0000": "Ceph MDS_SLOW_METADATA_IO (warning)"
+   },
+   "generatorURL": "https://grafana.example.com/alerting/grafana/ceph-health-check/view?orgId=1"
+  }
+ ],
+ "messages": [
+  {
+   "body": "**FIRING** Ceph health check raised [warning] : Ceph MDS_SLOW_METADATA_IO (warning) \nCeph has raised health check MDS_SLOW_METADATA_IO for 5 minutes. `ceph health detail` names the affected daemons.\n \n[Rule](https://grafana.example.com/alerting/grafana/ceph-health-check/view?orgId=1)",
+   "formatted_body": " <p>  <strong><font color=\"orange\">FIRING</font></strong> Ceph health check raised [warning] : Ceph MDS_SLOW_METADATA_IO (warning) <br/>Ceph has raised health check MDS_SLOW_METADATA_IO for 5 minutes. `ceph health detail` names the affected daemons. </p>  <p> <a href=\"https://grafana.example.com/alerting/grafana/ceph-health-check/view?orgId=1\">Rule</a> </p>",
+   "m.mentions": {}
+  }
+ ]
+}

@@ -10,5 +10,3 @@ namespaces:
           exclusive: true
         - regex: ^@sip_.*:example\.com$
           exclusive: true
-        - regex: ^@.*:example\.com$
-          exclusive: false

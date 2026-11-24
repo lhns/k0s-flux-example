@@ -19,7 +19,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: gears
-          image: ghcr.io/lhns/compoundplanetarygearcalculator:1.0.4@sha256:2a6a8cf004aa5daf437d5a7ef877862284bfdcdff407925fca23e0d5ce34f6e8
+          image: ghcr.io/lhns/compoundplanetarygearcalculator:1.0.5@sha256:ff6f04f21c782ba60ca257ecedb8d51b1d49b679938b605c550d06b37568b01d
           ports:
             - name: http
               containerPort: 80

@@ -4,6 +4,7 @@ version = 3
 
 [plugins."io.containerd.cri.v1.images"]
   discard_unpacked_layers = false   # Spegel: peers can serve layer blobs
+  max_concurrent_downloads = 6      # full pulls of many-layer images, e.g. a desktop nixpkgs bump
 
   # Required for the config_path list below. Default (false) routes CRI pulls
   # through the transfer service, which resolves config_path with

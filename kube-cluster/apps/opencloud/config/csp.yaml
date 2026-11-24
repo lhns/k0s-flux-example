@@ -1,0 +1,52 @@
+# Upstream's opencloud-compose csp.yaml with this cluster's hosts written in: Authelia must be in
+# connect/frame/script-src or login fails, Euro-Office in frame/img-src and draw.io in frame-src, or
+# the editor stays blank.
+directives:
+  child-src:
+    - '''self'''
+  connect-src:
+    - '''self'''
+    - 'blob:'
+    - 'https://auth.example.com/'
+    - 'https://raw.githubusercontent.com/opencloud-eu/awesome-apps/'
+    - 'https://update.opencloud.eu/'
+    - 'https://tile.openstreetmap.org/'
+  default-src:
+    - '''none'''
+  font-src:
+    - '''self'''
+  frame-ancestors:
+    - '''self'''
+  frame-src:
+    - '''self'''
+    - 'blob:'
+    - 'https://drawio.example.com/'
+    - 'https://euro-office.example.com/'
+    - 'https://docs.opencloud.eu'
+    - 'https://auth.example.com/'
+  img-src:
+    - '''self'''
+    - 'data:'
+    - 'blob:'
+    - 'https://raw.githubusercontent.com/opencloud-eu/awesome-apps/'
+    - 'https://tile.openstreetmap.org/'
+    - 'https://euro-office.example.com/'
+  manifest-src:
+    - '''self'''
+  media-src:
+    - '''self'''
+    - 'blob:'
+  object-src:
+    - '''self'''
+    - 'blob:'
+  script-src:
+    - '''self'''
+    - '''unsafe-inline'''
+    - 'https://auth.example.com/'
+  style-src:
+    - '''self'''
+    - '''unsafe-inline'''
+    - 'blob:'
+  worker-src:
+    - '''self'''
+    - 'blob:'

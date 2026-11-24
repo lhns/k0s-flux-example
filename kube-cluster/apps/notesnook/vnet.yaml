@@ -14,20 +14,29 @@ metadata:
 spec:
   description: "identity + sync -> mongo (:27017), intra-namespace."
 ---
-# notesnook-server + sse -> identity (:8264) token introspection
+# notesnook-server + sse -> identity: token introspection (:8264), WAMP RPC (:8265)
 apiVersion: kube-vnet.lhns.de/v1alpha1
 kind: VirtualNetwork
 metadata:
   name: identity
   namespace: notesnook
 spec:
-  description: "sync + sse -> identity-server (:8264), intra-namespace."
+  description: "sync + sse -> identity-server (:8264, WAMP :8265), intra-namespace."
 ---
-# sse -> notesnook-server (:5264)
+# sse -> notesnook-server (:5264); identity -> notesnook-server WAMP (:5265, cache clears)
 apiVersion: kube-vnet.lhns.de/v1alpha1
 kind: VirtualNetwork
 metadata:
   name: notesnook-server
   namespace: notesnook
 spec:
-  description: "sse -> notesnook-server (:5264), intra-namespace."
+  description: "sse + identity -> notesnook-server (:5264, WAMP :5265), intra-namespace."
+---
+# identity + notesnook-server -> sse WAMP (:7265): SSE pushes, logouts, cache clears
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: sse-server
+  namespace: notesnook
+spec:
+  description: "identity + sync -> sse-server WAMP (:7265), intra-namespace."

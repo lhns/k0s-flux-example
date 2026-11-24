@@ -1,0 +1,29 @@
+{
+ "payload": [
+  {
+   "status": "firing",
+   "labels": {
+    "alertname": "No Ceph health metrics",
+    "severity": "critical",
+    "count": "1"
+   },
+   "annotations": {
+    "summary": "No Ceph health metrics",
+    "description": "The newest ceph_health_status sample is missing: the mgr prometheus module is down.",
+    "i0000": "No Ceph health metrics"
+   },
+   "generatorURL": "https://grafana.example.com/alerting/grafana/ceph-metrics-stale/view?orgId=1"
+  }
+ ],
+ "messages": [
+  {
+   "body": "admin **FIRING** No Ceph health metrics [critical] : No Ceph health metrics \nThe newest ceph_health_status sample is missing: the mgr prometheus module is down.\n \n[Rule](https://grafana.example.com/alerting/grafana/ceph-metrics-stale/view?orgId=1)",
+   "formatted_body": " <p> <a href=\"https://matrix.to/#/@admin:example.com\">admin</a> <strong><font color=\"red\">FIRING</font></strong> No Ceph health metrics [critical] : No Ceph health metrics <br/>The newest ceph_health_status sample is missing: the mgr prometheus module is down. </p>  <p> <a href=\"https://grafana.example.com/alerting/grafana/ceph-metrics-stale/view?orgId=1\">Rule</a> </p>",
+   "m.mentions": {
+    "user_ids": [
+     "@admin:example.com"
+    ]
+   }
+  }
+ ]
+}

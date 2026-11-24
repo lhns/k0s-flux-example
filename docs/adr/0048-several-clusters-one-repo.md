@@ -40,6 +40,9 @@ revisited.
   so a version runs there before prod's reviewed PR.
 - reloader, k0s-upgrade, reflector, kube-vnet, cert-manager and metallb are bases, with prod's
   builds byte-identical to before.
+- Amendment (2026-11-20): a vendored manifest is not a base. A cluster may fork a shared base
+  into its own directory to test a change alone; the fork is named in that component's README and
+  removed when the change is promoted back.
 
 ## Alternatives considered
 

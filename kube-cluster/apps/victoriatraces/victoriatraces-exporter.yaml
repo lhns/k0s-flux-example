@@ -12,6 +12,58 @@ receivers:
           scrape_interval: 10s
           static_configs:
             - targets: ['127.0.0.1:8888']
+        # The store's own /metrics; service.name = job_name, as for the VM components.
+        - job_name: 'victoriatraces'
+          scrape_interval: 10s
+          static_configs:
+            - targets: ['victoriatraces:10428']
+        # Cardinality via json_exporter's probe pattern; see README, "Cardinality metrics".
+        - job_name: 'victoriatraces-cardinality'
+          scrape_interval: 5m
+          scrape_timeout: 60s
+          metrics_path: /probe
+          params:
+            module: [cardinality]
+            target: ['http://victoriatraces:10428/select/logsql/stats_query?query=-trace_id_idx_stream%3A%2A%20_time%3A1d%20%7C%20math%20floor%28now%28%29%2F86400000000000%29%2A86400000000000%20as%20mid%2C%20_time%20as%20t%20%7C%20math%20t-mid%20as%20d%20%7C%20filter%20d%3A%3E%3D0%20%7C%20stats%20by%20%28%22resource_attr%3Aservice.name%22%29%20count_uniq%28_stream%29%20as%20streams']
+          static_configs:
+            - targets: ['victoriatraces-cardinality-exporter:7979']
+        # Hourly; the 62d windows = -retentionPeriod=2 (resources.yaml), keep in sync. See README.
+        - job_name: 'victoriatraces-cardinality-retention'
+          scrape_interval: 1h
+          scrape_timeout: 5m
+          metrics_path: /probe
+          params:
+            module: [retention]
+            target: ['http://victoriatraces:10428/select/logsql/stats_query?query=-trace_id_idx_stream%3A%2A%20_time%3A62d%20%7C%20stats%20by%20%28%22resource_attr%3Aservice.name%22%29%20count_uniq%28_stream_id%29%20as%20n']
+          static_configs:
+            - targets: ['victoriatraces-cardinality-exporter:7979']
+        - job_name: 'victoriatraces-cardinality-retention-total'
+          scrape_interval: 1h
+          scrape_timeout: 5m
+          metrics_path: /probe
+          params:
+            module: [retention_total]
+            target: ['http://victoriatraces:10428/select/logsql/stats_query?query=-trace_id_idx_stream%3A%2A%20_time%3A62d%20%7C%20stats%20count_uniq%28_stream_id%29%20as%20n']
+          static_configs:
+            - targets: ['victoriatraces-cardinality-exporter:7979']
+        - job_name: 'victoriatraces-cardinality-new-1h'
+          scrape_interval: 1h
+          scrape_timeout: 5m
+          metrics_path: /probe
+          params:
+            module: [new_1h]
+            target: ['http://victoriatraces:10428/select/logsql/stats_query?query=-trace_id_idx_stream%3A%2A%20_time%3A1h%20-_stream_id%3Ain%28-trace_id_idx_stream%3A%2A%20_time%3A%5Bnow-62d%2C%20now-1h%29%20%7C%20fields%20_stream_id%29%20%7C%20stats%20by%20%28%22resource_attr%3Aservice.name%22%29%20count_uniq%28_stream_id%29%20as%20n']
+          static_configs:
+            - targets: ['victoriatraces-cardinality-exporter:7979']
+        - job_name: 'victoriatraces-cardinality-new-1h-total'
+          scrape_interval: 1h
+          scrape_timeout: 5m
+          metrics_path: /probe
+          params:
+            module: [new_1h_total]
+            target: ['http://victoriatraces:10428/select/logsql/stats_query?query=-trace_id_idx_stream%3A%2A%20_time%3A1h%20-_stream_id%3Ain%28-trace_id_idx_stream%3A%2A%20_time%3A%5Bnow-62d%2C%20now-1h%29%20%7C%20fields%20_stream_id%29%20%7C%20stats%20count_uniq%28_stream_id%29%20as%20n']
+          static_configs:
+            - targets: ['victoriatraces-cardinality-exporter:7979']
 
   kafka/traces:
     protocol_version: 2.1.0

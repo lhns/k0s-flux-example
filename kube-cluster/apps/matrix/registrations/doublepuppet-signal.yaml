@@ -1,0 +1,12 @@
+# signal's double-puppet identity (matrix README, "Double puppeting"). url must be present and null:
+# Synapse then pushes nothing here, and a missing url is a startup error.
+id: doublepuppet-signal
+url: null
+as_token: ${MATRIX_SIGNAL_DOUBLEPUPPET_AS_TOKEN}
+hs_token: ${MATRIX_SIGNAL_DOUBLEPUPPET_HS_TOKEN}
+sender_localpart: doublepuppet-signal
+rate_limited: false
+namespaces:
+    users:
+        - regex: ^@.*:example\.com$
+          exclusive: false

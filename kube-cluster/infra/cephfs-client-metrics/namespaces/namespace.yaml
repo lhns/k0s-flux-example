@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cephfs-client-metrics
+  labels:
+    # The exporter reads debugfs and the kubelet's mounts through hostPath volumes, which the
+    # baseline level forbids. It runs unprivileged otherwise (resources.yaml).
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: privileged
+---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: cephfs-client-metrics
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 32Mi
+        cpu: 10m

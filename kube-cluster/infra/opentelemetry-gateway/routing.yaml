@@ -1,0 +1,45 @@
+---
+# Runs before auth: Authelia's regulation bans per user, not per IP. depth: 1 keys on the
+# client IP from X-Forwarded-For; the default keys on the edge peer, one bucket for everyone.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: otlp-ratelimit
+  namespace: opentelemetry-gateway
+spec:
+  rateLimit:
+    average: 50
+    burst: 200
+    sourceCriterion:
+      ipStrategy:
+        depth: 1
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: otlp-buffering
+  namespace: opentelemetry-gateway
+spec:
+  buffering:
+    maxRequestBodyBytes: 16777216 # 16 MiB
+---
+# The Service also carries gRPC, carbon, influx, jaeger, fluent and syslog: keep the match to
+# these paths and :4318 (README, "Public OTLP endpoint").
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: otlp
+  namespace: opentelemetry-gateway
+spec:
+  entryPoints: [websecure]
+  routes:
+    - kind: Rule
+      match: Host(`otlp.example.com`) && (Path(`/v1/metrics`) || Path(`/v1/logs`) || Path(`/v1/traces`))
+      services:
+        - name: opentelemetry-gateway
+          port: 4318
+      middlewares:
+        - name: otlp-ratelimit
+        - name: authelia-basic-only
+        - name: otlp-buffering
+  tls: {}

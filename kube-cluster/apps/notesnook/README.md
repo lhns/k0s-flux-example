@@ -13,14 +13,20 @@ Self-hosted [Notesnook](https://notesnook.com) sync stack: web client at `notes.
   attachments.
 - **sse-server**: realtime push (Server-Sent Events).
 - **notesnook-web**: the web SPA; server URLs come from `NN_*` env vars.
+- **WAMP**: the three servers call and notify each other over WAMP on their HTTP port + 1
+  (8265/5265/7265), authenticated with a token derived from `NOTESNOOK_API_SECRET`. Those ports are
+  on the Services only, never on an IngressRoute.
 - **kube-vnet**: one same-namespace VirtualNetwork per internal edge (`vnet.yaml`); Traefik reaches
   the fronted services via `net.traefik.traefik`.
 
 ## Decisions
 - **MongoDB has no authentication.** The upstream compose has none, and kube-vnet restricts ingress
   to identity-server and notesnook-server.
-- **MongoDB stays on 8.x.** Notesnook's C# drivers do not support server 9; see
-  [ADR 0051](../../../docs/adr/0051-notesnook-mongodb-held-at-8.md).
+- **MongoDB stays on 8.x** for now ([ADR 0051](../../../docs/adr/0051-notesnook-mongodb-held-at-8.md)).
+  Since `v1.0-beta.41` the services use `MongoDB.Driver` 3.12, which supports server 9, so the hold
+  can be revisited.
+- **Rolling back below `v1.0-beta.41` needs a database restore**, not just an image revert: it adds
+  fields to `user_settings` that older versions cannot deserialize.
 - **Attachments go to S3**: bucket `notes-attachments` on the Ceph RGW (`s3.example.com`, path-style, SigV4).
   Presigned URLs are public, so clients upload and download directly.
 - **The web client is a community build** (`heyfworld/notesnook-web`, built from a personal fork

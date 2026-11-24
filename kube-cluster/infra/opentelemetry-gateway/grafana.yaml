@@ -19,6 +19,7 @@ spec:
       title: Telemetry consumer group lagging
       condition: C
       for: 30m
+      keepFiringFor: 15m
       noDataState: OK
       execErrState: KeepLast
       data:
@@ -41,7 +42,11 @@ spec:
       labels:
         severity: warning
       annotations:
-        summary: 'Kafka consumer group {{ $labels.group }} is {{ with $values.A }}{{ humanize .Value }}{{ end }} messages behind'
+        summary: 'Kafka consumer group {{ $labels.group }} is {{ with $values.A }}{{ humanize .Value }}{{ else }}n/a{{ end }} messages behind'
         description: 'The exporter cannot keep up or is stuck, so data reaches the stores late. docs/observability-exporter-lag.md.'
       notificationSettings:
         receiver: matrix
+        group_by: [grafana_folder, alertname]
+        group_wait: 1m
+        group_interval: 10m
+        repeat_interval: 24h

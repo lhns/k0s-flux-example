@@ -100,7 +100,7 @@ spec:
         # Hermes writes config.yaml at runtime and the image hook migrates it; a ConfigMap mount
         # (subPath too) is read-only. Git stays the source of truth: the copy is reset each start.
         - name: seed-config
-          image: nousresearch/hermes-agent:v0.22.2@sha256:36099926da316742423544e055d4734777105ffe6341873af5459b957d0c2919
+          image: nousresearch/hermes-agent:v0.23.3@sha256:3e9fe4c6ef36490f43aa0d0d80f9df64e9c92a576eee3042f1a97c8813c05355
           resources:
             requests:
               memory: 16Mi
@@ -116,7 +116,7 @@ spec:
             - {name: profile-owner, mountPath: /etc/hermes-profile, readOnly: true}
       containers:
         - name: hermes
-          image: nousresearch/hermes-agent:v0.22.2@sha256:36099926da316742423544e055d4734777105ffe6341873af5459b957d0c2919
+          image: nousresearch/hermes-agent:v0.23.3@sha256:3e9fe4c6ef36490f43aa0d0d80f9df64e9c92a576eee3042f1a97c8813c05355
           args: [gateway, run]
           env:
             - {name: HERMES_MANAGED_DIR, value: /etc/hermes-managed}
@@ -201,7 +201,7 @@ spec:
         # Web dashboard (README, "Dashboard"). Calls hermes directly, skipping the image hook (config
         # migration, skill sync), which belongs to the gateway container and must not race it.
         - name: dashboard
-          image: nousresearch/hermes-agent:v0.22.2@sha256:36099926da316742423544e055d4734777105ffe6341873af5459b957d0c2919
+          image: nousresearch/hermes-agent:v0.23.3@sha256:3e9fe4c6ef36490f43aa0d0d80f9df64e9c92a576eee3042f1a97c8813c05355
           command: [hermes]
           args: [dashboard, --host, 0.0.0.0, --port, "9119", --no-open, --skip-build]
           env:

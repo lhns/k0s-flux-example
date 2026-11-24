@@ -50,8 +50,22 @@ spec:
     k0sUpgrade:
       k0sctlPath: kube-cluster/k0sctl.yaml
       path: kube-cluster/k0s-upgrade
-    # Error alerts for every generated Kustomization (templates/alerts.yaml); the Provider
-    # is infra/flux-alerts.
+    # Error events (templates/alerts.yaml); the Provider is infra/flux-alerts.
     alerts:
       providerRef: matrix
       cluster: kube-cluster
+      # Components the path from Grafana alerting to Matrix depends on: Grafana can't report
+      # their failure, so Flux events do. Everything else alerts through Grafana `flux-not-ready`.
+      components:
+        - infra-opentelemetry-gateway
+        - infra-opentelemetry-monitoring
+        - infra-strimzi
+        - app-victoriametrics-cluster
+        - app-victorialogs
+        - app-grafana
+        - infra-grafana-operator
+        - app-matrix-alerts
+        - infra-postgres
+        - infra-cloudnative-pg
+        - infra-kube-state-metrics
+        - infra-kube-vnet

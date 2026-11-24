@@ -1,0 +1,13 @@
+# The pod label selects nothing without this VirtualNetwork. A client pod also needs the label
+# `kube-vnet/net.attic.attic: egress`; desktops additionally need an egress rule in the webtop
+# chart's own NetworkPolicy (README, "Enabling").
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetwork
+metadata:
+  name: attic
+  namespace: attic
+spec:
+  description: "Nix desktops -> attic binary cache (:8080)."
+  allowedNamespaces:
+    names:
+      - webtop

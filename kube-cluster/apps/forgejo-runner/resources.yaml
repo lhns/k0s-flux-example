@@ -83,7 +83,7 @@ spec:
         - name: dind
           restartPolicy: Always
           # Re-run the listener check after a bump (README). The runner needs Docker 25.0+.
-          image: docker:29.9.2-dind
+          image: docker:29.10.0-dind@sha256:4bbc7223f81db790097c6dea42fb93e05b8fead4f0431fbe6ccaba6e8473201c
           securityContext:
             # dockerd needs it to manage cgroups, netfilter and overlay mounts.
             # Note this is root on the NODE, not merely in the pod — see the
@@ -147,7 +147,7 @@ spec:
               memory: 12Gi
       containers:
         - name: runner
-          image: code.forgejo.org/forgejo/runner:13.2.0
+          image: code.forgejo.org/forgejo/runner:13.2.2@sha256:a8543a45fe62bebef0534d5c223cf485d3294e6dd2e42a82dbcbfd40c54a6a22
           # The image's CMD is a bare `/bin/forgejo-runner`, which prints help and
           # exits — so the subcommand has to be given explicitly or the pod
           # CrashLoops on something that looks like success.

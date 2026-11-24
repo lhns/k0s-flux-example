@@ -1,21 +1,27 @@
 {{- /*
-  Opt-in via .Values.alerts (root release only). One Alert for error events from every
-  Kustomization the generator emits. notification-controller matches an eventSource
-  namespace exactly, with no wildcard, so each control namespace is listed. The Provider
-  is not rendered here (infra/flux-alerts).
+  Opt-in via .Values.alerts (root release only). One Alert for error events from the
+  flux-system sources and from the Kustomizations of alerts.components only; every other
+  Flux object alerts through Grafana (infra/flux-alerts). notification-controller matches
+  an eventSource namespace exactly, with no wildcard, so each component's control namespace
+  is listed. The Provider is not rendered here (infra/flux-alerts).
 */ -}}
 {{- with .Values.alerts }}
 {{- if hasKey $.Values "generate" }}
 {{- $nss := list }}
+{{- $generated := list }}
 {{- range $group := $.Values.groups }}
 {{- range $kustPath, $_ := $.Files.Glob (printf "%s/*/kustomization.yaml" $group.base) }}
 {{- $fluxName := base (dir $kustPath) }}
 {{- if $group.prefix }}{{- $fluxName = printf "%s-%s" $group.prefix $fluxName }}{{- end }}
-{{- $nss = append $nss (include "generators.controlNamespace" $fluxName) }}
+{{- $generated = append $generated $fluxName }}
 {{- end }}
+{{- end }}
+{{- range $name := .components | required "alerts.components is required when alerts is set" }}
+{{- if not (has $name $generated) }}{{ fail (printf "alerts.components: %q is not a generated Kustomization" $name) }}{{- end }}
+{{- $nss = append $nss (include "generators.controlNamespace" $name) }}
 {{- end }}
 ---
-apiVersion: notification.toolkit.fluxcd.io/v1beta3
+apiVersion: notification.toolkit.fluxcd.io/v1
 kind: Alert
 metadata:
   name: flux-errors

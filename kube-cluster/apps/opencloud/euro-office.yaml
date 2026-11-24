@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: euro-office
+  namespace: opencloud
+spec:
+  selector:
+    app.kubernetes.io/name: euro-office
+  ports:
+    - {name: http, port: 80, targetPort: http}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: euro-office
+  namespace: opencloud
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: {maxSurge: 1, maxUnavailable: 0}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: euro-office
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: euro-office
+        app.kubernetes.io/instance: opencloud
+        kube-vnet/net.traefik.traefik: ingress
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: euro-office
+          image: ghcr.io/euro-office/documentserver:v9.3.8@sha256:0f19cb676d48f85b826e199ac9e773ea12130f7d32bfc9a45e86aea320441b8a
+          ports:
+            - {name: http, containerPort: 80}
+          resources:
+            requests:
+              memory: 1Gi
+            limits:
+              memory: 4Gi
+          # The first start generates fonts and takes minutes.
+          startupProbe:
+            timeoutSeconds: 5
+            httpGet: {path: /healthcheck, port: http}
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            timeoutSeconds: 5
+            httpGet: {path: /healthcheck, port: http}
+            periodSeconds: 10
+          env:
+            - {name: WOPI_ENABLED, value: "true"}
+            - {name: JWT_SECRET, valueFrom: {secretKeyRef: {name: euro-office, key: JWT_SECRET}}}
+            # Converter workers = node CPUs x this. The default 1 starts 20 here, about 3 GiB idle.
+            - {name: NODE_CONFIG, value: '{"FileConverter":{"converter":{"maxprocesscount":0.1}}}'}

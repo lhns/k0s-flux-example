@@ -1,0 +1,20 @@
+{
+ "alerts": [
+  {
+   "status": "firing",
+   "labels": {
+    "alertname": "DatasourceError",
+    "grafana_folder": "Ceph",
+    "severity": "critical",
+    "datasource_uid": "bfz43q0alv6kgc",
+    "ref_id": "A",
+    "rulename": "Rule with \"quotes\" & <b>tags</b>"
+   },
+   "annotations": {
+    "summary": "irrelevant",
+    "Error": "[sse.dataQueryError] failed: \"quoted\" <script>alert(1)</script> & more\nsecond line\twith tab, backslash \\ and unicode \u00e4\u00f6 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   },
+   "generatorURL": "https://grafana.example.com/alerting/grafana/special/view?orgId=1"
+  }
+ ]
+}

@@ -1,6 +1,6 @@
 ---
 # Public — Vaultwarden does its own auth (local login + OpenID SSO via Authelia). TLS
-# via the default *.example.com wildcard. The Swarm `lolhens_redirect@file` middleware has
+# via the default *.example.com wildcard. The Swarm `example-net_redirect@file` middleware has
 # no cluster equivalent and is dropped.
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute

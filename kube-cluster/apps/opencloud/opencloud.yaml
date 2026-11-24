@@ -1,0 +1,209 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: opencloud-data
+  namespace: opencloud
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: opencloud-files
+  namespace: opencloud
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: cephfs-appdata
+  resources:
+    requests:
+      storage: 200Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: opencloud
+  namespace: opencloud
+spec:
+  selector:
+    app.kubernetes.io/name: opencloud
+  ports:
+    - {name: http, port: 9200, targetPort: http}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: opencloud
+  namespace: opencloud
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  serviceName: opencloud
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: opencloud
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: opencloud
+        app.kubernetes.io/instance: opencloud
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.msmtpd.msmtpd: egress
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: opencloud
+          image: opencloudeu/opencloud:9.1.1@sha256:d7d5b547f9e41db24f030d6a6857c4184752b2c875c936952ee0601b6531cd51
+          ports:
+            - {name: http, containerPort: 9200}
+          resources:
+            requests:
+              memory: 512Mi
+            limits:
+              memory: 2Gi
+          startupProbe:
+            timeoutSeconds: 5
+            httpGet: {path: /status.php, port: http}
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            timeoutSeconds: 5
+            httpGet: {path: /status.php, port: http}
+            periodSeconds: 10
+          env:
+            - {name: OC_URL, value: "https://opencloud.example.com"}
+            - {name: PROXY_TLS, value: "false"}
+            - {name: OC_LOG_LEVEL, value: warn}
+            # No "Support OpenCloud" donate/buy-support card in the sidebar.
+            - {name: WEB_OPTION_DISABLE_SPONSOR_LINK, value: "true"}
+            - {name: OC_OIDC_ISSUER, value: "https://auth.example.com"}
+            - {name: OC_EXCLUDE_RUN_SERVICES, value: idp}
+            - {name: PROXY_OIDC_REWRITE_WELLKNOWN, value: "true"}
+            - {name: PROXY_AUTOPROVISION_ACCOUNTS, value: "true"}
+            - {name: GRAPH_ASSIGN_DEFAULT_USER_ROLE, value: "false"}
+            # No local admin account; the admin role comes from Authelia's admin group (proxy.yaml).
+            - {name: OC_ADMIN_USER_ID, value: ""}
+            - {name: PROXY_CSP_CONFIG_FILE_LOCATION, value: /etc/opencloud/csp.yaml}
+            # The Authelia clients in apps/authelia. The roles come from the groups claim, so every
+            # client must ask for the groups scope.
+            - {name: WEB_OIDC_CLIENT_ID, value: opencloud}
+            # Webfinger scopes, lists so commas. The browser asks without offline_access, which in
+            # Authelia always forces the consent screen; it renews through a silent iframe on the
+            # Authelia session. The native apps have no such session and keep refresh tokens.
+            - {name: OC_OIDC_CLIENT_SCOPES, value: "openid,profile,email,groups,offline_access"}
+            - {name: WEBFINGER_WEB_OIDC_CLIENT_SCOPES, value: "openid,profile,email,groups"}
+            - {name: WEBFINGER_ANDROID_OIDC_CLIENT_ID, value: opencloud-android}
+            - {name: WEBFINGER_IOS_OIDC_CLIENT_ID, value: opencloud-ios}
+            - {name: WEBFINGER_DESKTOP_OIDC_CLIENT_ID, value: opencloud-desktop}
+            # Not nested under /var/lib/opencloud: the runtime would create the mount point's
+            # parent as root, and OpenCloud (uid 1000) then cannot create storage/metadata.
+            - {name: STORAGE_USERS_POSIX_ROOT, value: /var/lib/opencloud-files}
+            # Both are optional services: without notifications no mail is sent.
+            - {name: OC_ADD_RUN_SERVICES, value: "collaboration,notifications"}
+            - {name: COLLABORATION_WOPI_SRC, value: "https://opencloud.example.com"}
+            - {name: COLLABORATION_APP_NAME, value: Euro-Office}
+            - {name: COLLABORATION_APP_PRODUCT, value: OnlyOffice}
+            - {name: COLLABORATION_APP_ADDR, value: "https://euro-office.example.com"}
+            - {name: COLLABORATION_APP_ICON, value: "https://euro-office.example.com/web-apps/apps/documenteditor/main/resources/img/favicon.ico"}
+            - {name: COLLABORATION_APP_PROOF_DISABLE, value: "true"}
+            - {name: NOTIFICATIONS_SMTP_HOST, value: msmtpd.msmtpd.svc.cluster.local}
+            - {name: NOTIFICATIONS_SMTP_PORT, value: "2500"}
+            - {name: NOTIFICATIONS_SMTP_SENDER, value: "OpenCloud <admin+opencloud@example.com>"}
+            - {name: NOTIFICATIONS_SMTP_AUTHENTICATION, value: none}
+            - {name: WEB_OPTION_YJS_SERVER_URL, value: "wss://opencloud.example.com/yjs"}
+            # Not under /var/lib/opencloud (the RBD mount); the extension images are mounted here.
+            - {name: WEB_ASSET_APPS_PATH, value: /web/apps}
+            # The secrets `opencloud init` generated; the non-secret rest is config/opencloud.yaml.
+            - {name: OC_JWT_SECRET, valueFrom: {secretKeyRef: {name: opencloud, key: OC_JWT_SECRET}}}
+            - {name: OC_MACHINE_AUTH_API_KEY, valueFrom: {secretKeyRef: {name: opencloud, key: OC_MACHINE_AUTH_API_KEY}}}
+            - {name: OC_SYSTEM_USER_API_KEY, valueFrom: {secretKeyRef: {name: opencloud, key: OC_SYSTEM_USER_API_KEY}}}
+            - {name: OC_TRANSFER_SECRET, valueFrom: {secretKeyRef: {name: opencloud, key: OC_TRANSFER_SECRET}}}
+            - {name: OC_URL_SIGNING_SECRET, valueFrom: {secretKeyRef: {name: opencloud, key: OC_URL_SIGNING_SECRET}}}
+            - {name: OC_SERVICE_ACCOUNT_SECRET, valueFrom: {secretKeyRef: {name: opencloud, key: OC_SERVICE_ACCOUNT_SECRET}}}
+            - {name: COLLABORATION_WOPI_SECRET, valueFrom: {secretKeyRef: {name: opencloud, key: COLLABORATION_WOPI_SECRET}}}
+            - {name: IDM_ADMIN_PASSWORD, valueFrom: {secretKeyRef: {name: opencloud, key: IDM_ADMIN_PASSWORD}}}
+            - {name: IDM_SVC_PASSWORD, valueFrom: {secretKeyRef: {name: opencloud, key: IDM_SVC_PASSWORD}}}
+            - {name: IDM_REVASVC_PASSWORD, valueFrom: {secretKeyRef: {name: opencloud, key: IDM_REVASVC_PASSWORD}}}
+            - {name: IDM_IDPSVC_PASSWORD, valueFrom: {secretKeyRef: {name: opencloud, key: IDM_IDPSVC_PASSWORD}}}
+            # Each LDAP client binds as its own IDM service user, so the same password twice.
+            - {name: GRAPH_LDAP_BIND_PASSWORD, valueFrom: {secretKeyRef: {name: opencloud, key: IDM_SVC_PASSWORD}}}
+            - {name: AUTH_BASIC_LDAP_BIND_PASSWORD, valueFrom: {secretKeyRef: {name: opencloud, key: IDM_REVASVC_PASSWORD}}}
+            - {name: USERS_LDAP_BIND_PASSWORD, valueFrom: {secretKeyRef: {name: opencloud, key: IDM_REVASVC_PASSWORD}}}
+            - {name: GROUPS_LDAP_BIND_PASSWORD, valueFrom: {secretKeyRef: {name: opencloud, key: IDM_REVASVC_PASSWORD}}}
+            - {name: IDP_LDAP_BIND_PASSWORD, valueFrom: {secretKeyRef: {name: opencloud, key: IDM_IDPSVC_PASSWORD}}}
+          volumeMounts:
+            - {name: config, mountPath: /etc/opencloud, readOnly: true}
+            - {name: data, mountPath: /var/lib/opencloud}
+            - {name: files, mountPath: /var/lib/opencloud-files}
+            - {name: app-draw-io, mountPath: /web/apps/draw-io, subPath: web/apps/draw-io}
+            - {name: app-excalidraw, mountPath: /web/apps/excalidraw, subPath: web/apps/excalidraw}
+            - {name: app-apollon, mountPath: /web/apps/apollon, subPath: web/apps/apollon}
+            - {name: app-json-viewer, mountPath: /web/apps/json-viewer, subPath: web/apps/json-viewer}
+            - {name: app-unzip, mountPath: /web/apps/unzip, subPath: web/apps/unzip}
+            # The directory name is the app id.
+            - name: app-presentation-viewer
+              mountPath: /web/apps/com.github.jankaritech.mdpresentation-viewer
+              subPath: app/com.github.jankaritech.mdpresentation-viewer
+            - {name: app-notes, mountPath: /web/apps/notes}
+            - {name: app-ocphotos, mountPath: /web/apps/ocphotos}
+      volumes:
+        - name: config
+          configMap:
+            name: opencloud-config
+        # The PVCs by name. A volumeClaimTemplate would provision new, empty volumes.
+        - name: data
+          persistentVolumeClaim:
+            claimName: opencloud-data
+        - name: files
+          persistentVolumeClaim:
+            claimName: opencloud-files
+        # Web extensions, one image each. A bump needs minOpenCloud/maxOpenCloud checked (README).
+        - name: app-draw-io
+          image:
+            # renovate: datasource=docker
+            reference: opencloudeu/web-extensions:draw-io-2.2.1@sha256:334455bb42002f4b5c49608d3a7dcc844ba1b1e3104d6ee40763ced5cf43ce06
+            pullPolicy: IfNotPresent
+        - name: app-excalidraw
+          image:
+            # renovate: datasource=docker
+            reference: opencloudeu/web-extensions:excalidraw-1.2.0@sha256:93eaa94de58c9df5bd47aa42622879804189c9d17e5495f16d7f35fab30fdce8
+            pullPolicy: IfNotPresent
+        - name: app-apollon
+          image:
+            # renovate: datasource=docker
+            reference: opencloudeu/web-extensions:apollon-1.1.1@sha256:8ed6d221bd5019230ae1743bfef3fc683a4741d89f7e10d7d46404fb77ff07bf
+            pullPolicy: IfNotPresent
+        - name: app-json-viewer
+          image:
+            # renovate: datasource=docker
+            reference: opencloudeu/web-extensions:json-viewer-2.1.0@sha256:fe43f1bb92d62c283ea6ed4a8b8d069f8ff4cfcaa75acbdec08fd9c256705df4
+            pullPolicy: IfNotPresent
+        - name: app-unzip
+          image:
+            # renovate: datasource=docker
+            reference: opencloudeu/web-extensions:unzip-2.2.3@sha256:6ad5fc4742f3a867276ff245710d220ccc78b998ce687e9cfb0de7f8e99eb61b
+            pullPolicy: IfNotPresent
+        # The vendor's own image: apps under /app, not /web/apps as in web-extensions.
+        - name: app-presentation-viewer
+          image:
+            # renovate: datasource=docker
+            reference: jankaritech/mdpresentation-viewer-opencloud:3.1.1@sha256:8013d031b3f4b143ce1752ab20f083c65d41ceb3b675a4f48356d381dddb082e
+            pullPolicy: IfNotPresent
+        # Composed in artifacts/ (README).
+        - name: app-notes
+          image:
+            reference: ${OPENCLOUD_APP_NOTES_REF}
+            pullPolicy: IfNotPresent
+        - name: app-ocphotos
+          image:
+            reference: ${OPENCLOUD_APP_OCPHOTOS_REF}
+            pullPolicy: IfNotPresent

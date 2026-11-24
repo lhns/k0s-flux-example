@@ -1,0 +1,28 @@
+{
+ "payload": [
+  {
+   "status": "firing",
+   "labels": {
+    "alertname": "Rule with \"quotes\" & <b>tags</b> could not be evaluated",
+    "severity": "critical",
+    "count": "1"
+   },
+   "annotations": {
+    "description": "Error: [sse.dataQueryError] failed: \"quoted\" <script>alert(1)</script> & more second line with tab, backslash \\ and unicode äö xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx...",
+    "i0000": "Rule with \"quotes\" & <b>tags</b>"
+   },
+   "generatorURL": "https://grafana.example.com/alerting/grafana/special/view?orgId=1"
+  }
+ ],
+ "messages": [
+  {
+   "body": "admin **FIRING** Rule with \"quotes\" & <b>tags</b> could not be evaluated [critical] \nError: [sse.dataQueryError] failed: \"quoted\" <script>alert(1)</script> & more second line with tab, backslash \\ and unicode äö xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx...\n \n[Rule](https://grafana.example.com/alerting/grafana/special/view?orgId=1)",
+   "formatted_body": " <p> <a href=\"https://matrix.to/#/@admin:example.com\">admin</a> <strong><font color=\"red\">FIRING</font></strong> Rule with &#34;quotes&#34; &amp; &lt;b&gt;tags&lt;/b&gt; could not be evaluated [critical]  <br/>Error: [sse.dataQueryError] failed: &#34;quoted&#34; &lt;script&gt;alert(1)&lt;/script&gt; &amp; more second line with tab, backslash \\ and unicode äö xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx... </p>  <p> <a href=\"https://grafana.example.com/alerting/grafana/special/view?orgId=1\">Rule</a> </p>",
+   "m.mentions": {
+    "user_ids": [
+     "@admin:example.com"
+    ]
+   }
+  }
+ ]
+}

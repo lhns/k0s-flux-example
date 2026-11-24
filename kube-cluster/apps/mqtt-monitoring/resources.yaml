@@ -33,7 +33,7 @@ spec:
     spec:
       containers:
         - name: mqtt-monitoring
-          image: ghcr.io/lhns/mqtt-monitoring:0.3.0
+          image: ghcr.io/lhns/mqtt-monitoring:0.3.0@sha256:1a1c9f666024e0814d6e98335bf60877b1a372cca2439265c70ca45722de51ef
           env:
             # OTLP export target: the in-cluster gateway.
             - name: OTEL_EXPORTER_OTLP_ENDPOINT

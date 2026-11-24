@@ -84,9 +84,9 @@ out of a monorepo), jars fetched by URL, ConfigMaps. Something has to turn those
 and nothing else here will.
 
 If the content is *already* a published image, mount it directly as an image volume instead;
-`subPath` covers layout, and wrapping it in a composition only re-wraps an artifact that already
-exists. See **Getting files into a workload** in the [root README](../../../README.md) for the
-rule and both worked examples.
+`subPath` covers layout (a directory: image volumes mount directories only), and wrapping it in
+a composition only re-wraps an artifact that already exists. See **Getting files into a workload**
+in the [root README](../../../README.md) for the rule and both worked examples.
 
 ## The thing to understand first: who pulls
 

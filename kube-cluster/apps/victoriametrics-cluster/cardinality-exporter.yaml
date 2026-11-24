@@ -1,0 +1,32 @@
+# json_exporter config, probed with module=cardinality|retention&target=<vmselect tsdb status URL>.
+modules:
+  cardinality:
+    metrics:
+      - name: victoriametrics_cardinality_series_today_total
+        help: Series seen today (the status/tsdb default date).
+        path: '{ .data.totalSeries }'
+        valuetype: gauge
+      - name: victoriametrics_cardinality_series
+        type: object
+        valuetype: gauge
+        help: Series seen today per service.name (focusLabel).
+        path: '{ .data.seriesCountByFocusLabelValue[*] }'
+        labels:
+          source: '{ .name }'
+        values:
+          today: '{ .value }'
+      - name: victoriametrics_cardinality_series_today
+        type: object
+        valuetype: gauge
+        help: Series seen today for the top metric names.
+        path: '{ .data.seriesCountByMetricName[*] }'
+        labels:
+          metric: '{ .name }'
+        values:
+          by_metric: '{ .value }'
+  retention:
+    metrics:
+      - name: victoriametrics_cardinality_series_retention_total
+        help: Series in the index over the whole retention.
+        path: '{ .data[0] }'
+        valuetype: gauge

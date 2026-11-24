@@ -1,0 +1,12 @@
+# instagram's double-puppet identity (matrix README, "Double puppeting"). url must be present and null:
+# Synapse then pushes nothing here, and a missing url is a startup error.
+id: doublepuppet-instagram
+url: null
+as_token: ${MATRIX_INSTAGRAM_DOUBLEPUPPET_AS_TOKEN}
+hs_token: ${MATRIX_INSTAGRAM_DOUBLEPUPPET_HS_TOKEN}
+sender_localpart: doublepuppet-instagram
+rate_limited: false
+namespaces:
+    users:
+        - regex: ^@.*:example\.com$
+          exclusive: false

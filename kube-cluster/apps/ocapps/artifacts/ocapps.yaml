@@ -1,0 +1,60 @@
+# ocapps, built from its tag: upstream publishes no image. The Dockerfile reproduces upstream's
+# with pinned bases; re-diff it against upstream's on every bump. Pin a tag, never a branch.
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: ocapps
+  namespace: ocapps
+spec:
+  interval: 12h
+  url: https://github.com/gnacho/ocapps
+  ref:
+    tag: v0.1.16
+---
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageBuild
+metadata:
+  name: ocapps
+  namespace: ocapps
+spec:
+  interval: 1h
+  platforms: [linux/amd64]
+  context:
+    sourceRef:
+      kind: GitRepository
+      name: ocapps
+      # Must match the ref above; scripts/check-source-pins.py enforces it.
+      revision: v0.1.16
+  # go mod download and apk.
+  network: Sandbox
+  # Compiling modernc.org/sqlite takes more than the namespace's default request.
+  resources:
+    requests:
+      cpu: "1"
+      memory: 2Gi
+  dockerfile:
+    inline: |
+      # The golang tag must satisfy go.mod's `go` line.
+      # renovate: datasource=docker
+      FROM golang:1.26.11-alpine@sha256:ecb67f987aa1a57794c91d19ade7ae0209f2f0f5496aaef9e6ae85ddf92d02ab AS build
+      WORKDIR /src
+      # The whole tree before any go command: go.mod replaces a module with ./third_party.
+      COPY . .
+      # No version ldflags: the context has no .git. /healthz reports "dev".
+      RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /ocapps ./cmd/ocapps
+
+      # ffmpeg makes the video posters of the photos module.
+      # renovate: datasource=docker
+      FROM alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
+      RUN apk add --no-cache ca-certificates tzdata ffmpeg \
+       && adduser -D -u 10001 ocapps
+      COPY --from=build /ocapps /usr/local/bin/ocapps
+      USER 10001
+      ENTRYPOINT ["/usr/local/bin/ocapps"]
+  push:
+    history: 10
+    writeRefTo:
+      namespace: gen-app-ocapps
+      keys:
+        ref: OCAPPS_REF

@@ -14,17 +14,17 @@ spec:
       # Must be the exact tag the synapse container runs: the modules are resolved
       # against this interpreter. scripts/validate.sh enforces it.
       # renovate: datasource=docker
-      FROM matrixdotorg/synapse:v1.163.0@sha256:e98ab72138d90fa8b8876c6421fe78a9fdb181c0d7cc690ad740e5173e0c65e6
+      FROM matrixdotorg/synapse:v1.165.0@sha256:673b4223c81a7634fd07d832b939a58f97081cfdaae7cdd2d1664cdcf7611b62
       # --no-deps is load-bearing: pip --target ignores site-packages, so a full resolve
       # builds psycopg2 from source and there is no compiler here. psycopg2, Twisted and
       # PyYAML are CLI-only deps of the provider and are already in the image.
       # renovate: datasource=pypi
       RUN pip install --no-cache-dir --target=/pymods --no-deps synapse-s3-storage-provider==1.7.0
       # renovate: datasource=pypi
-      RUN pip install --no-cache-dir --target=/pymods boto3==1.43.117
+      RUN pip install --no-cache-dir --target=/pymods boto3==1.44.9
       # humanize and tqdm are used only by the s3_media_upload CLI the sweep runs.
       # renovate: datasource=pypi
-      RUN pip install --no-cache-dir --target=/pymods humanize==4.16.0
+      RUN pip install --no-cache-dir --target=/pymods humanize==4.17.0
       # renovate: datasource=pypi
       RUN pip install --no-cache-dir --target=/pymods tqdm==4.70.1
       # chmod because synapse reads this as uid 991 off a read-only mount; pip's modes are

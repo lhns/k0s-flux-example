@@ -4,17 +4,14 @@ metadata:
   annotations:
     # Read by the root generator; inert to kustomize.
     #
-    # MetalLB for the cheogram-sip-lb VIP (10.20.176.150); reflector because prosody in the
-    # snikket ns reads the same two component secrets; reloader for the annotation on the
-    # Deployment; app-matrix-substitution-secrets because it owns livekit-sip-trunk,
-    # which reflector mirrors here and render-config exits non-zero without.
-    # NOT app-snikket: snikket's pod needs cheogram-sip-components, which this component
-    # creates, so that dependsOn deadlocks a fresh cluster. wait-prosody orders the start.
-    flux-component-generator/dependsOn: infra-metallb,infra-reflector,infra-reloader,app-matrix-substitution-secrets
+    # MetalLB for the cheogram-sip-lb VIP; reflector mirrors snikket's component secrets here;
+    # reloader for the Deployment annotation; app-matrix-substitution-secrets owns
+    # livekit-sip-trunk, which render-config exits non-zero without; app-snikket owns the
+    # component secrets and runs the prosody the binary dials first thing.
+    flux-component-generator/dependsOn: infra-metallb,infra-reflector,infra-reloader,app-matrix-substitution-secrets,app-snikket
 resources:
 - resources.yaml
 - routing-release.yaml
-- secret-components.yaml
 - secret-registrations.yaml
 - vnet.yaml
 configMapGenerator:
@@ -22,18 +19,15 @@ configMapGenerator:
   namespace: cheogram-sip
   envs:
   - cheogram-sip.env
-# The WHOLE of /etc/asterisk except pjsip.conf, which the routing chart generates: the image
-# ships none, and render-config copies these into an emptyDir alongside the credentials they
-# #include. A file Asterisk wants and does not find here is a module silently running on its
-# compiled-in defaults.
+# /etc/asterisk except the chart's pjsip.conf and rtp.conf: the image ships none, and
+# render-config copies every file here (cp /config/*). A missing modules.conf stops Asterisk;
+# any other missing file leaves its module on compiled-in defaults.
 - name: cheogram-sip-config
   namespace: cheogram-sip
   files:
-  - asterisk.conf
   - modules.conf
   - pjproject.conf
   - xmpp.conf
-  - rtp.conf
   - motif.conf
   - extensions.lua
   - logger.conf

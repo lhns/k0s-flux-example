@@ -39,6 +39,27 @@
         "hide": 0
       },
       {
+        "name": "cluster",
+        "label": "Cluster",
+        "type": "custom",
+        "query": "prod : |kube",
+        "options": [
+          {
+            "selected": true,
+            "text": "prod",
+            "value": "|kube"
+          }
+        ],
+        "current": {
+          "selected": true,
+          "text": "prod",
+          "value": "|kube"
+        },
+        "multi": false,
+        "includeAll": false,
+        "hide": 0
+      },
+      {
         "name": "server",
         "label": "Server",
         "type": "query",
@@ -47,10 +68,10 @@
           "uid": "${ds}"
         },
         "query": {
-          "query": "label_values({__name__=\"system.cpu.load_average.1m\"}, host.name)",
+          "query": "label_values({__name__=\"system.cpu.load_average.1m\", \"k8s.cluster.name\"=~\"$cluster\"}, host.name)",
           "refId": "server"
         },
-        "definition": "label_values({__name__=\"system.cpu.load_average.1m\"}, host.name)",
+        "definition": "label_values({__name__=\"system.cpu.load_average.1m\", \"k8s.cluster.name\"=~\"$cluster\"}, host.name)",
         "regex": "",
         "refresh": 2,
         "sort": 1,
@@ -77,10 +98,10 @@
           "uid": "${ds}"
         },
         "query": {
-          "query": "label_values({__name__=\"system.disk.io_time\", host.name=~\"$server\"}, device)",
+          "query": "label_values({__name__=\"system.disk.io_time\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}, device)",
           "refId": "device"
         },
-        "definition": "label_values({__name__=\"system.disk.io_time\", host.name=~\"$server\"}, device)",
+        "definition": "label_values({__name__=\"system.disk.io_time\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}, device)",
         "regex": "/^(?!dm-|loop|(sd|vd|xvd)[a-z]+[0-9]+$|nvme[0-9]+n[0-9]+p[0-9]+$).*/",
         "refresh": 2,
         "sort": 1,
@@ -155,7 +176,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "count(time() - max by (\"host.name\") (tlast_over_time({__name__=\"system.cpu.load_average.1m\", host.name=~\"$server\"}[1d])) > 300) or vector(0)",
+          "expr": "count(time() - max by (\"host.name\") (tlast_over_time({__name__=\"system.cpu.load_average.1m\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}[1d])) > 300) or vector(0)",
           "legendFormat": "",
           "range": true,
           "instant": false,
@@ -244,7 +265,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "min(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}) / -deriv(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"})[6h:5m]) and deriv(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"})[6h:5m]) < 0) or vector(1e+10)",
+          "expr": "min(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\", \"k8s.cluster.name\"=~\"$cluster\"}) / -deriv(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\", \"k8s.cluster.name\"=~\"$cluster\"})[6h:5m]) and deriv(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\", \"k8s.cluster.name\"=~\"$cluster\"})[6h:5m]) < 0) or vector(1e+10)",
           "legendFormat": "",
           "range": true,
           "instant": false,
@@ -321,7 +342,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "topk(1, label_move(1 - sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"idle\"}[5m])) / sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\"}[5m])), \"host.name\", \"server\"))",
+          "expr": "topk(1, label_move(1 - sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"idle\", \"k8s.cluster.name\"=~\"$cluster\"}[5m])) / sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}[5m])), \"host.name\", \"server\"))",
           "legendFormat": "{{server}}",
           "range": true,
           "instant": false,
@@ -398,7 +419,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "topk(1, label_move(sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"wait\"}[5m])) / sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\"}[5m])), \"host.name\", \"server\"))",
+          "expr": "topk(1, label_move(sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"wait\", \"k8s.cluster.name\"=~\"$cluster\"}[5m])) / sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}[5m])), \"host.name\", \"server\"))",
           "legendFormat": "{{server}}",
           "range": true,
           "instant": false,
@@ -475,7 +496,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "topk(1, label_move(max by (\"host.name\") ({__name__=\"system.cpu.load_average.5m\", host.name=~\"$server\"}) / max by (\"host.name\") ({__name__=\"system.cpu.logical.count\", host.name=~\"$server\"}), \"host.name\", \"server\"))",
+          "expr": "topk(1, label_move(max by (\"host.name\") ({__name__=\"system.cpu.load_average.5m\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}) / max by (\"host.name\") ({__name__=\"system.cpu.logical.count\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}), \"host.name\", \"server\"))",
           "legendFormat": "{{server}}",
           "range": true,
           "instant": false,
@@ -560,7 +581,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "min((max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\"})) / -deriv((max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\"}))[1h:1m]) and deriv((max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\"}))[1h:1m]) < 0 and (max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\"})) < 0.25 * max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"})) or vector(1e+10)",
+          "expr": "min((max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\", \"k8s.cluster.name\"=~\"$cluster\"})) / -deriv((max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\", \"k8s.cluster.name\"=~\"$cluster\"}))[1h:1m]) and deriv((max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\", \"k8s.cluster.name\"=~\"$cluster\"}))[1h:1m]) < 0 and (max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\", \"k8s.cluster.name\"=~\"$cluster\"})) < 0.25 * max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"})) or vector(1e+10)",
           "legendFormat": "",
           "range": true,
           "instant": false,
@@ -1316,7 +1337,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(time() - max by (\"host.name\") (tlast_over_time({__name__=\"system.cpu.load_average.1m\", host.name=~\"$server\"}[1d])), \"host.name\", \"server\")",
+          "expr": "label_move(time() - max by (\"host.name\") (tlast_over_time({__name__=\"system.cpu.load_average.1m\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}[1d])), \"host.name\", \"server\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -1328,7 +1349,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max by (\"host.name\") ({__name__=\"system.uptime\", host.name=~\"$server\"}), \"host.name\", \"server\")",
+          "expr": "label_move(max by (\"host.name\") ({__name__=\"system.uptime\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}), \"host.name\", \"server\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -1340,7 +1361,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(1 - sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"idle\"}[5m])) / sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\"}[5m])), \"host.name\", \"server\")",
+          "expr": "label_move(1 - sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"idle\", \"k8s.cluster.name\"=~\"$cluster\"}[5m])) / sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}[5m])), \"host.name\", \"server\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -1352,7 +1373,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"wait\"}[5m])) / sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\"}[5m])), \"host.name\", \"server\")",
+          "expr": "label_move(sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"wait\", \"k8s.cluster.name\"=~\"$cluster\"}[5m])) / sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}[5m])), \"host.name\", \"server\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -1364,7 +1385,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"steal\"}[5m])) / sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\"}[5m])), \"host.name\", \"server\")",
+          "expr": "label_move(sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"steal\", \"k8s.cluster.name\"=~\"$cluster\"}[5m])) / sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}[5m])), \"host.name\", \"server\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -1376,7 +1397,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max by (\"host.name\") ({__name__=\"system.cpu.load_average.5m\", host.name=~\"$server\"}) / max by (\"host.name\") ({__name__=\"system.cpu.logical.count\", host.name=~\"$server\"}), \"host.name\", \"server\")",
+          "expr": "label_move(max by (\"host.name\") ({__name__=\"system.cpu.load_average.5m\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}) / max by (\"host.name\") ({__name__=\"system.cpu.logical.count\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}), \"host.name\", \"server\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -1388,7 +1409,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\"}) / max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}), \"host.name\", \"server\")",
+          "expr": "label_move(max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\", \"k8s.cluster.name\"=~\"$cluster\"}) / max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}), \"host.name\", \"server\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -1400,7 +1421,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(((max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\"})) / -deriv((max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\"}))[1h:1m]) and deriv((max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\"}))[1h:1m]) < 0 and (max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\"})) < 0.25 * max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"})) or (max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}) * 0 + 1e+10), \"host.name\", \"server\")",
+          "expr": "label_move(((max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\", \"k8s.cluster.name\"=~\"$cluster\"})) / -deriv((max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\", \"k8s.cluster.name\"=~\"$cluster\"}))[1h:1m]) and deriv((max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\", \"k8s.cluster.name\"=~\"$cluster\"}))[1h:1m]) < 0 and (max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\", \"k8s.cluster.name\"=~\"$cluster\"})) < 0.25 * max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"})) or (max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}) * 0 + 1e+10), \"host.name\", \"server\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -1412,7 +1433,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max by (\"host.name\") ({__name__=\"system.paging.usage\", host.name=~\"$server\", state=\"used\"}), \"host.name\", \"server\")",
+          "expr": "label_move(max by (\"host.name\") ({__name__=\"system.paging.usage\", host.name=~\"$server\", state=\"used\", \"k8s.cluster.name\"=~\"$cluster\"}), \"host.name\", \"server\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -1424,7 +1445,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(min by (\"host.name\") (max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}) / -deriv(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"})[6h:5m]) and deriv(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"})[6h:5m]) < 0) or (max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}) * 0 + 1e+10), \"host.name\", \"server\")",
+          "expr": "label_move(min by (\"host.name\") (max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\", \"k8s.cluster.name\"=~\"$cluster\"}) / -deriv(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\", \"k8s.cluster.name\"=~\"$cluster\"})[6h:5m]) and deriv(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\", \"k8s.cluster.name\"=~\"$cluster\"})[6h:5m]) < 0) or (max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}) * 0 + 1e+10), \"host.name\", \"server\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -1436,7 +1457,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max by (\"host.name\") (max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.utilization\", host.name=~\"$server\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"})), \"host.name\", \"server\")",
+          "expr": "label_move(max by (\"host.name\") (max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.utilization\", host.name=~\"$server\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\", \"k8s.cluster.name\"=~\"$cluster\"})), \"host.name\", \"server\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -1448,7 +1469,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "(label_move(sum by (\"host.name\") (rate({__name__=\"system.network.io\", host.name=~\"$server\", device!~\"lo|veth.*|docker.*|br-.*\", direction=\"receive\", k8s.node.name=\"\"}[$__rate_interval])), \"host.name\", \"server\")) or (label_move(sum by (\"k8s.node.name\") (rate({__name__=\"k8s.pod.network.io\", k8s.node.name=~\"$server\", direction=\"receive\"}[$__rate_interval])), \"k8s.node.name\", \"server\"))",
+          "expr": "(label_move(sum by (\"host.name\") (rate({__name__=\"system.network.io\", host.name=~\"$server\", device!~\"lo|veth.*|docker.*|br-.*\", direction=\"receive\", k8s.node.name=\"\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])), \"host.name\", \"server\")) or (label_move(sum by (\"k8s.node.name\") (rate({__name__=\"k8s.pod.network.io\", k8s.node.name=~\"$server\", direction=\"receive\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])), \"k8s.node.name\", \"server\"))",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -1460,7 +1481,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "(label_move(sum by (\"host.name\") (rate({__name__=\"system.network.io\", host.name=~\"$server\", device!~\"lo|veth.*|docker.*|br-.*\", direction=\"transmit\", k8s.node.name=\"\"}[$__rate_interval])), \"host.name\", \"server\")) or (label_move(sum by (\"k8s.node.name\") (rate({__name__=\"k8s.pod.network.io\", k8s.node.name=~\"$server\", direction=\"transmit\"}[$__rate_interval])), \"k8s.node.name\", \"server\"))",
+          "expr": "(label_move(sum by (\"host.name\") (rate({__name__=\"system.network.io\", host.name=~\"$server\", device!~\"lo|veth.*|docker.*|br-.*\", direction=\"transmit\", k8s.node.name=\"\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])), \"host.name\", \"server\")) or (label_move(sum by (\"k8s.node.name\") (rate({__name__=\"k8s.pod.network.io\", k8s.node.name=~\"$server\", direction=\"transmit\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])), \"k8s.node.name\", \"server\"))",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -1604,7 +1625,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(1 - sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"idle\"}[$__rate_interval])) / sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\"}[$__rate_interval])), \"host.name\", \"server\")",
+          "expr": "label_move(1 - sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"idle\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])) / sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])), \"host.name\", \"server\")",
           "legendFormat": "{{server}}",
           "range": true,
           "instant": false,
@@ -1685,7 +1706,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "sum by (state) (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state!=\"idle\"}[$__rate_interval])) / scalar(sum(rate({__name__=\"system.cpu.time\", host.name=~\"$server\"}[$__rate_interval])))",
+          "expr": "sum by (state) (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state!=\"idle\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])) / scalar(sum(rate({__name__=\"system.cpu.time\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])))",
           "legendFormat": "{{state}}",
           "range": true,
           "instant": false,
@@ -1770,7 +1791,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"wait\"}[$__rate_interval])) / sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\"}[$__rate_interval])), \"host.name\", \"server\")",
+          "expr": "label_move(sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"wait\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])) / sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])), \"host.name\", \"server\")",
           "legendFormat": "{{server}}",
           "range": true,
           "instant": false,
@@ -1855,7 +1876,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"steal\"}[$__rate_interval])) / sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\"}[$__rate_interval])), \"host.name\", \"server\")",
+          "expr": "label_move(sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"steal\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])) / sum by (\"host.name\") (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])), \"host.name\", \"server\")",
           "legendFormat": "{{server}}",
           "range": true,
           "instant": false,
@@ -1945,7 +1966,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max by (\"host.name\") ({__name__=\"system.cpu.load_average.5m\", host.name=~\"$server\"}) / max by (\"host.name\") ({__name__=\"system.cpu.logical.count\", host.name=~\"$server\"}), \"host.name\", \"server\")",
+          "expr": "label_move(max by (\"host.name\") ({__name__=\"system.cpu.load_average.5m\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}) / max by (\"host.name\") ({__name__=\"system.cpu.logical.count\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}), \"host.name\", \"server\")",
           "legendFormat": "{{server}}",
           "range": true,
           "instant": false,
@@ -2027,7 +2048,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max by (\"host.name\") (1 - sum by (\"host.name\", cpu) (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"idle\"}[$__rate_interval])) / sum by (\"host.name\", cpu) (rate({__name__=\"system.cpu.time\", host.name=~\"$server\"}[$__rate_interval]))), \"host.name\", \"server\")",
+          "expr": "label_move(max by (\"host.name\") (1 - sum by (\"host.name\", cpu) (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", state=\"idle\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])) / sum by (\"host.name\", cpu) (rate({__name__=\"system.cpu.time\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval]))), \"host.name\", \"server\")",
           "legendFormat": "{{server}}",
           "range": true,
           "instant": false,
@@ -2122,7 +2143,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\"}) / max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}), \"host.name\", \"server\")",
+          "expr": "label_move(max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\", \"k8s.cluster.name\"=~\"$cluster\"}) / max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}), \"host.name\", \"server\")",
           "legendFormat": "{{server}}",
           "range": true,
           "instant": false,
@@ -2203,7 +2224,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move((max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\"})), \"host.name\", \"server\")",
+          "expr": "label_move((max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\", \"k8s.cluster.name\"=~\"$cluster\"})), \"host.name\", \"server\")",
           "legendFormat": "{{server}}",
           "range": true,
           "instant": false,
@@ -2288,7 +2309,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(deriv((max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\"}))[1h:5m]) * 3600, \"host.name\", \"server\")",
+          "expr": "label_move(deriv((max by (\"host.name\") ({__name__=\"system.memory.limit\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}) - max by (\"host.name\") ({__name__=\"system.memory.usage\", host.name=~\"$server\", state=\"used\", \"k8s.cluster.name\"=~\"$cluster\"}))[1h:5m]) * 3600, \"host.name\", \"server\")",
           "legendFormat": "{{server}}",
           "range": true,
           "instant": false,
@@ -2369,7 +2390,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "sum by (state) (max by (\"host.name\", state) ({__name__=\"system.memory.usage\", host.name=~\"$server\"}))",
+          "expr": "sum by (state) (max by (\"host.name\", state) ({__name__=\"system.memory.usage\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}))",
           "legendFormat": "{{state}}",
           "range": true,
           "instant": false,
@@ -2450,7 +2471,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max by (\"host.name\") ({__name__=\"system.paging.usage\", host.name=~\"$server\", state=\"used\"}), \"host.name\", \"server\")",
+          "expr": "label_move(max by (\"host.name\") ({__name__=\"system.paging.usage\", host.name=~\"$server\", state=\"used\", \"k8s.cluster.name\"=~\"$cluster\"}), \"host.name\", \"server\")",
           "legendFormat": "{{server}}",
           "range": true,
           "instant": false,
@@ -2531,7 +2552,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(sum by (\"host.name\", direction) (rate({__name__=\"system.paging.operations\", host.name=~\"$server\", type=\"major\"}[$__rate_interval])), \"host.name\", \"server\")",
+          "expr": "label_move(sum by (\"host.name\", direction) (rate({__name__=\"system.paging.operations\", host.name=~\"$server\", type=\"major\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])), \"host.name\", \"server\")",
           "legendFormat": "{{server}} {{direction}}",
           "range": true,
           "instant": false,
@@ -2872,7 +2893,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"used\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}) + max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}) + max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"reserved\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}), \"host.name\", \"server\")",
+          "expr": "label_move(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"used\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\", \"k8s.cluster.name\"=~\"$cluster\"}) + max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\", \"k8s.cluster.name\"=~\"$cluster\"}) + max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"reserved\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\", \"k8s.cluster.name\"=~\"$cluster\"}), \"host.name\", \"server\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -2884,7 +2905,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.utilization\", host.name=~\"$server\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}), \"host.name\", \"server\")",
+          "expr": "label_move(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.utilization\", host.name=~\"$server\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\", \"k8s.cluster.name\"=~\"$cluster\"}), \"host.name\", \"server\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -2896,7 +2917,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}), \"host.name\", \"server\")",
+          "expr": "label_move(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\", \"k8s.cluster.name\"=~\"$cluster\"}), \"host.name\", \"server\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -2908,7 +2929,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(-deriv(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"})[6h:5m]) * 86400, \"host.name\", \"server\")",
+          "expr": "label_move(-deriv(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\", \"k8s.cluster.name\"=~\"$cluster\"})[6h:5m]) * 86400, \"host.name\", \"server\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -2920,7 +2941,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move((max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}) / -deriv(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"})[6h:5m]) and deriv(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"})[6h:5m]) < 0) or (max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}) * 0 + 1e+10), \"host.name\", \"server\")",
+          "expr": "label_move((max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\", \"k8s.cluster.name\"=~\"$cluster\"}) / -deriv(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\", \"k8s.cluster.name\"=~\"$cluster\"})[6h:5m]) and deriv(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\", \"k8s.cluster.name\"=~\"$cluster\"})[6h:5m]) < 0) or (max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\", \"k8s.cluster.name\"=~\"$cluster\"}) * 0 + 1e+10), \"host.name\", \"server\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -2932,7 +2953,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.inodes.usage\", host.name=~\"$server\", state=\"used\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}) / (max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.inodes.usage\", host.name=~\"$server\", state=\"used\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}) + max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.inodes.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"})), \"host.name\", \"server\")",
+          "expr": "label_move(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.inodes.usage\", host.name=~\"$server\", state=\"used\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\", \"k8s.cluster.name\"=~\"$cluster\"}) / (max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.inodes.usage\", host.name=~\"$server\", state=\"used\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\", \"k8s.cluster.name\"=~\"$cluster\"}) + max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.inodes.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\", \"k8s.cluster.name\"=~\"$cluster\"})), \"host.name\", \"server\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -3029,7 +3050,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.utilization\", host.name=~\"$server\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}), \"host.name\", \"server\")",
+          "expr": "label_move(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.utilization\", host.name=~\"$server\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\", \"k8s.cluster.name\"=~\"$cluster\"}), \"host.name\", \"server\")",
           "legendFormat": "{{server}} {{mountpoint}}",
           "range": true,
           "instant": false,
@@ -3114,7 +3135,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(predict_linear(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"})[6h:5m], 86400), \"host.name\", \"server\")",
+          "expr": "label_move(predict_linear(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\", \"k8s.cluster.name\"=~\"$cluster\"})[6h:5m], 86400), \"host.name\", \"server\")",
           "legendFormat": "{{server}} {{mountpoint}}",
           "range": true,
           "instant": false,
@@ -3195,7 +3216,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.inodes.usage\", host.name=~\"$server\", state=\"used\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}) / (max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.inodes.usage\", host.name=~\"$server\", state=\"used\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"}) + max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.inodes.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\"})), \"host.name\", \"server\")",
+          "expr": "label_move(max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.inodes.usage\", host.name=~\"$server\", state=\"used\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\", \"k8s.cluster.name\"=~\"$cluster\"}) / (max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.inodes.usage\", host.name=~\"$server\", state=\"used\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\", \"k8s.cluster.name\"=~\"$cluster\"}) + max by (\"host.name\", mountpoint) ({__name__=\"system.filesystem.inodes.usage\", host.name=~\"$server\", state=\"free\", mountpoint!~\"/var/lib/k0s/kubelet/.*|/var/lib/containers/.*|/run/.*\", \"k8s.cluster.name\"=~\"$cluster\"})), \"host.name\", \"server\")",
           "legendFormat": "{{server}} {{mountpoint}}",
           "range": true,
           "instant": false,
@@ -3289,7 +3310,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "topk_max(10, label_move(max by (\"host.name\", device) (rate({__name__=\"system.disk.io_time\", host.name=~\"$server\", device!~\"dm-.*|loop.*|(sd|vd|xvd)[a-z]+[0-9]+|nvme[0-9]+n[0-9]+p[0-9]+\", device=~\"$device\"}[$__rate_interval])), \"host.name\", \"server\"))",
+              "expr": "topk_max(10, label_move(max by (\"host.name\", device) (rate({__name__=\"system.disk.io_time\", host.name=~\"$server\", device!~\"dm-.*|loop.*|(sd|vd|xvd)[a-z]+[0-9]+|nvme[0-9]+n[0-9]+p[0-9]+\", device=~\"$device\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])), \"host.name\", \"server\"))",
               "legendFormat": "{{server}} {{device}}",
               "range": true,
               "instant": false,
@@ -3370,7 +3391,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "topk_max(10, label_move(sum by (\"host.name\", device, direction) (rate({__name__=\"system.disk.operation_time\", host.name=~\"$server\", device!~\"dm-.*|loop.*|(sd|vd|xvd)[a-z]+[0-9]+|nvme[0-9]+n[0-9]+p[0-9]+\", device=~\"$device\"}[$__rate_interval])) / sum by (\"host.name\", device, direction) (rate({__name__=\"system.disk.operations\", host.name=~\"$server\", device!~\"dm-.*|loop.*|(sd|vd|xvd)[a-z]+[0-9]+|nvme[0-9]+n[0-9]+p[0-9]+\", device=~\"$device\"}[$__rate_interval])), \"host.name\", \"server\"))",
+              "expr": "topk_max(10, label_move(sum by (\"host.name\", device, direction) (rate({__name__=\"system.disk.operation_time\", host.name=~\"$server\", device!~\"dm-.*|loop.*|(sd|vd|xvd)[a-z]+[0-9]+|nvme[0-9]+n[0-9]+p[0-9]+\", device=~\"$device\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])) / sum by (\"host.name\", device, direction) (rate({__name__=\"system.disk.operations\", host.name=~\"$server\", device!~\"dm-.*|loop.*|(sd|vd|xvd)[a-z]+[0-9]+|nvme[0-9]+n[0-9]+p[0-9]+\", device=~\"$device\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])), \"host.name\", \"server\"))",
               "legendFormat": "{{server}} {{device}} {{direction}}",
               "range": true,
               "instant": false,
@@ -3451,7 +3472,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "topk_max(10, label_move(max by (\"host.name\", device) (rate({__name__=\"system.disk.weighted_io_time\", host.name=~\"$server\", device!~\"dm-.*|loop.*|(sd|vd|xvd)[a-z]+[0-9]+|nvme[0-9]+n[0-9]+p[0-9]+\", device=~\"$device\"}[$__rate_interval])), \"host.name\", \"server\"))",
+              "expr": "topk_max(10, label_move(max by (\"host.name\", device) (rate({__name__=\"system.disk.weighted_io_time\", host.name=~\"$server\", device!~\"dm-.*|loop.*|(sd|vd|xvd)[a-z]+[0-9]+|nvme[0-9]+n[0-9]+p[0-9]+\", device=~\"$device\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])), \"host.name\", \"server\"))",
               "legendFormat": "{{server}} {{device}}",
               "range": true,
               "instant": false,
@@ -3532,7 +3553,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "topk_max(10, label_move(sum by (\"host.name\", device) (rate({__name__=\"system.disk.io\", host.name=~\"$server\", device!~\"dm-.*|loop.*|(sd|vd|xvd)[a-z]+[0-9]+|nvme[0-9]+n[0-9]+p[0-9]+\", device=~\"$device\"}[$__rate_interval])), \"host.name\", \"server\"))",
+              "expr": "topk_max(10, label_move(sum by (\"host.name\", device) (rate({__name__=\"system.disk.io\", host.name=~\"$server\", device!~\"dm-.*|loop.*|(sd|vd|xvd)[a-z]+[0-9]+|nvme[0-9]+n[0-9]+p[0-9]+\", device=~\"$device\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])), \"host.name\", \"server\"))",
               "legendFormat": "{{server}} {{device}}",
               "range": true,
               "instant": false,
@@ -3613,7 +3634,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "topk_max(10, label_move(sum by (\"host.name\", device) (rate({__name__=\"system.disk.operations\", host.name=~\"$server\", device!~\"dm-.*|loop.*|(sd|vd|xvd)[a-z]+[0-9]+|nvme[0-9]+n[0-9]+p[0-9]+\", device=~\"$device\"}[$__rate_interval])), \"host.name\", \"server\"))",
+              "expr": "topk_max(10, label_move(sum by (\"host.name\", device) (rate({__name__=\"system.disk.operations\", host.name=~\"$server\", device!~\"dm-.*|loop.*|(sd|vd|xvd)[a-z]+[0-9]+|nvme[0-9]+n[0-9]+p[0-9]+\", device=~\"$device\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])), \"host.name\", \"server\"))",
               "legendFormat": "{{server}} {{device}}",
               "range": true,
               "instant": false,
@@ -3694,7 +3715,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "label_move(max by (\"host.name\") ({__name__=\"system.processes.count\", host.name=~\"$server\", status=\"blocked\"}), \"host.name\", \"server\")",
+              "expr": "label_move(max by (\"host.name\") ({__name__=\"system.processes.count\", host.name=~\"$server\", status=\"blocked\", \"k8s.cluster.name\"=~\"$cluster\"}), \"host.name\", \"server\")",
               "legendFormat": "{{server}}",
               "range": true,
               "instant": false,
@@ -3802,7 +3823,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "label_move(sum by (\"host.name\", direction) (rate({__name__=\"system.network.io\", host.name=~\"$server\", device!~\"lo|veth.*|docker.*|br-.*\", k8s.node.name=\"\"}[$__rate_interval])), \"host.name\", \"server\")",
+              "expr": "label_move(sum by (\"host.name\", direction) (rate({__name__=\"system.network.io\", host.name=~\"$server\", device!~\"lo|veth.*|docker.*|br-.*\", k8s.node.name=\"\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])), \"host.name\", \"server\")",
               "legendFormat": "{{server}} {{direction}}",
               "range": true,
               "instant": false,
@@ -3813,7 +3834,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "label_move(sum by (\"k8s.node.name\", direction) (rate({__name__=\"k8s.pod.network.io\", k8s.node.name=~\"$server\"}[$__rate_interval])), \"k8s.node.name\", \"server\")",
+              "expr": "label_move(sum by (\"k8s.node.name\", direction) (rate({__name__=\"k8s.pod.network.io\", k8s.node.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])), \"k8s.node.name\", \"server\")",
               "legendFormat": "{{server}} pods {{direction}}",
               "range": true,
               "instant": false,
@@ -3894,7 +3915,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "label_move(sum by (\"host.name\", direction) (rate({__name__=\"system.network.errors\", host.name=~\"$server\", device!~\"lo|veth.*|docker.*|br-.*\", k8s.node.name=\"\"}[$__rate_interval])), \"host.name\", \"server\")",
+              "expr": "label_move(sum by (\"host.name\", direction) (rate({__name__=\"system.network.errors\", host.name=~\"$server\", device!~\"lo|veth.*|docker.*|br-.*\", k8s.node.name=\"\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])), \"host.name\", \"server\")",
               "legendFormat": "{{server}} errors {{direction}}",
               "range": true,
               "instant": false,
@@ -3905,7 +3926,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "label_move(sum by (\"host.name\", direction) (rate({__name__=\"system.network.dropped\", host.name=~\"$server\", device!~\"lo|veth.*|docker.*|br-.*\", k8s.node.name=\"\"}[$__rate_interval])), \"host.name\", \"server\")",
+              "expr": "label_move(sum by (\"host.name\", direction) (rate({__name__=\"system.network.dropped\", host.name=~\"$server\", device!~\"lo|veth.*|docker.*|br-.*\", k8s.node.name=\"\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])), \"host.name\", \"server\")",
               "legendFormat": "{{server}} drops {{direction}}",
               "range": true,
               "instant": false,
@@ -3916,7 +3937,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "label_move(sum by (\"k8s.node.name\", direction) (rate({__name__=\"k8s.pod.network.errors\", k8s.node.name=~\"$server\"}[$__rate_interval])), \"k8s.node.name\", \"server\")",
+              "expr": "label_move(sum by (\"k8s.node.name\", direction) (rate({__name__=\"k8s.pod.network.errors\", k8s.node.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])), \"k8s.node.name\", \"server\")",
               "legendFormat": "{{server}} pod errors {{direction}}",
               "range": true,
               "instant": false,
@@ -3997,7 +4018,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "label_move(sum by (\"host.name\", state) ({__name__=\"system.network.connections\", host.name=~\"$server\", protocol=\"tcp\", k8s.node.name=\"\", state=~\"ESTABLISHED|TIME_WAIT|CLOSE_WAIT|SYN_RECV\"}), \"host.name\", \"server\")",
+              "expr": "label_move(sum by (\"host.name\", state) ({__name__=\"system.network.connections\", host.name=~\"$server\", protocol=\"tcp\", k8s.node.name=\"\", state=~\"ESTABLISHED|TIME_WAIT|CLOSE_WAIT|SYN_RECV\", \"k8s.cluster.name\"=~\"$cluster\"}), \"host.name\", \"server\")",
               "legendFormat": "{{server}} {{state}}",
               "range": true,
               "instant": false,
@@ -4092,7 +4113,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "label_move(rate({__name__=\"system.processes.created\", host.name=~\"$server\"}[$__rate_interval]), \"host.name\", \"server\")",
+              "expr": "label_move(rate({__name__=\"system.processes.created\", host.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval]), \"host.name\", \"server\")",
               "legendFormat": "{{server}}",
               "range": true,
               "instant": false,
@@ -4173,7 +4194,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "label_move(count by (\"k8s.node.name\") (max by (\"k8s.node.name\", \"k8s.pod.uid\") ({__name__=\"k8s.pod.phase\", k8s.node.name=~\"$server\"}) == 2), \"k8s.node.name\", \"server\")",
+              "expr": "label_move(count by (\"k8s.node.name\") (max by (\"k8s.node.name\", \"k8s.pod.uid\") ({__name__=\"k8s.pod.phase\", k8s.node.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}) == 2), \"k8s.node.name\", \"server\")",
               "legendFormat": "{{server}}",
               "range": true,
               "instant": false,
@@ -4254,7 +4275,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "label_move(max by (\"k8s.node.name\") ({__name__=\"k8s.node.condition_ready\", k8s.node.name=~\"$server\"}), \"k8s.node.name\", \"server\")",
+              "expr": "label_move(max by (\"k8s.node.name\") ({__name__=\"k8s.node.condition_ready\", k8s.node.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}), \"k8s.node.name\", \"server\")",
               "legendFormat": "{{server}}",
               "range": true,
               "instant": false,
@@ -4339,7 +4360,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "topk_max(10, label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\") (rate({__name__=\"container.cpu.time\", k8s.node.name=~\"$server\"}[$__rate_interval])), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\"))",
+              "expr": "topk_max(10, label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\") (rate({__name__=\"container.cpu.time\", k8s.node.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\"))",
               "legendFormat": "{{namespace}}/{{pod}}",
               "range": true,
               "instant": false,
@@ -4424,7 +4445,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "topk_max(10, label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\") ({__name__=\"container.memory.working_set\", k8s.node.name=~\"$server\"}), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\"))",
+              "expr": "topk_max(10, label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\") ({__name__=\"container.memory.working_set\", k8s.node.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\"))",
               "legendFormat": "{{namespace}}/{{pod}}",
               "range": true,
               "instant": false,
@@ -4509,7 +4530,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "topk_max(10, label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\") ((sum by (\"host.name\", device) (rate({__name__=\"system.disk.io\", host.name=~\"$server\", device=~\"rbd[0-9]+\"}[$__rate_interval])) * on (\"host.name\", device) group_right () (max by (\"host.name\", device, \"k8s.pod.uid\") (label_replace(label_replace({__name__=\"system.filesystem.utilization\", host.name=~\"$server\", mountpoint=~\"/var/lib/k0s/kubelet/pods/.*\"}, \"k8s.pod.uid\", \"$1\", \"mountpoint\", \"/var/lib/k0s/kubelet/pods/([^/]+)/.*\"), \"device\", \"$1\", \"device\", \"/dev/(.+)\")) * 0 + 1)) * on (\"k8s.pod.uid\") group_left (\"k8s.namespace.name\", \"k8s.pod.name\") (max by (\"k8s.pod.uid\", \"k8s.namespace.name\", \"k8s.pod.name\") ({__name__=\"k8s.pod.phase\"}) * 0 + 1)), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\"))",
+              "expr": "topk_max(10, label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\") ((sum by (\"host.name\", device) (rate({__name__=\"system.disk.io\", host.name=~\"$server\", device=~\"rbd[0-9]+\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])) * on (\"host.name\", device) group_right () (max by (\"host.name\", device, \"k8s.pod.uid\") (label_replace(label_replace({__name__=\"system.filesystem.utilization\", host.name=~\"$server\", mountpoint=~\"/var/lib/k0s/kubelet/pods/.*\", \"k8s.cluster.name\"=~\"$cluster\"}, \"k8s.pod.uid\", \"$1\", \"mountpoint\", \"/var/lib/k0s/kubelet/pods/([^/]+)/.*\"), \"device\", \"$1\", \"device\", \"/dev/(.+)\")) * 0 + 1)) * on (\"k8s.pod.uid\") group_left (\"k8s.namespace.name\", \"k8s.pod.name\") (max by (\"k8s.pod.uid\", \"k8s.namespace.name\", \"k8s.pod.name\") ({__name__=\"k8s.pod.phase\", \"k8s.cluster.name\"=~\"$cluster\"}) * 0 + 1)), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\"))",
               "legendFormat": "{{namespace}}/{{pod}}",
               "range": true,
               "instant": false,

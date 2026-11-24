@@ -30,3 +30,17 @@ spec:
   name: stalwart
   owner: stalwart
   databaseReclaimPolicy: retain
+---
+# Target of the Stalwart 1.0 migration (stalwart-migrate needs a new, empty database).
+# The old `stalwart` database stays as the rollback source until it is retired deliberately.
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: stalwart-v1
+  namespace: postgres
+spec:
+  cluster:
+    name: postgres
+  name: stalwart-v1
+  owner: stalwart
+  databaseReclaimPolicy: retain

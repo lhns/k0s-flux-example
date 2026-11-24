@@ -9,4 +9,5 @@ metadata:
 spec:
   url: oci://ghcr.io/lhns/charts/kube-vnet
   ref:
-    tag: "0.8.0"
+    tag: "0.9.2"
+    digest: sha256:6c107c9d67385eb4dd050256108afb207ccdd9cbf403c51d7f0075e0b3a01334

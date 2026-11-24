@@ -1,0 +1,110 @@
+# Ceph usage exporter (README.md). Reads Ceph as client.storage-usage (read-only caps) and the
+# PersistentVolumes, to label volumes with their claims. No inbound traffic but the scrape.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: storage-usage
+  namespace: storage-usage
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: storage-usage
+rules:
+  - apiGroups: [""]
+    resources: [persistentvolumes]
+    verbs: [list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: storage-usage
+subjects:
+  - kind: ServiceAccount
+    name: storage-usage
+    namespace: storage-usage
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: storage-usage
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: storage-usage
+  namespace: storage-usage
+  annotations:
+    reloader.stakater.com/auto: "true"
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: storage-usage
+  template:
+    metadata:
+      # Scraped by the otel `cluster` collector; `storage-usage` must also be in its
+      # `namespaces.names` (infra/opentelemetry-monitoring/release.yaml).
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9922"
+        prometheus.io/path: /metrics
+      labels:
+        app.kubernetes.io/name: storage-usage
+        app.kubernetes.io/instance: storage-usage
+        kube-vnet/net.opentelemetry.otel-scrape: ingress
+    spec:
+      serviceAccountName: storage-usage
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 167 # ceph, as in the image
+        runAsGroup: 167
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: exporter
+          # The image ships python3-rados/rbd/cephfs; keep it on the cluster's Ceph release
+          # (renovate.json holds it at the running major, never automerged).
+          image: quay.io/ceph/ceph:v20.2.5@sha256:4337ac8ac81d40df136e5eac92ca53bb52360a5e039f3d1f7935e729eb5ef42c
+          command: [python3, /opt/storage-usage/storage_usage.py]
+          env:
+            - name: CONFIG
+              value: /opt/storage-usage/config.json
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+          envFrom:
+            - secretRef:
+                name: storage-usage-ceph
+          ports:
+            - name: metrics
+              containerPort: 9922
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 60
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 20m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: exporter
+              mountPath: /opt/storage-usage
+              readOnly: true
+      volumes:
+        - name: exporter
+          configMap:
+            name: storage-usage-exporter

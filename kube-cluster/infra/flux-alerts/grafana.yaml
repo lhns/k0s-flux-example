@@ -19,6 +19,7 @@ spec:
       title: Flux object has not reconciled in a day
       condition: C
       for: 1h
+      keepFiringFor: 15m
       noDataState: OK
       execErrState: KeepLast
       data:
@@ -28,10 +29,9 @@ spec:
           model:
             refId: A
             instant: true
-            # Flux exports no suspend metric, so suspended components are excluded by name: add a
-            # component's Kustomizations here when it gets `suspend: "true"`.
             expr: >-
-              sum by (kind, exported_namespace, name) (increase(gotk_reconcile_duration_seconds_count{name!~"app-gitea(-runner)?(-namespaces)?"}[25h])) == 0
+              sum by (kind, exported_namespace, name) (increase(gotk_reconcile_duration_seconds_count{"k8s.cluster.name"=~"|kube"}[25h])) == 0
+              unless on (exported_namespace, name) max by (exported_namespace, name) (gotk_resource_info{suspended="true", "k8s.cluster.name"=~"|kube"})
         - refId: C
           datasourceUid: __expr__
           model:
@@ -44,6 +44,47 @@ spec:
         severity: info
       annotations:
         summary: '{{ $labels.kind }} {{ $labels.exported_namespace }}/{{ $labels.name }} has not reconciled in 25h'
-        description: 'Normally every object reconciles at least hourly. Deliberately suspended components are excluded by name in the query.'
+        description: 'Normally every object reconciles at least hourly. Suspended objects are excluded.'
       notificationSettings:
         receiver: matrix
+        group_by: [grafana_folder, alertname]
+        group_wait: 1m
+        group_interval: 10m
+        repeat_interval: 24h
+    - uid: flux-not-ready
+      title: Flux object not Ready
+      condition: C
+      for: 15m
+      keepFiringFor: 15m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            # Unknown too: a failing health check cycles Unknown/False. `reason` stays out of `by`, it
+            # flips between the two and would re-fire. DependencyNotReady: the object waited on alerts.
+            expr: >-
+              max by (customresource_kind, exported_namespace, name) (gotk_resource_info{ready=~"False|Unknown", suspended!="true", reason!="DependencyNotReady", "k8s.cluster.name"=~"|kube"})
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0]}
+      labels:
+        severity: warning
+      annotations:
+        summary: '{{ $labels.customresource_kind }} {{ $labels.exported_namespace }}/{{ $labels.name }} is not Ready'
+        description: 'See the reason with `flux get` or `kubectl describe` on the object.'
+      notificationSettings:
+        receiver: matrix
+        group_by: [grafana_folder, alertname]
+        group_wait: 1m
+        group_interval: 10m
+        repeat_interval: 24h

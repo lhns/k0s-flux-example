@@ -1,9 +1,8 @@
 # 0027 — Every upstream input is pinned, Renovate-trackable, and checked
 
 - Status: Accepted
-- Date: 2026-07-27, amended 2026-08-05, 2026-09-03, 2026-09-20 and 2026-09-30
-- Current answer: nothing floats. Images carry a real version tag, plus the digest where the tag
-  could hide a different version; an image with no version tags is pinned by digest. Charts,
+- Date: 2026-07-27, amended 2026-08-05, 2026-09-03, 2026-09-20, 2026-09-30 and 2026-10-22
+- Current answer: nothing floats. Images carry a real version tag plus the digest; an image with no version tags is pinned by digest. Charts,
   git sources, downloaded files and vendored manifests are pinned to an exact version and, where
   bytes are fetched, a digest. Every pin is in a form Renovate can update, and where two pins must
   agree, a lint check fails if they do not.
@@ -28,6 +27,9 @@ jump into a PR titled "update digest".
   `check-fetch-digests.py` (and fixed by Renovate's post-upgrade task); upstream manifests are
   vendored unmodified with the local changes as kustomize patches, so a bump re-downloads the file
   and re-applies the patches.
+- **Every image carries a digest** (2026-10-22): a tag alone is mutable and `IfNotPresent` keeps
+  the first build a node pulled. `check-image-pins.py` fails an image without `@sha256:`
+  (reasoned allowlist in the script) and Renovate's `pinDigests` opens the pin PR.
 
 ## Consequences
 

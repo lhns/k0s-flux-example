@@ -1,7 +1,7 @@
 # ===========================================================================
-# Stalwart mail server. DB-centric: all config + all mail live in the shared
-# CNPG Postgres (reached via the bootstrap /etc/stalwart/config.json). The data
-# dir is empty (nothing stored on disk). TLS is the *.example.com wildcard, reflected
+# Stalwart mail server. Config and mail metadata live in the shared CNPG Postgres
+# (reached via the bootstrap /etc/stalwart/config.json), mail bodies in the RGW
+# bucket `stalwart`. The data dir is empty (nothing stored on disk). TLS is the *.example.com wildcard, reflected
 # in and mounted; ACME + the listeners' PROXY-protocol are turned off post-start
 # (MetalLB ETP Local delivers real source IPs natively). See README.
 # ===========================================================================
@@ -13,6 +13,7 @@ metadata:
   annotations:
     reloader.stakater.com/auto: "true"
 spec:
+  # More than one replica needs a Redis in-memory store in 1.0.
   replicas: 1
   strategy:
     type: Recreate
@@ -40,12 +41,12 @@ spec:
         runAsGroup: 0
       containers:
         - name: stalwart
-          image: stalwartlabs/stalwart:v0.16.27
+          image: stalwartlabs/stalwart:v1.1.1@sha256:5ebdf474b237161742fe4309396af4ae8797c938e8e6eb7e2d4837332c4f9851
           resources:
             requests:
               memory: 384Mi
             limits:
-              memory: 768Mi
+              memory: 1536Mi
           env:
             - name: STALWART_PUBLIC_URL
               value: https://mail.example.com
@@ -60,22 +61,8 @@ spec:
             - name: STALWART_RECOVERY_ADMIN
               valueFrom:
                 secretKeyRef:
-                  name: stalwart
+                  name: stalwart-v1
                   key: STALWART_RECOVERY_ADMIN
-            # Consistent with config.json (which is authoritative for the store).
-            - name: POSTGRES_HOST
-              value: postgres-rw.postgres.svc.cluster.local
-            - name: POSTGRES_PORT
-              value: "5432"
-            - name: POSTGRES_USER
-              value: stalwart
-            - name: POSTGRES_DB
-              value: stalwart
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: stalwart-db
-                  key: password
           ports:
             - {name: http, containerPort: 8080, protocol: TCP}
             - {name: smtp, containerPort: 25, protocol: TCP}
@@ -101,7 +88,7 @@ spec:
       volumes:
         - name: config
           secret:
-            secretName: stalwart
+            secretName: stalwart-v1
         - name: certs
           secret:
             secretName: lhns-de   # reflected from the traefik ns (see infra/traefik/tls.yaml)
@@ -182,7 +169,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: bulwark
-          image: ghcr.io/bulwarkmail/webmail:1.16.0
+          image: ghcr.io/bulwarkmail/webmail:1.21.3@sha256:54e914a229529fe90fd8f0ae3e9e97d671806ac09fbfe3f421a1c4fb14495a74
           resources:
             requests:
               memory: 192Mi
@@ -286,7 +273,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: umleiter
-          image: ghcr.io/lhns/umleiter:0.1.1@sha256:2b937dc32bd15747cfe0f4baa42139f258218430057d80356f7b7a95140f3018
+          image: ghcr.io/lhns/umleiter:0.1.2@sha256:341e72c13147833ba730b1f6ba74da345f752c008c4f641e6f7b24eb949c1697
           resources:
             requests:
               memory: 128Mi

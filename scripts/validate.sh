@@ -70,6 +70,17 @@ check_fetch_digests() {
   "$py" scripts/check-fetch-digests.py
 }
 
+check_image_pins() {
+  # A tag alone is mutable: a re-pushed tag never reaches a node that already holds it, and Renovate
+  # raises digest updates only for references that carry one. docs/adr/0027.
+  "$py" scripts/check-image-pins.py
+}
+
+check_helm_values() {
+  # helm-controller validates nothing up front: render each chartRef'd chart with its inline values.
+  "$py" scripts/check-helm-values.py
+}
+
 check_arc_dockerfile() {
   "$py" scripts/check-arc-dockerfile.py
 }
@@ -92,6 +103,21 @@ check_synapse_pymods() {
     return 1
   fi
   echo "synapse $from_tag OK"
+}
+
+check_snikket_module() {
+  # The lldap auth module is patched out of the server image's own mod_auth_ldap at build
+  # time; the patch meets a different module if the two pins ever differ.
+  local from_ref img_ref
+  from_ref="$(grep -ohE 'FROM snikket/snikket-server:[^[:space:]]+' kube-cluster/apps/snikket/artifacts/*.yaml | sed 's/^FROM //' | sort -u)"
+  img_ref="$(grep -ohE 'image: snikket/snikket-server:[^[:space:]]+' kube-cluster/apps/snikket/resources.yaml | sed 's/^image: //' | sort -u)"
+  if [ -z "$from_ref" ] || [ "$from_ref" != "$img_ref" ]; then
+    echo "== snikket-server pin drift ==" >&2
+    echo "  artifacts/ FROM: ${from_ref:-none}" >&2
+    echo "  resources.yaml:  ${img_ref:-none}" >&2
+    return 1
+  fi
+  echo "snikket-server $from_ref OK"
 }
 
 check_sops() {
@@ -266,6 +292,17 @@ check_redirects() {
   "$py" tests/check-redirects.py
 }
 
+check_image_subpaths() {
+  # containerd rejects a file subPath on an image volume and the pod never starts.
+  KUSTOMIZE_BUILDS="$builds" "$py" scripts/check-image-subpaths.py
+  "$py" tests/check-image-subpaths.py
+}
+
+check_bridge_sync() {
+  # The merge logic with a fake upgrader; the check against the real images is a lint.yml step.
+  "$py" tests/bridge-config-sync.py
+}
+
 check_tests() {
   # Printed last, so its summary -- the only place a skip is guaranteed to be seen -- is the
   # final thing on screen. A failure or an un-opted-out missing tool there fails this script.
@@ -284,8 +321,8 @@ start() {
 }
 
 for check in check_yamllint check_golden check_release_size check_migration check_source_pins \
-    check_fetch_digests check_arc_dockerfile check_synapse_pymods check_sops check_clusters \
-    check_artifacts check_tests; do
+    check_fetch_digests check_image_pins check_helm_values check_arc_dockerfile check_synapse_pymods check_snikket_module check_sops check_clusters \
+    check_artifacts check_bridge_sync check_tests; do
   start "$check"
 done
 build_all
@@ -294,6 +331,7 @@ start check_kubeconform
 start check_coverage
 start check_grafana
 start check_redirects
+start check_image_subpaths
 
 failed=()
 report() {  # <function> <title>
@@ -312,8 +350,11 @@ report check_substitution "substitution: no credential in a ConfigMap, no unreac
 report check_migration "migration gate: offline test"
 report check_source_pins "oci-composer: every sourceRef pins the revision its source is pinned at"
 report check_fetch_digests "oci-composer: every fetch digest matches what its url serves"
+report check_image_pins "images: every reference carries a digest"
+report check_helm_values "helm: every OCI-chart HelmRelease renders with its values and passes kubeconform"
 report check_arc_dockerfile "arc runner images: one Dockerfile in both ImageBuilds"
 report check_synapse_pymods "matrix: synapse-pymods FROM matches the synapse image"
+report check_snikket_module "snikket: ldap-module FROM matches the server image"
 report check_sops "sops: every encrypted file is whole and encrypted to the cluster's key"
 report check_clusters "clusters: each reads only its own directory, shared/ holds plain bases"
 report check_artifacts "artifacts: every component builds from what its ExternalArtifact holds"
@@ -321,6 +362,8 @@ report check_kubeconform "kustomize build + kubeconform"
 report check_coverage "coverage: every CSI StorageClass has a snapshot class, every CNPG Cluster a backup"
 report check_grafana "grafana: operator objects opt out of substitution, with fixed folders and uids"
 report check_redirects "redirects: alias routes answer from noop@internal and match any Host"
+report check_image_subpaths "image volumes: a subPath is a directory, never a file"
+report check_bridge_sync "matrix: bridge-config-sync merge logic"
 report check_tests "per-component tests"
 
 if [ "${#failed[@]}" -gt 0 ]; then

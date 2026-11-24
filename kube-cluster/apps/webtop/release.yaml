@@ -1,0 +1,107 @@
+# Per-user desktops: github.com/lhns/kube-webtop-workspaces (ADR 0009). The chart ships the CRD
+# in crds/, which the generator's default crdPolicy upgrades.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: kube-webtop-workspaces
+  namespace: webtop
+spec:
+  interval: 1h0m0s
+  url: oci://ghcr.io/lhns/charts/kube-webtop-workspaces
+  ref:
+    tag: 0.0.0-dev.477b832
+    digest: sha256:9e5cbffc155a55cc30acb63208bfa15c09d944a984e7e26b535ed1137ada861c
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: desktops
+  namespace: webtop
+spec:
+  interval: 10m0s
+  chartRef:
+    kind: OCIRepository
+    name: kube-webtop-workspaces
+  values:
+    fullnameOverride: desktops
+    image:
+      # renovate: datasource=docker depName=ghcr.io/lhns/kube-webtop-workspaces
+      tag: 0.0.0-dev.477b832@sha256:435c1faa8e3a5ac5fc07b406c62fc65c3918298c63622649e92b3a46a4b82a09
+    controller:
+      # Must match what PID 1 of the desktop image exits with on poweroff.
+      cleanExitCodes: [0]
+    desktop:
+      # Defaults only: users override them (README, "Time zone and language").
+      defaults:
+        timeZone: Europe/Berlin
+        locale: de_DE.UTF-8
+      # The ImageBuild in artifacts/desktop.yaml: bump its FROMs, not this (README, "System module").
+      image: ${WEBTOP_DESKTOP_IMAGE}
+      prePull:
+        enabled: true
+      runtimeClassName: webtop-systemd
+      # The chart's SeccompProfile, RuntimeDefault plus pivot_root, for bubblewrap and containers in
+      # the desktop; the Security Profiles Operator installs it on the nodes (ADR 0069).
+      seccompProfile:
+        securityProfilesOperator: true
+      resources:
+        requests:
+          # x264 at 60 fps uses about 3 cores; a tiny request starves it on a busy node.
+          cpu: "2"
+          memory: 2Gi
+        limits:
+          memory: 8Gi
+      # x264 without AVX2 is too slow for a smooth stream (README).
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: NotIn
+                    values: [kube-worker-d]
+    storage:
+      # Block, not cephfs: browser profiles are SQLite (README, "Storage").
+      storageClassName: ceph-rbd
+      size: 50Gi
+    gateway:
+      userHeader: Remote-User
+      groupsHeader: Remote-Groups
+      requiredGroup: webtop
+      adminGroup: admin
+      # Log Out and Lock in KDE also sign out here (ssoLogoutDefaults, chart defaults true).
+      logoutUrl: https://auth.example.com/logout?rd=https://desktop.example.com/
+      # Shows Lock; it signs the browser out and leaves the session running.
+      lockLogsOut: true
+      # Pod CIDR (k0sctl.yaml network.podCIDR); not a real check, see README.
+      trustedProxyCIDRs: [172.18.0.0/16]
+    controllerPod:
+      podLabels:
+        kube-vnet/net.opentelemetry.otel-scrape: ingress
+    gatewayPod:
+      podLabels:
+        kube-vnet/net.traefik.traefik: ingress
+        kube-vnet/net.opentelemetry.otel-scrape: ingress
+    metrics:
+      prometheusAnnotations: true
+    networkPolicy:
+      enabled: true
+      ingressController:
+        namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: traefik
+        podSelector:
+          matchLabels:
+            app.kubernetes.io/name: traefik
+      # The chart admits nobody to :9090 by default; the otel collectors (operator-managed pods).
+      metricsFrom:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: opentelemetry
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/managed-by: opentelemetry-operator
+      desktopEgress:
+        # Internet only: all private, CGNAT and link-local ranges are excluded (pod, service, LAN).
+        allowCIDRs: [0.0.0.0/0]
+        exceptCIDRs: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16]

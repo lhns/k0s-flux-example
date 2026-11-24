@@ -34,7 +34,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: redis
-          image: redis:8.10.2-alpine@sha256:615b4cedaff0c1437a1548acae4222572df8c021eeb7382d64cb8b5e3a13ac7a
+          image: redis:8.10.3-alpine@sha256:7958cfbb9d152f87dadfbc89f1b0b15938f0b81ff8982feb327476f4911935c3
           resources:
             requests:
               memory: 32Mi
@@ -152,7 +152,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: nextcloud
-          image: nextcloud:35.0.2-apache
+          image: nextcloud:35.0.3-apache@sha256:f22d1dd63844bd15bbf6c2019149653c3d1c775ba48b173b56c3c6ad5f386196
           ports:
             - {name: http, containerPort: 80}
           env:

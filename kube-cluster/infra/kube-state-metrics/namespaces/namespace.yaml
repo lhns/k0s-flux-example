@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kube-state-metrics
+---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: kube-state-metrics
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 32Mi
+        cpu: 10m

@@ -14,13 +14,14 @@ silently replace each other's content. Per cluster, over every component build, 
  2. a CR name, or a rule group's spec.name, that is not the owning component's Flux name or
     starts with it plus "-"; a duplicate (kind, name); a duplicate (folderUID, spec.name)
  3. a rule uid used twice across the CRs; a dashboard uid used twice across the CRs' JSON
- 4. an instanceSelector other than the canonical label; allowCrossNamespaceImport; editable
+ 4. an instanceSelector other than the canonical label (a GrafanaServiceAccount: an instanceName
+    other than grafana); allowCrossNamespaceImport; editable
  5. a folderUID that is neither in FOLDERS nor a repo GrafanaFolder's spec.uid; folder or folderRef
  6. a GrafanaFolder without prune: disabled, without spec.uid, or titled like a FOLDERS entry
  7. a GrafanaNotificationPolicy, GrafanaNotificationPolicyRoute or GrafanaContactPoint
  8. a GrafanaDashboard not sourced from a configMapRef, or whose ConfigMap or key is missing
     from the same build, or whose ConfigMap lacks the operator label
- 9. a rule datasourceUid other than the VictoriaMetrics one or __expr__
+ 9. a rule datasourceUid other than the VictoriaMetrics or VictoriaLogs one, or __expr__
 10. a dashboard uid equal to a folder uid (FOLDERS or a repo GrafanaFolder): Grafana's folder
     view then recurses
 
@@ -40,7 +41,7 @@ INSTANCE = {"grafana.example.com/instance": "main"}
 # kube-cluster/apps/grafana/README.md. A new folder is a GrafanaFolder with its own spec.uid.
 FOLDERS = {"CI": "fg0li6dpvfitce", "Cluster": "ag1airdsjen7kc",
            "Postgres": "cg1t0rly9yuioe", "Ceph": "dg1tqkgkqcbnke"}
-DATASOURCES = {"bfz43q0alv6kgc", "__expr__"}  # VictoriaMetrics (Prometheus), and expressions
+DATASOURCES = {"bfz43q0alv6kgc", "cens0eitab2m8b", "__expr__"}  # VictoriaMetrics (Prometheus), VictoriaLogs, and expressions
 FORBIDDEN = {"GrafanaNotificationPolicy", "GrafanaNotificationPolicyRoute", "GrafanaContactPoint"}
 CONTENT_SOURCES = ("json", "url", "grafanaCom", "jsonnet", "gzipJson")
 OPERATOR_LABEL = ("app.kubernetes.io/managed-by", "grafana-operator")
@@ -136,7 +137,11 @@ def findings(builds, grafana_dir):
                 out.append(f"  {where}: name does not start with the component's Flux name {b.flux}")
             seen_names[(kind, name)].append(b.dir)
             # 4
-            if s.get("instanceSelector") != {"matchLabels": INSTANCE}:
+            if kind == "GrafanaServiceAccount":
+                # Names its instance; it has no instanceSelector.
+                if s.get("instanceName") != "grafana":
+                    out.append(f"  {where}: instanceName is not grafana")
+            elif s.get("instanceSelector") != {"matchLabels": INSTANCE}:
                 out.append(f"  {where}: instanceSelector is not exactly matchLabels {INSTANCE}")
             for key in ("allowCrossNamespaceImport", "editable"):
                 if key in s:

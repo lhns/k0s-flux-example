@@ -69,6 +69,12 @@ def grafana_cr(**labels):
             "metadata": {"name": "grafana", "namespace": "grafana", "labels": labels or dict(g.INSTANCE)}, "spec": {}}
 
 
+def service_account(instance="grafana"):
+    return {"apiVersion": "grafana.integreatly.org/v1beta1", "kind": "GrafanaServiceAccount",
+            "metadata": {"name": "app-observed-sa", "namespace": "grafana", "annotations": {g.SUBSTITUTE: "disabled"}},
+            "spec": {"instanceName": instance, "name": "sa", "role": "Viewer"}}
+
+
 case("fixture passes as built", None)
 case("a Grafana CR in apps/grafana passes", None, extra=[g.Build(GRAFANA_DIR, "app-grafana", [grafana_cr()])])
 
@@ -104,6 +110,9 @@ case("foreign instanceSelector", "instanceSelector",
      lambda c, o: dash(o)["spec"].update(instanceSelector={"matchLabels": {"a": "b"}}))
 case("no instanceSelector", "instanceSelector",
      lambda c, o: group(o)["spec"].pop("instanceSelector"))
+case("service account by instanceName", None, lambda c, o: o.append(service_account()))
+case("service account for another instance", "instanceName",
+     lambda c, o: o.append(service_account("other")))
 case("allowCrossNamespaceImport", "allowCrossNamespaceImport",
      lambda c, o: dash(o)["spec"].update(allowCrossNamespaceImport=False))
 case("editable", "editable",

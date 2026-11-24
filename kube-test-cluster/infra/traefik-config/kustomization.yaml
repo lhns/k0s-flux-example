@@ -5,6 +5,7 @@ metadata:
     # Traefik's and kube-vnet's CRDs come with their HelmReleases, and the cert with test-ca.
     flux-component-generator/dependsOn: infra-traefik,infra-kube-vnet,infra-cert-manager-issuers
     flux-component-generator/appInstance: traefik-traefik
+    flux-component-generator/bases: shared/infra/traefik
 resources:
 - tls.yaml
-- vnet.yaml
+- ../../../shared/infra/traefik

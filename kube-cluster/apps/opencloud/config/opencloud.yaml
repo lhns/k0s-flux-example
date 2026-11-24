@@ -1,0 +1,89 @@
+# `opencloud init`'s output without its secrets, which are env from the Secret `opencloud`.
+# The ids are baked into the data: never regenerate them (README).
+system_user_id: 00000000-0000-4000-8000-000000000005
+admin_user_id: 00000000-0000-4000-8000-000000000006
+graph:
+  application:
+    id: 00000000-0000-4000-8000-000000000007
+  events:
+    tls_insecure: false
+  spaces:
+    insecure: false
+  service_account:
+    service_account_id: 00000000-0000-4000-8000-000000000008
+collaboration:
+  app:
+    insecure: false
+proxy:
+  oidc:
+    insecure: false
+  insecure_backends: false
+  service_account:
+    service_account_id: 00000000-0000-4000-8000-000000000008
+frontend:
+  app_handler:
+    insecure: false
+  archiver:
+    insecure: false
+  service_account:
+    service_account_id: 00000000-0000-4000-8000-000000000008
+  ocdav:
+    insecure: false
+auth_bearer:
+  auth_providers:
+    oidc:
+      insecure: false
+auth_guest:
+  service_account:
+    service_account_id: 00000000-0000-4000-8000-000000000008
+ocm:
+  service_account:
+    service_account_id: 00000000-0000-4000-8000-000000000008
+search:
+  events:
+    tls_insecure: false
+  service_account:
+    service_account_id: 00000000-0000-4000-8000-000000000008
+audit:
+  events:
+    tls_insecure: false
+settings:
+  service_account_ids:
+  - 00000000-0000-4000-8000-000000000008
+sharing:
+  events:
+    tls_insecure: false
+  service_account:
+    service_account_id: 00000000-0000-4000-8000-000000000008
+storage_users:
+  events:
+    tls_insecure: false
+  mount_id: 00000000-0000-4000-8000-000000000009
+  service_account:
+    service_account_id: 00000000-0000-4000-8000-000000000008
+notifications:
+  notifications:
+    events:
+      tls_insecure: false
+  service_account:
+    service_account_id: 00000000-0000-4000-8000-000000000008
+nats:
+  nats:
+    tls_skip_verify_client_cert: false
+gateway:
+  storage_registry:
+    storage_users_mount_id: 00000000-0000-4000-8000-000000000009
+userlog:
+  service_account:
+    service_account_id: 00000000-0000-4000-8000-000000000008
+auth_service:
+  service_account:
+    service_account_id: 00000000-0000-4000-8000-000000000008
+clientlog:
+  service_account:
+    service_account_id: 00000000-0000-4000-8000-000000000008
+activitylog:
+  service_account:
+    service_account_id: 00000000-0000-4000-8000-000000000008
+webfinger:
+  insecure: false

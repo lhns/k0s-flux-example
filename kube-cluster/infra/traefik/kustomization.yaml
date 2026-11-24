@@ -8,9 +8,10 @@ metadata:
     # The chart labels its workloads traefik-traefik (not the dir name), so tell
     # the generator to group this component's vnet/tls under that instead.
     flux-component-generator/appInstance: traefik-traefik
+    flux-component-generator/bases: shared/infra/traefik
 resources:
 - release.yaml
 - tls.yaml
-- vnet.yaml
+- ../../../shared/infra/traefik
 - redirect.yaml
 - grafana.yaml

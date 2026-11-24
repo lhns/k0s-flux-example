@@ -1,0 +1,17 @@
+{
+ "alerts": [
+  {
+   "status": "firing",
+   "labels": {
+    "alertname": "Ceph health check raised",
+    "grafana_folder": "Ceph",
+    "severity": "warning"
+   },
+   "annotations": {
+    "summary": "Ceph MDS_SLOW_METADATA_IO (warning)",
+    "description": "Ceph has raised health check MDS_SLOW_METADATA_IO for 5 minutes. `ceph health detail` names the affected daemons."
+   },
+   "generatorURL": "https://grafana.example.com/alerting/grafana/ceph-health-check/view?orgId=1"
+  }
+ ]
+}

@@ -81,8 +81,16 @@ Two changes came out of it:
 
 - **A DB-aware `livenessProbe`** — the readiness probe hits `GET /guacamole/`, which never touches
   the database, which is precisely why nothing noticed. Detecting this needs a POST, so the probe
-  is `exec` + `curl`. **Any HTTP response counts as healthy** (403 and 429 included); only a
-  timeout — `curl` exit 28 — restarts the pod.
+  is `exec` + `curl`. **Any HTTP response counts as healthy**; only a timeout — `curl` exit 28 —
+  restarts the pod.
+
+  The POST body is **empty**, deliberately (`-d ''`: Content-Length 0, form content type). The
+  bundled `guacamole-auth-ban` extension counts any request carrying a parameter as a failed login
+  and bans `127.0.0.1` after 5, after which `/api/tokens` answers 429 *before* the database is
+  queried and the probe is no longer DB-aware. It ignores requests with empty credentials
+  (`Credentials.isEmpty()`), and the JDBC provider still runs `selectOne` on the user table for
+  them. There is no address allowlist, and `/api/languages` and `/api/patches` never touch the
+  database. Do not add a parameter to the probe.
 
   *Trade-off:* if Postgres is genuinely down, this restarts about every 3 minutes until it
   returns. Noisy, but the pool cannot recover on its own and a restart is the only remediation.

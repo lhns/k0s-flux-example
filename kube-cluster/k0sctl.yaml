@@ -54,6 +54,13 @@ spec:
       src: k0s-files/registries.toml   # relative to this k0sctl.yaml's dir (kube-cluster/)
       dst: /etc/k0s/containerd.d/registries.toml
       perm: "0644"
+    # A changed upload makes `k0sctl apply` drain and restart k0s on that node, which is not enough
+    # here: the cgroup driver switches cleanly only after drain + reboot. Roll it out per node by
+    # hand, not by apply alone. See ADR 0067.
+    - name: runc-cgroups-containerd-dropin
+      src: k0s-files/runc-cgroups.toml
+      dst: /etc/k0s/containerd.d/runc-cgroups.toml
+      perm: "0644"
     - name: inotify-sysctl
       src: k0s-files/99-inotify.conf
       dst: /etc/sysctl.d/99-inotify.conf
@@ -168,9 +175,14 @@ spec:
               # Drain waves queue dozens of pulls; one at a time they waited ~15x longer
               # than the pulling took. registryPullQPS limits starts per second, not
               # concurrency. serializeImagePulls stays unset: kubelet turns it off when
-              # this is >1. A worker reads its profile only at k0s start: after
-              # `k0sctl apply`, restart k0sworker on each worker (pods survive).
+              # this is >1. A worker reads its profile only at k0s start. k0sctl restarts
+              # nodes whose uploaded files changed; a profile-only change needs k0sworker restarted by hand.
               maxParallelImagePulls: 6
+              # Kubelet default is 110 per node; with three workers that capped the whole
+              # cluster (a drain left one node full). 250 fits the per-node /24 pod CIDR (254
+              # usable); more needs a bigger CIDR, immutable on existing nodes (ADR 0068).
+              # Read at k0s worker start.
+              maxPods: 250
   options:
     wait:
       enabled: true

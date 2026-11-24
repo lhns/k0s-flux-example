@@ -25,4 +25,4 @@ and an explicit 1 look the same and are both raised; 2 or more is kept.
 
 ## References
 
-- PR #951, `57d79301`, [`infra/admission-policies`](../../kube-cluster/infra/admission-policies/README.md).
+- PR #951, `57d79301`, [`infra/admission-policies`](../../shared/infra/admission-policies/README.md).

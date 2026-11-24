@@ -14,3 +14,4 @@ resources:
 - database.yaml
 - db-role-secret.yaml
 - app-secret.yaml
+- admin-token-secret.yaml

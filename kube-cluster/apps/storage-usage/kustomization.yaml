@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- resources.yaml
+- secret.yaml
+- grafana.yaml
+# The exporter is a script on the Ceph image, not an image of its own (README.md, "Decisions").
+# Hashed name: a change to the script or its config rolls the Deployment.
+configMapGenerator:
+- name: storage-usage-exporter
+  namespace: storage-usage
+  files:
+  - exporter/storage_usage.py
+  - exporter/config.json
+- name: app-storage-usage-dashboards
+  namespace: grafana
+  options:
+    disableNameSuffixHash: true
+    labels:
+      app.kubernetes.io/managed-by: grafana-operator
+    annotations:
+      kustomize.toolkit.fluxcd.io/substitute: disabled
+  files:
+  - dashboards/ceph-storage-owners.json

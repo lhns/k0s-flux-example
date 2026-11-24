@@ -143,7 +143,7 @@ spec:
         # Writes sequences, safe only because the Deployment is Recreate (no Synapse running).
         # See README, "Stream sequences".
         - name: sequence-guard
-          image: postgres:18.6-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
+          image: ghcr.io/cloudnative-pg/postgresql:18.7-standard-trixie@sha256:1abcfd1cac6d53cda5185706819aab36d66a4ed88e99fc2ae44ab0826aa99f00
           resources:
             requests:
               memory: 32Mi
@@ -167,7 +167,7 @@ spec:
               readOnly: true
       containers:
         - name: synapse
-          image: matrixdotorg/synapse:v1.163.0
+          image: matrixdotorg/synapse:v1.165.0@sha256:673b4223c81a7634fd07d832b939a58f97081cfdaae7cdd2d1664cdcf7611b62
           command: ["python", "-m", "synapse.app.homeserver"]
           args:
             - "--config-path"
@@ -192,6 +192,9 @@ spec:
             # instead of via the matrix.org notary, which rate-limits us (429).
             - "--config-path"
             - "/config-keyservers/synapse-keyservers.yaml"
+            # experimental_features; homeserver.yaml has none.
+            - "--config-path"
+            - "/config-experimental/synapse-experimental.yaml"
           env:
             - name: TZ
               value: Europe/Berlin
@@ -230,6 +233,9 @@ spec:
               readOnly: true
             - name: keyservers-config
               mountPath: /config-keyservers
+              readOnly: true
+            - name: experimental-config
+              mountPath: /config-experimental
               readOnly: true
             - name: registrations
               mountPath: /registrations
@@ -274,6 +280,9 @@ spec:
         - name: keyservers-config
           configMap:
             name: synapse-keyservers
+        - name: experimental-config
+          configMap:
+            name: synapse-experimental
         - name: registrations
           secret:
             secretName: synapse-appservice-registrations
@@ -334,7 +343,7 @@ spec:
     spec:
       containers:
         - name: redis
-          image: valkey/valkey:9.1.1@sha256:64e361b630ecf18dff7ca4df6a88e6eafc193687eb48cff2c7e0a293ab67d29a
+          image: valkey/valkey:9.2.0@sha256:1c2b25b09f354c66fe994733acdf12fcfd4bdf6f3bd92b88a93a70378d884056
           ports:
             - name: redis
               containerPort: 6379
@@ -391,7 +400,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: mas
-          image: ghcr.io/element-hq/matrix-authentication-service:1.27.0
+          image: ghcr.io/element-hq/matrix-authentication-service:1.29.0@sha256:9247315c9e86096aaaa393c7b4b685dc506010e09ff4b89331ef2ed4854167af
           env:
             - name: TZ
               value: Europe/Berlin
@@ -466,16 +475,33 @@ spec:
         app.kubernetes.io/name: lk-jwt
         app.kubernetes.io/instance: matrix
         kube-vnet/net.traefik.traefik: ingress
+        # Synapse proxies the RTC endpoints here (MSC4512).
+        kube-vnet/net.matrix-bridges: ingress
     spec:
       enableServiceLinks: false
       containers:
         - name: lk-jwt
-          image: ghcr.io/element-hq/lk-jwt-service:0.9.0
+          image: ghcr.io/element-hq/lk-jwt-service:0.10.0@sha256:b821befeb148929825f1a9059253d9faa0764991f45c07a91db5ad21a81c2dde
           env:
             - name: LIVEKIT_URL
               value: https://matrix-rtc.example.com/livekit/sfu
+            # Only our own homeserver: that is what makes the standalone endpoints check room
+            # membership too (lk-jwt README, "Room Membership on the Standalone Endpoints").
             - name: LIVEKIT_FULL_ACCESS_HOMESERVERS
               value: example.com
+            # Appservice mode; registrations/lk-jwt.yaml is the other half.
+            - name: LIVEKIT_HS_SERVER_NAME
+              value: example.com
+            - name: LIVEKIT_AS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: lk-jwt
+                  key: LIVEKIT_AS_TOKEN
+            - name: LIVEKIT_HS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: lk-jwt
+                  key: LIVEKIT_HS_TOKEN
             - name: LIVEKIT_KEY
               valueFrom:
                 secretKeyRef:
@@ -541,7 +567,7 @@ spec:
     spec:
       containers:
         - name: redis
-          image: valkey/valkey:9.1.1@sha256:64e361b630ecf18dff7ca4df6a88e6eafc193687eb48cff2c7e0a293ab67d29a
+          image: valkey/valkey:9.2.0@sha256:1c2b25b09f354c66fe994733acdf12fcfd4bdf6f3bd92b88a93a70378d884056
           ports:
             - name: redis
               containerPort: 6379
@@ -604,7 +630,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: livekit-sip
-          image: livekit/sip:v1.20.0
+          image: livekit/sip:v1.25.0@sha256:92361877818f865ece21c171b9703a4c68b133136a3e721f86dda42984c9c400
           env:
             # No SIP_CONFIG_FILE: the image's ENTRYPOINT is
             # ["livekit-sip", "--config=/sip/config.yaml"], and the flag always wins, so
@@ -676,7 +702,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: livekit
-          image: livekit/livekit-server:v1.13.10
+          image: livekit/livekit-server:v1.13.11@sha256:25cd902de7cacbd5f1f779f6a6ac1eae20ba8f56b0935934ce6b0ab80d1e3d20
           # livekit-sip coordinates with the server through a shared Redis. The flag
           # overrides redis.address in livekit.yaml -- updateFromCLI runs after the config
           # file is parsed -- so the config file needs no edit to add it.
@@ -787,7 +813,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: nginx
-          image: nginx:1.31.8-alpine@sha256:e2d97c2b8c016f12c2f1a27d095685063b2f281c4edf2babfde6001cf4fb77a8
+          image: nginx:1.31.9-alpine@sha256:fb4658584bd9a916ffb6f6e365f97c25cfdb2923801f551ea08356e695f14ff7
           ports:
             - name: http
               containerPort: 80
@@ -983,14 +1009,17 @@ spec:
                 claimName: synapse-media-sweep
 ---
 # ===========================================================================
-# mautrix-whatsapp bridge. Appservice reached by Synapse at :29318. Config
-# copied into whatsapp-data (CephFS) with its DB URI repointed; state in Postgres.
+# mautrix-whatsapp bridge. Appservice reached by Synapse at :29318. Config in git
+# (whatsapp-bridge-config.yaml); state in Postgres.
 # ===========================================================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: whatsapp-bridge
   namespace: matrix
+  annotations:
+    # The config is read once at startup from the mounted Secret (README, "Bridge configs live in git").
+    reloader.stakater.com/auto: "true"
 spec:
   # Set replicas here, never with `kubectl scale` -- Flux puts the git value straight back.
   replicas: 1
@@ -1001,6 +1030,10 @@ spec:
       app.kubernetes.io/name: whatsapp-bridge
   template:
     metadata:
+      annotations:
+        # Postgres refuses connections until kube-vnet has programmed the pod; hold the start
+        # (normally 1-4 s), at most this long, instead of crashing once per rollout.
+        kube-vnet/network-max-wait: "60s"
       labels:
         app.kubernetes.io/name: whatsapp-bridge
         app.kubernetes.io/instance: matrix
@@ -1029,10 +1062,19 @@ spec:
           #
           # Pinned to a commit, so Renovate does not track it: an upstream release needs
           # that branch rebased and a new tag written here.
-          image: ghcr.io/lhns/mautrix-whatsapp:e02ad0e38e5847dc3df2394c2547a907fcad9b20@sha256:49f9baff99813e34525a4ea47528876351dc1eb1a5131c1bbb945e597cc55125
+          image: ghcr.io/lhns/mautrix-whatsapp:abf32261b2689b80afdfd47d685f7f09d23b617f@sha256:38eb43dd1df89f98503cdd8f16158bfe81ecf295d6c73093f068d4c0a54cef44
           ports:
             - name: appservice
               containerPort: 29318
+          command: ["/usr/bin/mautrix-whatsapp", "-c", "/config/config.yaml", "-n"]
+          securityContext:
+            runAsUser: 1337
+            runAsGroup: 1337
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          env:
+            - {name: MAUTRIX_EVENT_HANDLING_TIMEOUT_TICKS, value: "8640"}
           # No initial delay, so the Service endpoint appears as soon as the listener binds.
           # This does NOT fix the crash-on-restart: measured afterwards, the first
           # homeserver->appservice ping still fails with a 15s connect timeout and the next
@@ -1046,14 +1088,13 @@ spec:
               port: appservice
             periodSeconds: 2
           volumeMounts:
-            - name: data
-              mountPath: /data
+            - {name: config, mountPath: /config, readOnly: true}
           resources:
             limits: {memory: 256Mi}
       volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: whatsapp-data
+        - name: config
+          secret:
+            secretName: whatsapp-bridge-config
 ---
 apiVersion: v1
 kind: Service
@@ -1113,9 +1154,10 @@ kind: Deployment
 metadata:
   name: telegram-bridge
   namespace: matrix
+  annotations:
+    # The config is read once at startup from the mounted Secret (README, "Bridge configs live in git").
+    reloader.stakater.com/auto: "true"
 spec:
-  # Never start this bridge against an empty /data: it would build a fresh database
-  # and create new portals instead of keeping the existing Matrix room IDs.
   replicas: 1
   strategy:
     type: Recreate
@@ -1124,6 +1166,10 @@ spec:
       app.kubernetes.io/name: telegram-bridge
   template:
     metadata:
+      annotations:
+        # Postgres refuses connections until kube-vnet has programmed the pod; hold the start
+        # (normally 1-4 s), at most this long, instead of crashing once per rollout.
+        kube-vnet/network-max-wait: "60s"
       labels:
         app.kubernetes.io/name: telegram-bridge
         app.kubernetes.io/instance: matrix
@@ -1132,7 +1178,8 @@ spec:
         #
         # Postgres egress since the Aug 2026 port off SQLite. The SQLite file is still
         # on the PVC as the rollback -- switching back is an edit to the database block
-        # in config.yaml (which lives on the volume, not in git) plus dropping this label.
+        # in telegram-bridge-config.yaml, mounting telegram-bridge-data writable at /data, and
+        # dropping this label.
         kube-vnet/net.matrix-bridges: ingress
         kube-vnet/net.matrix-synapse: egress
         kube-vnet/net.postgres.postgres: egress
@@ -1140,10 +1187,19 @@ spec:
       enableServiceLinks: false
       containers:
         - name: telegram
-          image: dock.mau.dev/mautrix/telegram:v0.2610.0@sha256:90f049ca3b25081985c413157a189ea7fb2d13ace7a0da2a093d846acd95570c
+          image: dock.mau.dev/mautrix/telegram:v0.2611.0@sha256:cfbdb7c6469a06eb6e7d60010f45191a27401b6778c5172e294a3231330e668d
           ports:
             - name: appservice
               containerPort: 29317
+          command: ["/usr/bin/mautrix-telegram", "-c", "/config/config.yaml", "-n"]
+          securityContext:
+            runAsUser: 1337
+            runAsGroup: 1337
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          env:
+            - {name: MAUTRIX_EVENT_HANDLING_TIMEOUT_TICKS, value: "8640"}
           readinessProbe:
             timeoutSeconds: 5
             tcpSocket:
@@ -1153,12 +1209,11 @@ spec:
             requests: {cpu: 50m, memory: 192Mi}
             limits: {memory: 1Gi}
           volumeMounts:
-            - name: data
-              mountPath: /data
+            - {name: config, mountPath: /config, readOnly: true}
       volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: telegram-bridge-data
+        - name: config
+          secret:
+            secretName: telegram-bridge-config
 ---
 # The name is load-bearing: the registration says `url: http://telegram-bridge:29317`,
 # which is what Synapse dials. It happens to be the old Swarm service name too, so
@@ -1206,6 +1261,9 @@ kind: Deployment
 metadata:
   name: signal-bridge
   namespace: matrix
+  annotations:
+    # The config is read once at startup from the mounted Secret (README, "Bridge configs live in git").
+    reloader.stakater.com/auto: "true"
 spec:
   replicas: 1
   strategy:
@@ -1215,6 +1273,10 @@ spec:
       app.kubernetes.io/name: signal-bridge
   template:
     metadata:
+      annotations:
+        # Postgres refuses connections until kube-vnet has programmed the pod; hold the start
+        # (normally 1-4 s), at most this long, instead of crashing once per rollout.
+        kube-vnet/network-max-wait: "60s"
       labels:
         app.kubernetes.io/name: signal-bridge
         app.kubernetes.io/instance: matrix
@@ -1228,10 +1290,19 @@ spec:
       enableServiceLinks: false
       containers:
         - name: signal
-          image: dock.mau.dev/mautrix/signal:v0.2610.0@sha256:bf8282036a7965876a2d9b7e21d1e3c92ccb4bf23c890435ce7e67a8800a7075
+          image: dock.mau.dev/mautrix/signal:v0.2611.0@sha256:0465454ba9c67f39afaeeed51baab4b7836ecdc13337e054fe411878c8e50eba
           ports:
             - name: appservice
               containerPort: 29328
+          command: ["/usr/bin/mautrix-signal", "-c", "/config/config.yaml", "-n"]
+          securityContext:
+            runAsUser: 1337
+            runAsGroup: 1337
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          env:
+            - {name: MAUTRIX_EVENT_HANDLING_TIMEOUT_TICKS, value: "8640"}
           readinessProbe:
             timeoutSeconds: 5
             tcpSocket:
@@ -1241,12 +1312,11 @@ spec:
             requests: {cpu: 50m, memory: 192Mi}
             limits: {memory: 1Gi}
           volumeMounts:
-            - name: data
-              mountPath: /data
+            - {name: config, mountPath: /config, readOnly: true}
       volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: signal-data
+        - name: config
+          secret:
+            secretName: signal-bridge-config
 ---
 # Same load-bearing name rule as the other bridges: the registration says
 # `url: http://signal-bridge:29328`, and that is what Synapse dials.
@@ -1277,7 +1347,7 @@ spec:
 # rule so an update can never strip it.
 #
 # Backfill: Instagram history is OFF by default (thread_backfill.batch_count: 0)
-# and is set to -1 (unlimited) in config.yaml on the PVC. Unlike signal's
+# and is set to -1 (unlimited) in instagram-bridge-config.yaml. Unlike signal's
 # pairing-time one-shot this is RE-RUNNABLE, so it can be tuned down and redone
 # if Meta starts rate-limiting.
 #
@@ -1301,6 +1371,9 @@ kind: Deployment
 metadata:
   name: instagram-bridge
   namespace: matrix
+  annotations:
+    # The config is read once at startup from the mounted Secret (README, "Bridge configs live in git").
+    reloader.stakater.com/auto: "true"
 spec:
   replicas: 1
   strategy:
@@ -1310,6 +1383,10 @@ spec:
       app.kubernetes.io/name: instagram-bridge
   template:
     metadata:
+      annotations:
+        # Postgres refuses connections until kube-vnet has programmed the pod; hold the start
+        # (normally 1-4 s), at most this long, instead of crashing once per rollout.
+        kube-vnet/network-max-wait: "60s"
       labels:
         app.kubernetes.io/name: instagram-bridge
         app.kubernetes.io/instance: matrix
@@ -1323,10 +1400,19 @@ spec:
       enableServiceLinks: false
       containers:
         - name: instagram
-          image: dock.mau.dev/mautrix/meta:ig-v0.2610.0@sha256:a65249320ab4fba15587b77b9aa7d4024e4ff3e68ade1077da6000a899abbf26
+          image: dock.mau.dev/mautrix/meta:ig-v0.2611.0@sha256:c1a5a0d4bd54cfb77d2f6dcd2924f0028118bc1e4b3f4f75158a5519c66dde0c
           ports:
             - name: appservice
               containerPort: 29330
+          command: ["/usr/bin/mautrix-meta", "-c", "/config/config.yaml", "-n"]
+          securityContext:
+            runAsUser: 1337
+            runAsGroup: 1337
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          env:
+            - {name: MAUTRIX_EVENT_HANDLING_TIMEOUT_TICKS, value: "8640"}
           readinessProbe:
             timeoutSeconds: 5
             tcpSocket:
@@ -1336,12 +1422,11 @@ spec:
             requests: {cpu: 50m, memory: 192Mi}
             limits: {memory: 1Gi}
           volumeMounts:
-            - name: data
-              mountPath: /data
+            - {name: config, mountPath: /config, readOnly: true}
       volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: instagram-data
+        - name: config
+          secret:
+            secretName: instagram-bridge-config
 ---
 # Same load-bearing name rule as the other bridges: the registration says
 # `url: http://instagram-bridge:29330`, and that is what Synapse dials.
@@ -1395,6 +1480,9 @@ kind: Deployment
 metadata:
   name: discord-bridge
   namespace: matrix
+  annotations:
+    # The config is read once at startup from the mounted Secret (README, "Bridge configs live in git").
+    reloader.stakater.com/auto: "true"
 spec:
   replicas: 1
   strategy:
@@ -1404,6 +1492,10 @@ spec:
       app.kubernetes.io/name: discord-bridge
   template:
     metadata:
+      annotations:
+        # Postgres refuses connections until kube-vnet has programmed the pod; hold the start
+        # (normally 1-4 s), at most this long, instead of crashing once per rollout.
+        kube-vnet/network-max-wait: "60s"
       labels:
         app.kubernetes.io/name: discord-bridge
         app.kubernetes.io/instance: matrix
@@ -1414,10 +1506,18 @@ spec:
       enableServiceLinks: false
       containers:
         - name: discord
-          image: ghcr.io/lhns/mautrix-discord:v0.7.7-lhns.4@sha256:b7e2066bd1c3036ea802a01c423b61cf64bcc3deacb7a51d97b7e1e467e894d0
+          image: ghcr.io/lhns/mautrix-discord:v0.7.7-lhns.5@sha256:98874a0d1091cdf6b52b52d9b2854856c09e30df130b03f0998c58c9372cb7cd
           ports:
             - name: appservice
               containerPort: 29334
+          # Replaces the image's docker-run.sh, which would chown /data and rewrite the config.
+          command: ["/usr/bin/mautrix-discord", "-c", "/config/config.yaml", "-n"]
+          securityContext:
+            runAsUser: 1337
+            runAsGroup: 1337
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
           readinessProbe:
             timeoutSeconds: 5
             tcpSocket:
@@ -1427,12 +1527,11 @@ spec:
             requests: {cpu: 50m, memory: 256Mi}
             limits: {memory: 6Gi}
           volumeMounts:
-            - name: data
-              mountPath: /data
+            - {name: config, mountPath: /config, readOnly: true}
       volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: discord-data
+        - name: config
+          secret:
+            secretName: discord-bridge-config
 ---
 # Same load-bearing name rule as the other bridges: the registration says
 # `url: http://discord-bridge:29334`, and that is what Synapse dials.
@@ -1510,7 +1609,7 @@ spec:
         # Deep-merges the routing table's line_members (apps/cheogram-sip) into the base
         # config. The mount is optional, so a missing ConfigMap leaves the base unchanged.
         - name: merge-line-members
-          image: mikefarah/yq:4.54.1@sha256:4b3d9475d65571d28cbb19544d3820ec2945e4c8b2f18279394282b8dc3a592e
+          image: mikefarah/yq:4.54.3@sha256:7834187596ad56fd5a81436114e0b0b9dd54c91bb43946d1f7145b2be5f9c3d2
           command:
             - sh
             - -c
@@ -1531,7 +1630,7 @@ spec:
             - {name: merged, mountPath: /merged}
       containers:
         - name: matrix-sip-bridge
-          image: ghcr.io/lhns/matrix-sip-bridge:0.2.3@sha256:b5272224de750290f7d7a5bc231397d27373f5012d71ee9a85c9efd774469591
+          image: ghcr.io/lhns/matrix-sip-bridge:0.3.0@sha256:464c4cae849fa8521e0c5b16ab2fee5f8f96b333f46ce475125f71bc5f0fd424
           # mxmain takes a config FILE. There are no SIP_BRIDGE_* environment
           # variables: mautrix reads env only when env_config_prefix is set, and
           # then under __-separated paths, which this config deliberately leaves off.
@@ -1564,9 +1663,18 @@ spec:
           env:
             - name: TZ
               value: Europe/Berlin
+            # bridgev2 otherwise assumes an event succeeded after 10 x 30 s and the worker
+            # would delete the stored text; 8640 x 30 s is the 24 h retry window.
+            - {name: MAUTRIX_EVENT_HANDLING_TIMEOUT_TICKS, value: "8640"}
           volumeMounts:
             - {name: merged, mountPath: /merged, readOnly: true}
+            # The image runs as uid 65532; a fresh emptyDir is world-writable.
+            - {name: spool, mountPath: /spool}
       volumes:
+        # Backup queue for texts the database cannot take: survives a container restart,
+        # not deletion of the pod.
+        - name: spool
+          emptyDir: {sizeLimit: 64Mi}
         - name: config
           secret:
             secretName: matrix-sip-bridge
@@ -1624,7 +1732,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: element-web
-          image: vectorim/element-web:v1.12.32
+          image: vectorim/element-web:v1.12.35@sha256:406b48b80153818284a235fa3600b2a5b5b6b0aa0e4ef4896b36d8d3461352f3
           ports:
             - name: http
               containerPort: 80
@@ -1686,7 +1794,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: baibot
-          image: ghcr.io/etkecc/baibot:v1.29.0
+          image: ghcr.io/etkecc/baibot:v1.30.0@sha256:06ebb7e7b8000340d1bbe90b68dfbe1b6fa35654e0cec69c271644752f1320bb
           env:
             - name: TZ
               value: Europe/Berlin
@@ -1730,7 +1838,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: synapse-admin
-          image: ghcr.io/etkecc/synapse-admin:v0.11.4-etke54
+          image: ghcr.io/etkecc/synapse-admin:v0.11.4-etke54@sha256:668552a2b59df4dc99f9d7a798372b67733173158e50b3784611d1dbd0d5a905
           ports:
             - name: http
               containerPort: 8080

@@ -19,7 +19,7 @@ spec:
   chart:
     spec:
       chart: spegel
-      version: "0.8.0"
+      version: "0.8.1"
       interval: 1h0m0s
       sourceRef:
         kind: HelmRepository
@@ -35,3 +35,8 @@ spec:
       # config_path, and that root must never hold a `_default`. See registries.toml.
       containerdRegistryConfigPath: /etc/k0s/registries/spegel
       # mirroredRegistries left unset -> recent Spegel auto-discovers registries.
+    # Scraped by the otel cluster collector (README, "Metrics").
+    podAnnotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/port: "9090"
+      prometheus.io/path: /metrics

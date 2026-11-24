@@ -1,0 +1,161 @@
+# mautrix-discord (lhns fork, legacy mautrix-go framework, not bridgev2). Site config,
+# mounted read-only and started with -c -n, so nothing here is rewritten by the config
+# upgrader: a key the binary adds in a new release is absent until it is added here
+# (scripts/bridge-config-sync.py adds it).
+#
+# Credentials are substitution placeholders Flux fills from substitution-secrets/. The
+# generator makes this a SECRET (as-secret annotation in kustomization.yaml); drop it and
+# they are applied in the clear. A literal dollar-brace anywhere here, comments included,
+# must be a variable; write any other dollar as two.
+#
+# as_token/hs_token are the same variables as registrations/discord.yaml: rotate one side
+# alone and Synapse answers 403 to every transaction.
+#
+# avatar_proxy_key, shared_secret and server_key must never be the literal `generate`:
+# it would be regenerated on every start.
+homeserver:
+  address: http://synapse:8008
+  domain: example.com
+  software: standard
+  status_endpoint: null
+  message_send_checkpoint_endpoint: null
+  async_media: false
+  websocket: false
+  ping_interval_seconds: 0
+appservice:
+  address: http://discord-bridge:29334
+  hostname: 0.0.0.0
+  port: 29334
+  database:
+    type: postgres
+    uri: postgres://matrix:${MATRIX_DB_PASSWORD}@postgres-rw.postgres.svc.cluster.local:5432/discord?sslmode=disable
+    max_open_conns: 20
+    max_idle_conns: 2
+    max_conn_idle_time: null
+    max_conn_lifetime: null
+  id: discord
+  bot:
+    username: discordbot
+    displayname: Discord bridge bot
+    avatar: mxc://maunium.net/nIdEykemnwdisvHbpxflpDlC
+  ephemeral_events: true
+  async_transactions: false
+  as_token: "${MATRIX_DISCORD_AS_TOKEN}"
+  hs_token: "${MATRIX_DISCORD_HS_TOKEN}"
+bridge:
+  username_template: discord_{{.}}
+  displayname_template: '{{if .Webhook}}Webhook{{else}}{{or .GlobalName .Username}}{{if .Bot}} (bot){{end}}{{end}} (Discord)'
+  channel_name_template: '{{if or (eq .Type 3) (eq .Type 4)}}{{or .Name .Participants}}{{else}}#{{.Name}}{{end}}{{if or .Name .Participants}} (Discord){{end}}'
+  guild_name_template: '{{.Name}}'
+  private_chat_portal_meta: always
+  public_address: null
+  avatar_proxy_key: "${MATRIX_DISCORD_AVATAR_PROXY_KEY}"
+  portal_message_buffer: 128
+  startup_private_channel_create_limit: 1000
+  delivery_receipts: false
+  message_status_events: false
+  message_error_notices: true
+  restricted_rooms: false
+  autojoin_thread_on_open: true
+  embed_fields_as_tables: true
+  mute_channels_on_create: false
+  sync_direct_chat_list: true
+  # Keep false: true re-sends the bridge info state event to every room on each start.
+  resend_bridge_info: false
+  custom_emoji_reactions: true
+  delete_portal_on_channel_delete: false
+  delete_guild_on_leave: true
+  federate_rooms: true
+  prefix_webhook_messages: true
+  enable_webhook_avatars: false
+  use_discord_cdn_upload: true
+  forbid_dming_strangers: true
+  proxy:
+  cache_media: unencrypted
+  direct_media:
+    enabled: false
+    server_name: discord-media.example.com
+    well_known_response:
+    allow_proxy: true
+    server_key: "${MATRIX_DISCORD_DIRECT_MEDIA_KEY}"
+  animated_sticker:
+    target: webp
+    args:
+      width: 320
+      height: 320
+      fps: 25
+  double_puppet_server_map:
+    example.com: https://example.com
+  double_puppet_allow_discovery: false
+  login_shared_secret_map:
+    example.com: "as_token:${MATRIX_DISCORD_DOUBLEPUPPET_AS_TOKEN}"
+  command_prefix: '!discord'
+  management_room_text:
+    welcome: "Hello, I'm a Discord bridge bot."
+    welcome_connected: "Use `help` for help."
+    welcome_unconnected: "Use `help` for help or `login` to log in."
+    additional_help: ""
+  backfill:
+    forward_limits:
+      initial:
+        dm: 1000000000
+        channel: 1000000000
+        thread: 1000000000
+      missed:
+        dm: -1
+        channel: -1
+        thread: -1
+    max_guild_members: -1
+    fetch_delay_ms: 1000
+    retry_interval_ms: 60000
+    max_retries: 60
+  relay:
+    enabled: true
+    admin_only: true
+    message_formats:
+      m.text: "**{{ .Sender.Displayname }}**: {{ .Message }}"
+      m.notice: "**{{ .Sender.Displayname }}**: {{ .Message }}"
+      m.emote: "* **{{ .Sender.Displayname }}** {{ .Message }}"
+      m.file: "**{{ .Sender.Displayname }}** sent a file: {{ .Message }}"
+      m.image: "**{{ .Sender.Displayname }}** sent an image: {{ .Message }}"
+      m.audio: "**{{ .Sender.Displayname }}** sent an audio file: {{ .Message }}"
+      m.video: "**{{ .Sender.Displayname }}** sent a video: {{ .Message }}"
+      m.location: "**{{ .Sender.Displayname }}** sent a location: {{ .Message }}"
+  encryption:
+    allow: true
+    default: false
+    appservice: false
+    msc4190: true
+    require: false
+    allow_key_sharing: false
+    plaintext_mentions: false
+    delete_keys:
+      delete_outbound_on_ack: false
+      dont_store_outbound: false
+      ratchet_on_decrypt: false
+      delete_fully_used_on_decrypt: false
+      delete_prev_on_new_session: false
+      delete_on_device_delete: false
+      periodically_delete_expired: false
+      delete_outdated_inbound: false
+    verification_levels:
+      receive: unverified
+      send: unverified
+      share: cross-signed-tofu
+    rotation:
+      enable_custom: false
+      milliseconds: 604800000
+      messages: 100
+      disable_device_change_key_rotation: false
+  provisioning:
+    prefix: /_matrix/provision
+    shared_secret: "${MATRIX_DISCORD_PROVISIONING_SECRET}"
+    debug_endpoints: false
+  permissions:
+    "example.com": user
+    "@admin:example.com": admin
+logging:
+  min_level: info
+  writers:
+    - type: stdout
+      format: pretty-colored

@@ -45,6 +45,8 @@ network:
         outbound_to: sip:{number}@cheogram-sip-internal.cheogram-sip.svc.cluster.local:5060
         outbound_from: ""
         max_length: 1600
+        # Backup queue for when the database is down; the emptyDir mounted here in resources.yaml.
+        spool_dir: /spool
     calls:
         # Both directions carry real calls: the dialplan rings the bridge
         # alongside XMPP on an inbound call, and the matrixbridge context
@@ -85,6 +87,9 @@ bridge:
     # pod stays 1/1 Running with no endpoint. See CLAUDE.md.
     unknown_error_auto_reconnect: 1m
     unknown_error_max_auto_reconnects: 10
+    # Delivery must be synchronous and patient or a text is acked before Matrix has it.
+    portal_event_buffer: 0
+    send_reconnect_wait: 1m
     bridge_matrix_leave: false
     bridge_notices: false
     tag_only_on_create: true
@@ -115,7 +120,6 @@ bridge:
         list: []
         always_deny_from_login: []
     permissions:
-        "*": relay
         "example.com": user
         "@admin:example.com": admin
 database:
@@ -139,7 +143,8 @@ homeserver:
     async_media: false
     websocket: false
     ping_interval_seconds: 0
-    retry_limit: 4
+    # About 24 h of retries against an unreachable homeserver.
+    retry_limit: 150
 appservice:
     # Must match registrations/sip.yaml, which Synapse has already loaded.
     address: http://matrix-sip-bridge:29337
@@ -210,7 +215,7 @@ double_puppet:
     servers: {}
     allow_discovery: false
     secrets:
-        example.com: "as_token:${MATRIX_SIP_AS_TOKEN}"
+        example.com: "as_token:${MATRIX_SIP_DOUBLEPUPPET_AS_TOKEN}"
 # OFF, and not by default: Element Call SFrame-encrypts media in any room that
 # carries an m.room.encryption event, while the bridge publishes plain audio into
 # LiveKit. An encrypted portal room therefore gives a call that connects, reports

@@ -35,6 +35,9 @@ spec:
         # Accept in-cluster senders on the ClusterIP (external senders arrive via the
         # LoadBalancer, which kube-vnet auto-allows as ext.svc — no label for that).
         kube-vnet/net.otel-gateway: ingress
+        # Traefik routes otlp.example.com to :4318 (routing.yaml); the IngressRoute is what
+        # limits the ports, this only admits the Traefik pods.
+        kube-vnet/net.traefik.traefik: ingress
         # Produce to the brokers.
         kube-vnet/net.kafka: egress
     spec:
@@ -48,7 +51,7 @@ spec:
               app.kubernetes.io/name: opentelemetry-gateway
       containers:
         - name: otelcol
-          image: otel/opentelemetry-collector-contrib:0.163.1
+          image: otel/opentelemetry-collector-contrib:0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea
           # Every signal in the cluster enters here. Unbounded it grows with a burst and
           # takes the node down; bounded it is OOMKilled alone. There is no memory_limiter
           # processor, so this is the only backstop.
@@ -59,7 +62,7 @@ spec:
               memory: 1Gi
           args:
             - --config=/conf/config.yaml
-            # Required by transform/docker-logs-resource-attributes (flatten_data).
+            # Required by transform/docker-logs-resource-attributes (flatten.log).
             - --feature-gates=transform.flatten.logs
           env:
             - name: TZ
@@ -123,7 +126,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: otelcol
-          image: otel/opentelemetry-collector-contrib:0.163.1
+          image: otel/opentelemetry-collector-contrib:0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea
           resources:
             requests:
               memory: 64Mi

@@ -1,7 +1,7 @@
 # 0043 — CI runs on self-hosted runners in the cluster, each confined to its own pod
 
 - Status: Accepted; the runner replaced by [0050](0050-arc-scale-sets-for-per-job-runners.md)
-- Date: 2026-09-24, amended 2026-10-06
+- Date: 2026-09-24, amended 2026-10-06 and 2026-10-25
 - Current answer: this repo's Lint and Renovate run on the `k0s-flux` ARC scale set in
   `apps/github-runner` ([0050](0050-arc-scale-sets-for-per-job-runners.md)): a pod per job,
   unprivileged, using Docker through a remote-docker workspace of its own (`apps/remote-docker-ci`)
@@ -29,6 +29,8 @@ runners with a privileged dind sidecar and an egress policy.
 - **One key per replica, so a StatefulSet**: remote-docker identifies a client by its key, and two
   replicas sharing one would fight over one reverse-tunnel port.
 - Renovate is pinned to an exact version and keeps its caches in the dedicated workspace.
+- **Renovate's cache persists through `actions/cache`** (2026-10-25), not the workspace: GitHub's
+  per-repo cache, bound into the container, so the hosted fallback behaves the same.
 - **Runtime key management** (2026-10-06): remote-docker 0.9.0's `remote key add|rm` and token
   enrolment are enabled in both workspaces with `lhns` as admin. Runner keys stay declarative in
   `authorizedKeys`; ephemeral client accounts come with

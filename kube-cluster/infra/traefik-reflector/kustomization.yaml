@@ -4,5 +4,8 @@ metadata:
   annotations:
     # Needs the Traefik CRDs (Middleware/TLSOption/ServersTransport) to watch.
     flux-component-generator/dependsOn: infra-traefik
+    flux-component-generator/bases: shared/infra/traefik-reflector
 resources:
-- release.yaml
+- ../../../shared/infra/traefik-reflector
+patches:
+- path: version.yaml

@@ -1,0 +1,52 @@
+# Grafana Operator objects of this component (README.md, "Grafana objects"). Each opts out of Flux
+# substitution: rule templates are full of ${...}.
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaAlertRuleGroup
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: app-matrix-alerts
+  namespace: grafana
+spec:
+  name: app-matrix-alerts
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: ag1airdsjen7kc # Cluster
+  interval: 1m
+  rules:
+    # Emailed too: when this fires, the Matrix message about it is what failed.
+    - uid: matrix-alerts-dropping
+      title: Matrix alert relay drops alerts
+      condition: C
+      for: 0s
+      noDataState: OK
+      execErrState: Error
+      data:
+        - refId: A
+          relativeTimeRange: {from: 1800, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              sum(increase({__name__=~"matrix_alertmanager_receiver_(invalid_payload|templating_failure|send_failure)_total"}[30m]))
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0]}
+      labels:
+        severity: critical
+      annotations:
+        summary: 'The matrix-alerts relay dropped {{ with $values.A }}{{ humanize .Value }}{{ else }}n/a{{ end }} alert(s) in 30m'
+        description: 'Invalid payload: the matrix-payload template in apps/grafana and the relay disagree. Templating or send failure: the relay log names it (token, room, homeserver). Grafana alerts do not reach Matrix meanwhile.'
+      notificationSettings:
+        receiver: matrix-and-email
+        group_by: [grafana_folder, alertname]
+        group_wait: 1m
+        group_interval: 10m
+        repeat_interval: 24h

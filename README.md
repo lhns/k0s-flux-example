@@ -168,6 +168,11 @@ docs/                          design notes and operations
 
 k0sctl creates the cluster and is run by hand. Everything inside the cluster is Flux.
 
+`k0sctl apply` drains and restarts k0s on every node whose uploaded `files:` differ in size or
+mtime from the remote copy (content is not hashed, and there is no skip option). Run it from the
+same working tree each time, or copy with mtimes preserved (`cp -p`, `rsync -t`); a fresh checkout
+or `git archive` stamps new mtimes and restarts every node.
+
 Nothing in the generator is tied to the cluster directory's name. Its groups are plain `base`
 paths (`values.groups` of the root HelmRelease in `<cluster>/flux-system/`), and each cluster renders
 only its own, in its own root release: see [Multiple clusters](#multiple-clusters).
@@ -292,7 +297,7 @@ replacements are the usual casualties. A bare `$var` is left alone.
 Strict substitution only applies once the Kustomization has `postBuild`. A component's first
 `artifacts/` or `substitution-secrets/` therefore goes in its own PR, before any `${VAR}` reference:
 in one commit the content can reach kustomize-controller first, and the literal `${VAR}` is applied.
-Two safeguards limit the damage: [`infra/admission-policies`](kube-cluster/infra/admission-policies/README.md)
+Two safeguards limit the damage: [`infra/admission-policies`](shared/infra/admission-policies/README.md)
 rejects a `$` in any image reference, and the `CancelHealthCheckOnNewRevision` gate lets a stuck
 health wait yield to the fix instead of blocking until its timeout.
 
@@ -354,6 +359,10 @@ the network, pins by ref instead of content, and usually turns a cache into stat
        mountPath: /app/plugins
        subPath: plugins
    ```
+
+   An image volume mounts directories only: a `subPath` must be a directory, never a file
+   (containerd refuses it and the pod does not start; `scripts/validate.sh` checks). To place
+   one file, mount its directory at a path of its own.
 
 2. **The content is not an image** (git repos and monorepo subpaths, jars by URL,
    ConfigMaps): compose one with [`infra/oci-composer`](kube-cluster/infra/oci-composer/README.md)
@@ -435,6 +444,9 @@ encrypted file needs the cluster's key. Requires `sops` and tkinter (`python3-tk
   `tests/check-redirects.py` breaks each rule on purpose;
 - `scripts/check-artifacts.py`: every component builds from exactly what its ExternalArtifact
   holds, which catches a `../` out of the component;
+- `tests/bridge-config-sync.py`: the merge logic of `scripts/bridge-config-sync.py`, which
+  `lint.yml` runs against the real bridge images when a PR touches a bridge config or image
+  (needs Docker, so not here; matrix README, "Bridge configs live in git");
 - the per-component tests (see [kube-cluster/README.md](kube-cluster/README.md)).
 
 The checks run concurrently and print in a fixed order as each finishes; any failure fails the run.
@@ -529,6 +541,30 @@ and every component stops deploying. Instead, for `<cluster>`:
 
 A new cluster also needs its own `.sops.yaml` rule and key (`age-keygen`, the private half never
 in git), and its paths in `renovate.json`'s file patterns.
+
+### Upgrading Flux
+
+Flux moves only as a whole release, never one controller image: a controller released ahead of
+its Flux release can need CRD versions the cluster does not have yet. Renovate tracks
+`fluxcd/flux2` from the `# Flux Version:` header in each cluster's `gotk-components.yaml`, and its
+PR runs `scripts/gen-flux.sh`, which regenerates CRDs, controllers and `gotk-sync.yaml` for every
+cluster with that release's CLI. By hand: `FLUX_VERSION=vX.Y.Z ./scripts/gen-flux.sh`. The lint
+fails generated files that differ from the script's output.
+
+The PR is never automerged. Before merging:
+
+1. Read the release notes and every controller's CHANGELOG for breaking changes: removed or
+   deprecated API versions, fields dropped on conversion, RBAC, flags we patch in
+   `flux-system/kustomization.yaml`.
+2. Move every Flux object in git, `templates/` included, to the newest API version the new CRDs
+   serve, in the same PR. Never before it: the old CRDs do not serve the new versions yet.
+
+Flux applies its own upgrade: the `flux-system` Kustomization applies the CRDs before the
+controllers. Afterwards, on each cluster, `flux migrate` moves stored objects to the new storage
+version so the old one can be dropped later, and `flux check` and the Alert and Receiver must be
+Ready. A revert cannot take a CRD version back out: once the new CRDs are applied, the API server
+refuses old CRDs that lack a version in `storedVersions`. Roll back the controllers and keep the
+new CRDs, or roll forward.
 
 ## Details
 

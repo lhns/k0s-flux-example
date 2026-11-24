@@ -29,8 +29,10 @@ metadata:
   name: vmselect
   namespace: victoriametrics-cluster
 spec:
-  description: "exporter (in-ns) + grafana (cross-ns) -> vmselect (:8481)."
+  description: "exporter (in-ns) + grafana, jellyfin probe (cross-ns) -> vmselect (:8481)."
   allowedNamespaces:
     names:
       # Grafana (grafana ns) queries vmselect :8481 as its cluster metrics datasource.
       - grafana
+      # The Jellyfin standing probe's skip check (apps/jellyfin, README "Standing probe").
+      - jellyfin

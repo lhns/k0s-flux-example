@@ -1,0 +1,43 @@
+{
+ "alerts": [
+  {
+   "status": "firing",
+   "labels": {
+    "alertname": "Ceph health check raised",
+    "grafana_folder": "Ceph",
+    "severity": "warning"
+   },
+   "annotations": {
+    "summary": "Ceph MON_DISK_LOW (warning)",
+    "description": "Ceph has raised health check MON_DISK_LOW for 5 minutes. `ceph health detail` names the affected daemons."
+   },
+   "generatorURL": "https://grafana.example.com/alerting/grafana/ceph-health-check/view?orgId=1"
+  },
+  {
+   "status": "firing",
+   "labels": {
+    "alertname": "Ceph health check raised",
+    "grafana_folder": "Ceph",
+    "severity": "warning"
+   },
+   "annotations": {
+    "summary": "Ceph PG_BACKFILL_FULL (warning)",
+    "description": "Ceph has raised health check PG_BACKFILL_FULL for 5 minutes. `ceph health detail` names the affected daemons."
+   },
+   "generatorURL": "https://grafana.example.com/alerting/grafana/ceph-health-check/view?orgId=1"
+  },
+  {
+   "status": "firing",
+   "labels": {
+    "alertname": "Ceph health check raised",
+    "grafana_folder": "Ceph",
+    "severity": "warning"
+   },
+   "annotations": {
+    "summary": "Ceph SLOW_OPS (warning)",
+    "description": "Ceph has raised health check SLOW_OPS for 5 minutes. `ceph health detail` names the affected daemons."
+   },
+   "generatorURL": "https://grafana.example.com/alerting/grafana/ceph-health-check/view?orgId=1"
+  }
+ ]
+}

@@ -1,0 +1,53 @@
+# json_exporter config, probed with module=cardinality|retention|retention_total|new_1h|new_1h_total&target=<stats_query URL>.
+modules:
+  cardinality:
+    metrics:
+      - name: victoriatraces_cardinality_streams
+        type: object
+        valuetype: gauge
+        help: Distinct span streams with data since 00:00 UTC today, per service.name.
+        path: '{ .data.result[*] }'
+        labels:
+          source: '{ .metric.resource_attr:service\.name }'
+        values:
+          today: '{ .value[1] }'
+  retention:
+    metrics:
+      - name: victoriatraces_cardinality_streams
+        type: object
+        valuetype: gauge
+        help: Distinct span streams with data in the retention window, per service.name.
+        path: '{ .data.result[*] }'
+        labels:
+          source: '{ .metric.resource_attr:service\.name }'
+        values:
+          retention: '{ .value[1] }'
+  retention_total:
+    metrics:
+      - name: victoriatraces_cardinality_streams
+        type: object
+        valuetype: gauge
+        help: Distinct streams with data in the retention window, all sources.
+        path: '{ .data.result[*] }'
+        values:
+          retention_total: '{ .value[1] }'
+  new_1h:
+    metrics:
+      - name: victoriatraces_cardinality_streams
+        type: object
+        valuetype: gauge
+        help: Streams first seen in the last hour (not in the retention window before it), per service.name.
+        path: '{ .data.result[*] }'
+        labels:
+          source: '{ .metric.resource_attr:service\.name }'
+        values:
+          new_1h: '{ .value[1] }'
+  new_1h_total:
+    metrics:
+      - name: victoriatraces_cardinality_streams
+        type: object
+        valuetype: gauge
+        help: Streams first seen in the last hour, all sources.
+        path: '{ .data.result[*] }'
+        values:
+          new_1h_total: '{ .value[1] }'

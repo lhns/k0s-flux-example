@@ -12,7 +12,7 @@ metadata:
     grafana.example.com/instance: main
 spec:
   # renovate: datasource=docker
-  version: ghcr.io/lhns/grafana-babel:13.2.2
+  version: ghcr.io/lhns/grafana-babel:13.2.4@sha256:e33273eb73a482c8838d63c686d25ae97b446ccbe85fa62b80f3e973dffadbc6
   # The operator logs in with its projected ServiceAccount token ([auth.jwt] below), so it needs
   # no admin password; the generated admin Secret would only inject GF_SECURITY_ADMIN_*.
   disableDefaultAdminSecret: true
@@ -47,6 +47,12 @@ spec:
         type: Recreate
       template:
         metadata:
+          # Scraped by the otel `cluster` collector; `grafana` must also be in its `namespaces.names`
+          # (infra/opentelemetry-monitoring/release.yaml).
+          annotations:
+            prometheus.io/scrape: "true"
+            prometheus.io/port: "3000"
+            prometheus.io/path: /metrics
           labels:
             app.kubernetes.io/name: grafana
             app.kubernetes.io/instance: grafana
@@ -63,6 +69,8 @@ spec:
             kube-vnet/net.victoriametrics-cluster.vmselect: egress
             # post alerts to the matrix-alerts relay (:8080)
             kube-vnet/net.matrix-alerts.matrix-alerts: egress
+            # scraped by the otel collector (prometheus.io annotations above)
+            kube-vnet/net.opentelemetry.otel-scrape: ingress
         spec:
           # Grafana runs as uid/gid 472; the volume is group-writable by it.
           securityContext:
@@ -85,8 +93,10 @@ spec:
                 - name: GF_AUTH_TOKEN_ROTATION_INTERVAL_MINUTES
                   value: "600"
                 # Replaces the operator's value, so a GrafanaDashboard's spec.plugins installs nothing.
+                # Grafana installs these in the background after start. `id version` pins; Renovate
+                # does not track it. Business Charts: the treemaps of apps/storage-usage.
                 - name: GF_INSTALL_PLUGINS
-                  value: victoriametrics-metrics-datasource,victoriametrics-logs-datasource
+                  value: victoriametrics-metrics-datasource,victoriametrics-logs-datasource,volkovlabs-echarts-panel 7.2.5
                 # Store Grafana's state in the shared CNPG Postgres (dedicated grafana
                 # role + database) instead of the bundled SQLite.
                 - name: GF_DATABASE_TYPE
@@ -183,3 +193,108 @@ spec:
             - name: alerting
               configMap:
                 name: grafana-alerting
+---
+# Read-only API access for maintenance tooling. The operator writes the token to the Secret below;
+# changing `expires` re-issues it. spec.name is unique in Grafana, so a second CR for it fails.
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaServiceAccount
+metadata:
+  name: app-grafana-claude-viewer
+  namespace: grafana
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+spec:
+  instanceName: grafana
+  name: claude-viewer
+  role: Viewer
+  tokens:
+    - name: claude-viewer
+      secretName: grafana-claude-viewer-token
+      expires: "2027-01-26T00:00:00Z"
+---
+# Emailed too: when these fire, Matrix notifications or the rules behind them are what failed.
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaAlertRuleGroup
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: app-grafana
+  namespace: grafana
+spec:
+  name: app-grafana
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: ag1airdsjen7kc # Cluster
+  interval: 1m
+  rules:
+    - uid: grafana-notifications-failed
+      title: Grafana notifications failing
+      condition: C
+      for: 0s
+      noDataState: OK
+      execErrState: Error
+      data:
+        - refId: A
+          relativeTimeRange: {from: 1800, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              sum by (integration) (increase(grafana_alerting_notifications_failed_total[30m]))
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0]}
+      labels:
+        severity: critical
+      annotations:
+        summary: 'Grafana failed {{ with $values.A }}{{ humanize .Value }}{{ else }}n/a{{ end }} {{ $labels.integration }} notification(s) in 30m'
+        description: 'The Grafana log has "Notify for alerts failed" with the error. webhook: the matrix-alerts relay; email: the SMTP config.'
+      notificationSettings:
+        receiver: matrix-and-email
+        group_by: [grafana_folder, alertname]
+        group_wait: 1m
+        group_interval: 10m
+        repeat_interval: 24h
+    # Ratio, not count: a few percent of evaluations always fail, so a count would never clear.
+    - uid: grafana-rule-evaluations-failing
+      title: Grafana alert rules failing to evaluate
+      condition: C
+      for: 10m
+      keepFiringFor: 15m
+      noDataState: OK
+      execErrState: Error
+      data:
+        - refId: A
+          relativeTimeRange: {from: 1800, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              sum(increase(grafana_alerting_rule_evaluation_failures_total[15m])) / sum(increase(grafana_alerting_rule_evaluations_total[15m]))
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0.2]}
+      labels:
+        severity: critical
+      annotations:
+        summary: '{{ with $values.A }}{{ humanizePercentage .Value }}{{ else }}n/a{{ end }} of Grafana rule evaluations fail'
+        description: 'Usually a datasource (VictoriaMetrics, VictoriaLogs) is down or timing out. Rules with execErrState KeepLast hold their last state meanwhile, so they are blind.'
+      notificationSettings:
+        receiver: matrix-and-email
+        group_by: [grafana_folder, alertname]
+        group_wait: 1m
+        group_interval: 10m
+        repeat_interval: 24h

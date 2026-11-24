@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- cronjobs.yaml
+# The probe is a script on the Python image (README.md, "Standing probe"). Hashed name: an edit
+# reaches the next run.
+configMapGenerator:
+- name: jellyfin-probe
+  namespace: jellyfin
+  files:
+  - jellyfin_probe.py

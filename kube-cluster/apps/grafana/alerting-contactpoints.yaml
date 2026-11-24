@@ -1,4 +1,61 @@
 apiVersion: 1
+# matrix-alerts renders one Matrix message per alert in a payload, so the webhook sends one
+# pseudo-alert per status; its instances ride in annotations i0000... and the template in
+# matrix-alerts/config.yaml lists them. Change both together; tests/ renders both.
+# Rules that failed to query arrive as alertname DatasourceError, one alert per rule (label
+# rulename, annotation Error), and carry their own, then meaningless, summary: they are
+# reported as "could not be evaluated" with the rule names and the error. In a normal group
+# description and generatorURL are sent only when all its alerts share them.
+templates:
+  - orgID: 1
+    name: matrix-payload
+    template: |
+      {{ define "matrix.payload.alert" -}}
+      {{- $first := index .Alerts 0 -}}
+      {{- $sameDesc := true -}}{{- $sameURL := true -}}
+      {{- range .Alerts -}}
+      {{- if ne .Annotations.description $first.Annotations.description }}{{ $sameDesc = false }}{{ end -}}
+      {{- if ne .GeneratorURL $first.GeneratorURL }}{{ $sameURL = false }}{{ end -}}
+      {{- end -}}
+      {{- if eq $first.Labels.alertname "DatasourceError" -}}
+      {{- $names := coll.Slice -}}
+      {{- range $i, $a := .Alerts }}{{ $dup := false }}
+      {{- range $j, $b := $.Alerts }}{{ if and (lt $j $i) (eq (or $b.Labels.rulename $b.Labels.alertname) (or $a.Labels.rulename $a.Labels.alertname)) }}{{ $dup = true }}{{ end }}{{ end }}
+      {{- if not $dup }}{{ $names = coll.Append (or $a.Labels.rulename $a.Labels.alertname) $names }}{{ end }}{{ end -}}
+      {{- $sev := "" -}}
+      {{- range .Alerts }}{{ if eq .Labels.severity "critical" }}{{ $sev = "critical" }}{{ else if and (eq .Labels.severity "warning") (ne $sev "critical") }}{{ $sev = "warning" }}{{ else if and .Labels.severity (not $sev) }}{{ $sev = .Labels.severity }}{{ end }}{{ end -}}
+      {"status": {{ .Status | data.ToJSON }},
+       "labels": {"alertname": {{ if eq (len $names) 1 }}{{ printf "%s could not be evaluated" (index $names 0) | data.ToJSON }}{{ else }}{{ printf "%d rules could not be evaluated" (len $names) | data.ToJSON }}{{ end }},
+                  "severity": {{ or $sev "critical" | data.ToJSON }}
+                  {{- if eq (len $names) 1 }}, "count": "1"{{ end }}},
+       "annotations": {"description": {{ printf "Error: %s" (or ($first.Annotations.Error | reReplaceAll "[[:space:]]+" " " | reReplaceAll "^(.{300}).+$" "${1}...") "no error text") | data.ToJSON }}
+         {{- range $i, $n := $names }},
+                       {{ printf "i%04d" $i | data.ToJSON }}: {{ $n | data.ToJSON }}
+         {{- end }}},
+       "generatorURL": {{ if $sameURL }}{{ $first.GeneratorURL | data.ToJSON }}{{ else }}""{{ end }}}
+      {{- else -}}
+      {"status": {{ .Status | data.ToJSON }},
+       "labels": {"alertname": {{ $first.Labels.alertname | data.ToJSON }},
+                  "severity": {{ $first.Labels.severity | data.ToJSON }},
+                  "count": {{ len .Alerts | printf "%d" | data.ToJSON }}},
+       "annotations": {"summary": {{ $first.Annotations.summary | data.ToJSON }}
+         {{- if $sameDesc }},
+                       "description": {{ $first.Annotations.description | data.ToJSON }}
+         {{- end }}
+         {{- range $i, $a := .Alerts }},
+                       {{ printf "i%04d" $i | data.ToJSON }}: {{ or $a.Annotations.summary $a.Labels.alertname | data.ToJSON }}
+         {{- end }}},
+       "generatorURL": {{ if $sameURL }}{{ $first.GeneratorURL | data.ToJSON }}{{ else }}""{{ end }}}
+      {{- end }}
+      {{- end }}
+      {{ define "matrix.payload" -}}
+      {"receiver": {{ .Receiver | data.ToJSON }}, "status": {{ .Status | data.ToJSON }}, "version": "4",
+       "alerts": [
+      {{- if .Alerts.Firing }}{{ template "matrix.payload.alert" (coll.Dict "Status" "firing" "Alerts" .Alerts.Firing) }}{{ end }}
+      {{- if and .Alerts.Firing .Alerts.Resolved }},{{ end }}
+      {{- if .Alerts.Resolved }}{{ template "matrix.payload.alert" (coll.Dict "Status" "resolved" "Alerts" .Alerts.Resolved) }}{{ end }}
+       ]}
+      {{- end }}
 contactPoints:
   - orgId: 1
     name: matrix
@@ -8,6 +65,8 @@ contactPoints:
         settings:
           url: http://matrix-alerts.matrix-alerts.svc:8080/alerts/grafana
           httpMethod: POST
+          payload:
+            template: '{{ template "matrix.payload" . }}'
   # Pipeline alerts also go by email, so they arrive when Matrix itself is down.
   - orgId: 1
     name: matrix-and-email
@@ -17,6 +76,8 @@ contactPoints:
         settings:
           url: http://matrix-alerts.matrix-alerts.svc:8080/alerts/grafana
           httpMethod: POST
+          payload:
+            template: '{{ template "matrix.payload" . }}'
       - uid: matrix-and-email
         type: email
         settings:

@@ -1,0 +1,5 @@
+# OpenCloud reads this from /etc/opencloud/apps.yaml (not $OC_BASE_DATA_PATH/config as the web
+# README says), only at start. A bare origin: draw-io drops messages unless event.origin equals url.
+draw-io:
+  config:
+    url: "https://drawio.example.com"

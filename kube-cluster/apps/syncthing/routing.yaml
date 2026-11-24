@@ -21,10 +21,10 @@ spec:
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: syncthing-lolhens-de
+  name: syncthing-example-net
   namespace: syncthing
 spec:
-  secretName: syncthing-lolhens-de
+  secretName: syncthing-example-net
   issuerRef:
     name: letsencrypt-ionos-prod
     kind: ClusterIssuer
@@ -35,7 +35,7 @@ spec:
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
-  name: syncthing-lolhens-redirect
+  name: syncthing-example-net-redirect
   namespace: syncthing
 spec:
   redirectRegex:
@@ -46,7 +46,7 @@ spec:
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
-  name: syncthing-lolhens
+  name: syncthing-example-net
   namespace: syncthing
 spec:
   entryPoints: [websecure]
@@ -57,9 +57,9 @@ spec:
         - name: noop@internal
           kind: TraefikService
       middlewares:
-        - name: syncthing-lolhens-redirect
+        - name: syncthing-example-net-redirect
   tls:
-    secretName: syncthing-lolhens-de
+    secretName: syncthing-example-net
 ---
 # syncthing.kube.example.com -> canonical syncthing.example.com (default *.example.com wildcard).
 apiVersion: traefik.io/v1alpha1

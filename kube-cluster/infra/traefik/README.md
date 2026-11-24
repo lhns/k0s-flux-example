@@ -8,7 +8,7 @@ The cluster ingress controller — a DaemonSet exposed via a metallb LoadBalance
 - `tls.yaml` — a `Certificate` for the wildcard `*.kube.example.com` (cert-manager
   `letsencrypt-ionos-prod`) + a default `TLSStore`, so every host gets TLS without
   a per-host cert.
-- `vnet.yaml` — the `traefik` vnet: backends join it (ingress) to receive from
+- `vnet.yaml` — in the shared base `shared/infra/traefik`: the `traefik` vnet: backends join it (ingress) to receive from
   traefik; traefik pods are egress members.
 
 External traffic to the LB is auto-allowed by kube-vnet (`ext.svc`).
@@ -39,6 +39,18 @@ Consumers still need to trust the extra hop themselves — see the `internalProx
 raw-TCP entrypoints (`mqtt`, `ldap`, `authelia`, `xmpp-*`) are unaffected, forwarded headers being
 an HTTP concept.
 
+## Telemetry
+
+Metrics, traces, logs and access logs go over OTLP/gRPC to `opentelemetry-gateway`, like the Swarm
+edge Traefik; Prometheus metrics stay on. All carry `service.name=traefik-cluster`, the edge is
+`traefik`, so the alerts below select it with `{"service.name"="traefik"}`. Gateway access needs
+both the pod label and `traefik` in `infra/opentelemetry-gateway/vnet.yaml`. Traefik starts
+without the gateway.
+
+Every request is access-logged (also to stdout), so volume follows request volume; narrow with
+`accessLog.filters` if it hurts. Query strings are dropped from `RequestPath` because
+subsonic-basicauth takes credentials there.
+
 ## Alerts
 
 `grafana.yaml`: rule group `infra-traefik`, folder *Cluster*; every rule was backtested over 7 days before it was added.
@@ -46,7 +58,7 @@ an HTTP concept.
 | Rule | Fires when | For | Severity |
 | --- | --- | --- | --- |
 | `traefik-cert-expiry-21d` / `-7d` | edge certificate expires within 21d / 7d | 1h | warning / critical |
-| `traefik-5xx` | over 10% 5xx for a service with over 0.2 requests/s (15m) | 15m | warning |
+| `traefik-5xx` | over 10% 5xx for a service with over 0.2 requests/s (15m); recovers below 7% | 15m | warning |
 | `traefik-metrics-stalled` | no edge Traefik request counter for 10m (also on NoData) | 5m | warning |
 
 Backtests over 7 days:

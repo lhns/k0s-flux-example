@@ -34,7 +34,7 @@ spec:
     spec:
       containers:
         - name: immich-album-federation
-          image: ghcr.io/lhns/immich-album-federation:0.1.0
+          image: ghcr.io/lhns/immich-album-federation:0.1.0@sha256:9dd81c8bccaddf9a994b3f5919b1a935e707ffa430beb329032283307de6ff8f
           # Memory only, per apps/webtop/README.md -- a CPU limit would throttle, not protect.
           resources:
             requests:

@@ -13,8 +13,8 @@ Migrated from the Swarm compose service that served `docker.example.com`.
 - Not `apps/github-runner`: its `k0s-flux` scale set uses `apps/remote-docker-ci`, a second workspace, so a
   pod-level egress policy can confine its jobs without confining everyone here.
 
-`apps/gitea-runner` and `apps/forgejo-runner` deliberately still run their own dind sidecars.
-Their `config.yaml` sets `valid_volumes: []` and `network: ""`, so each job gets a docker *volume*
+`apps/forgejo-runner` deliberately still runs its own dind sidecar.
+Its `config.yaml` sets `valid_volumes: []` and `network: ""`, so each job gets a docker *volume*
 and a daemon-created bridge — they never bind-mount a host path, so the bind rewriting that
 justifies this design buys them nothing. Moving them here would also *reduce* their isolation,
 since each has its own daemon today.
@@ -49,7 +49,8 @@ the object kind is a Secret only because `templates/statefulset.yaml` hardcodes 
 as named volumes on this one, so it is shared by every account. Grow it by
 patching the PVC (`ceph-rbd` has `allowVolumeExpansion`), not the values: see `release.yaml`. A
 full graph stalls builds, so notice before it bites. The agent prunes unused images and build
-cache (unused for 7 days, or oldest first above 80% usage), never volumes, and only in a running
+cache (unused for 7 days, or oldest first above 80% usage) and anonymous volumes no container names
+(dangling for 7 days, sooner above 80% but never within an hour; never named ones), and only in a running
 daemon: an account's daemon starts when it connects. `remote user rm <account> --purge` removes a
 departed account's daemon and volume; deleting its key file by hand leaves them behind.
 

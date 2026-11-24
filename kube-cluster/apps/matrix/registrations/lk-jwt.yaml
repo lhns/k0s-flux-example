@@ -1,0 +1,15 @@
+# See README, "lk-jwt as an appservice". Non-exclusive ".*" claims no users; it only lets lk-jwt
+# look up any local user's room membership.
+id: lk-jwt
+url: null
+as_token: ${MATRIX_LKJWT_AS_TOKEN}
+hs_token: ${MATRIX_LKJWT_HS_TOKEN}
+sender_localpart: _lk_jwt_service
+rate_limited: false
+namespaces:
+    users:
+        - regex: '.*'
+          exclusive: false
+io.element.msc4502.scopes: ['urn:matrix:client:io.element.msc4502:rooms:is_joined']
+io.element.msc4512.proxy_prefix: rtc/livekit
+io.element.msc4512.proxy_url: http://lk-jwt:8080

@@ -1,0 +1,33 @@
+{
+  "mon_host": "10.20.176.250,10.20.176.251,10.20.176.252",
+  "tasks": {
+    "pools": {"every_minutes": 10, "offset_minutes": 5},
+    "cephfs": {"every_minutes": 30, "offset_minutes": 20},
+    "rbd_proxmox": {"every_minutes": 30, "offset_minutes": 25},
+    "rgw": {"every_minutes": 60, "offset_minutes": 35},
+    "rbd_k8s": {"every_minutes": 1440, "offset_minutes": 270, "at_start": false, "max_seconds": 1800}
+  },
+  "cephfs": {
+    "swarm_roots": ["/docker", "/eph-docker", "/eph/docker"],
+    "filesystems": {
+      "appdata": {"depth": 2},
+      "archive": {"depth": 2, "depths": {"/dump": 1}},
+      "userdata": {"depth": 1},
+      "fastdata": {"depth": 2}
+    }
+  },
+  "rbd_proxmox": {
+    "images": [
+      {"pool": "rbd.vms", "namespace": "vms"},
+      {"pool": "rbd.vms-nvme", "namespace": "vms-nvme"}
+    ]
+  },
+  "rbd_k8s": {
+    "images": [{"pool": "rbd.kube", "namespace": "kube"}],
+    "skip_prefixes": ["csi-snap-"]
+  },
+  "rgw": {
+    "url": "https://s3.example.com",
+    "data_pool": "default.rgw.buckets.data"
+  }
+}

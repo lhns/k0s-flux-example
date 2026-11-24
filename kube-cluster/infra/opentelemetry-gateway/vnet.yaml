@@ -46,6 +46,8 @@ spec:
       - mosquitto
       - mqtt-monitoring
       - demo-app
+      - traefik
+      - jellyfin
       # Operator-managed collectors, so they join by selector rather than pod label —
       # see infra/opentelemetry-monitoring/vnet.yaml.
       - opentelemetry

@@ -1,0 +1,26 @@
+{
+ "payload": [
+  {
+   "status": "firing",
+   "labels": {
+    "alertname": "Edge service returns 5xx",
+    "severity": "warning",
+    "count": "2"
+   },
+   "annotations": {
+    "summary": "a: 12% of requests fail with 5xx",
+    "description": "Over 10% of requests for 15m.",
+    "i0000": "a: 12% of requests fail with 5xx",
+    "i0001": "b: 20% of requests fail with 5xx"
+   },
+   "generatorURL": "https://grafana.example.com/alerting/grafana/traefik-5xx/view?orgId=1"
+  }
+ ],
+ "messages": [
+  {
+   "body": "**FIRING** Edge service returns 5xx [warning] — 2 instances \nOver 10% of requests for 15m.\n \n* a: 12% of requests fail with 5xx\n* b: 20% of requests fail with 5xx\n \n[Rule](https://grafana.example.com/alerting/grafana/traefik-5xx/view?orgId=1)",
+   "formatted_body": " <p>  <strong><font color=\"orange\">FIRING</font></strong> Edge service returns 5xx [warning] &mdash; 2 instances <br/>Over 10% of requests for 15m. </p> <ul> <li>a: 12% of requests fail with 5xx</li><li>b: 20% of requests fail with 5xx</li> </ul> <p> <a href=\"https://grafana.example.com/alerting/grafana/traefik-5xx/view?orgId=1\">Rule</a> </p>",
+   "m.mentions": {}
+  }
+ ]
+}

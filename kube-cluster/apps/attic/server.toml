@@ -1,0 +1,29 @@
+# Secrets come from env (resources.yaml): ATTIC_SERVER_DATABASE_URL, ATTIC_SERVER_TOKEN_RS256_SECRET_BASE64
+# and AWS_* fill the omitted database.url, [jwt.signing] and [storage.credentials].
+listen = "0.0.0.0:8080"
+
+# Exact Host match, port included: the Service on :80 for nix, a port-forward for admin.
+allowed-hosts = ["attic.attic.svc.cluster.local", "localhost:8080"]
+api-endpoint = "http://attic.attic.svc.cluster.local/"
+
+[database]
+
+[storage]
+type = "s3"
+region = "us-east-1"
+bucket = "attic"
+endpoint = "https://s3.example.com"
+
+# Changing these makes new uploads stop deduplicating against existing chunks.
+[chunking]
+nar-size-threshold = 65536
+min-size = 16384
+avg-size = 65536
+max-size = 262144
+
+[compression]
+type = "zstd"
+
+[garbage-collection]
+interval = "12 hours"
+default-retention-period = "3 months"

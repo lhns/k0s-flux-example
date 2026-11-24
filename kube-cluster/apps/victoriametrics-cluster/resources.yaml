@@ -110,7 +110,11 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: vmstorage
-          image: victoriametrics/vmstorage:v1.154.1-cluster
+          # Fork of v1.155.0-cluster (lhns/VictoriaMetrics metaindex-chunked): keeps only every Nth
+          # indexdb metaindex key in RAM. Same on-disk format, but upstream rejects the flag below:
+          # going back to upstream means image and flag together. VictoriaMetrics bumps must
+          # rebuild this fork on the new tag, or vmstorage lags the rest (ADR 0015).
+          image: ghcr.io/lhns/vmstorage:metaindex-chunked-ci-c9441af@sha256:7b228c2014792c3e2a0d8303fd18d0dd0d825dbb691e16a95750d1c6e188f7c3
           args:
             # 24 months. vmstorage DROPS any sample older than this on ingest
             # (vm_rows_ignored_total{reason="small_timestamp"}), so a backfill window
@@ -126,6 +130,12 @@ spec:
             # minute by design. 1ms collapses exact duplicates only. Must match vmselect.
             - -dedup.minScrapeInterval=1ms
             - -storageDataPath=/storage
+            - -storage.metaindexChunkRows=64
+          env:
+            # Limit minus the caches held outside the Go heap (tsid, metricName, metricIDs:
+            # ~4.3Gi at allowedPercent=50) minus headroom. Higher lets heap + caches pass the limit.
+            - name: GOMEMLIMIT
+              value: 10GiB
           ports:
             - {name: vminsert-rpc, containerPort: 8400}
             - {name: vmselect-rpc, containerPort: 8401}
@@ -218,7 +228,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: vminsert
-          image: victoriametrics/vminsert:v1.154.1-cluster
+          image: victoriametrics/vminsert:v1.156.0-cluster@sha256:3f3fa42ae5b447792da9a14538296b4463a7787f1702d1b69fa168052fdf4efb
           args:
             - -storageNode=vmstorage:8400
             - -maxLabelsPerTimeseries=50
@@ -293,7 +303,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: vmselect
-          image: victoriametrics/vmselect:v1.154.1-cluster
+          image: victoriametrics/vmselect:v1.156.0-cluster@sha256:3ac723ba307d009fd3dcedef21572ea74da9c4ae3a6f37d842580bf3d4c2f3cd
           args:
             # Both tiers; wherever both hold a range the long-term samples are a subset (README).
             - -storageNode=vmstorage:8401,vmstorage-longterm:8401
@@ -374,7 +384,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: otelcol
-          image: otel/opentelemetry-collector-contrib:0.163.1
+          image: otel/opentelemetry-collector-contrib:0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea
           resources:
             requests:
               memory: 256Mi
@@ -399,3 +409,76 @@ spec:
         - name: config
           configMap:
             name: victoriametrics-cluster-exporter-config
+---
+# ===========================================================================
+# json_exporter: turns the store's cardinality API into metrics (see README,
+# "Cardinality metrics"). Probed by the victoriametrics-cluster-exporter collector.
+# ===========================================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: victoriametrics-cluster-cardinality-exporter
+  namespace: victoriametrics-cluster
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: victoriametrics-cluster-cardinality-exporter
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: victoriametrics-cluster-cardinality-exporter
+        app.kubernetes.io/instance: victoriametrics-cluster
+        # Both directions on one channel: queries vmselect (it carries kube-vnet/net.vmselect: ingress)
+        # and is probed by the collector (egress on the same net).
+        kube-vnet/net.vmselect: both
+    spec:
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: json-exporter
+          image: quay.io/prometheuscommunity/json-exporter:v0.8.0@sha256:3aad20d41a0b31dfaaf7ab1a091440e92a82a61ef68b76750eac0ad50a983652
+          args:
+            - --config.file=/config/config.yml
+          resources:
+            requests:
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          ports:
+            - name: http
+              containerPort: 7979
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: victoriametrics-cluster-cardinality-exporter-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: victoriametrics-cluster-cardinality-exporter
+  namespace: victoriametrics-cluster
+spec:
+  selector:
+    app.kubernetes.io/name: victoriametrics-cluster-cardinality-exporter
+  ports:
+    - {name: http, port: 7979, targetPort: http}

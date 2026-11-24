@@ -44,7 +44,7 @@ spec:
           # a Xeon E5-2680 v2 = Ivy Bridge: has AVX but not AVX2, so x86-64-v3 won't
           # work; IvyBridge is migration-safe across all hosts). If a worker ever
           # shows AVX-NO, mongo will crash-loop -> fix the VM CPU type, not the image.
-          image: mongo:8.3.13
+          image: mongo:8.3.17@sha256:747773029b84309981a3624a1af64ffc8c4d792283cc0834f26fe01fc6d28b34
           resources:
             requests:
               memory: 256Mi
@@ -106,13 +106,17 @@ spec:
         kube-vnet/net.notesnook-db: egress
         kube-vnet/net.identity: ingress
         kube-vnet/net.msmtpd.msmtpd: egress
+        kube-vnet/net.notesnook-server: egress
+        kube-vnet/net.sse-server: egress
     spec:
       enableServiceLinks: false
       containers:
         - name: identity-server
-          image: streetwriters/identity:v1.0-beta.32
+          image: streetwriters/identity:v1.0-beta.52@sha256:5e6eed47697455e1a549e947edb43d81a8455c8fc1732029494759d95912f545
           ports:
             - {name: http, containerPort: 8264}
+            # Inter-service WAMP: upstream default *_WAMP_PORT = HTTP port + 1; internal only (README).
+            - {name: wamp, containerPort: 8265}
           readinessProbe:
             timeoutSeconds: 5
             httpGet: {path: /health, port: http}
@@ -151,6 +155,7 @@ spec:
     app.kubernetes.io/name: identity-server
   ports:
     - {name: http, port: 8264, targetPort: http}
+    - {name: wamp, port: 8265, targetPort: wamp}
 ---
 # ===========================================================================
 # notesnook-server (sync API) — stores encrypted notes, mints presigned S3 URLs
@@ -177,13 +182,15 @@ spec:
         kube-vnet/net.notesnook-db: egress
         kube-vnet/net.identity: egress
         kube-vnet/net.notesnook-server: ingress
+        kube-vnet/net.sse-server: egress
     spec:
       enableServiceLinks: false
       containers:
         - name: notesnook-server
-          image: streetwriters/notesnook-sync:v1.0-beta.32
+          image: streetwriters/notesnook-sync:v1.0-beta.52@sha256:7d34249355eac88e3b0d07c526486710df58da84121aca0fc928c03899126909
           ports:
             - {name: http, containerPort: 5264}
+            - {name: wamp, containerPort: 5265}
           readinessProbe:
             timeoutSeconds: 5
             httpGet: {path: /health, port: http}
@@ -228,6 +235,7 @@ spec:
     app.kubernetes.io/name: notesnook-server
   ports:
     - {name: http, port: 5264, targetPort: http}
+    - {name: wamp, port: 5265, targetPort: wamp}
 ---
 # ===========================================================================
 # sse-server — realtime push (Server-Sent Events). :7264.
@@ -252,13 +260,15 @@ spec:
         kube-vnet/net.traefik.traefik: ingress
         kube-vnet/net.identity: egress
         kube-vnet/net.notesnook-server: egress
+        kube-vnet/net.sse-server: ingress
     spec:
       enableServiceLinks: false
       containers:
         - name: sse-server
-          image: streetwriters/sse:v1.0-beta.32
+          image: streetwriters/sse:v1.0-beta.52@sha256:52cad0b1424efe97b556b651aaf32b0ba284289934e8b5b69937600c50f064f4
           ports:
             - {name: http, containerPort: 7264}
+            - {name: wamp, containerPort: 7265}
           readinessProbe:
             timeoutSeconds: 5
             httpGet: {path: /health, port: http}
@@ -288,6 +298,7 @@ spec:
     app.kubernetes.io/name: sse-server
   ports:
     - {name: http, port: 7264, targetPort: http}
+    - {name: wamp, port: 7265, targetPort: wamp}
 ---
 # ===========================================================================
 # web client — self-hosted Notesnook web SPA. Community image (E2E keys are

@@ -10,7 +10,8 @@ spec:
   ref:
     # Pinned to the released chart version. Bump to roll a new release; use a
     # 0.0.0-dev.<short-sha> tag to trial an unreleased commit.
-    tag: "0.1.0"
+    tag: "0.1.2"
+    digest: sha256:3fa1d227d7fed65873cbd2ea7cda6ea30965e0b8c3e1efc07ba00498451605b4
 ---
 # ha-surge: make-before-break HA for single-replica Deployments during
 # node drains. On an eviction it detaches the doomed pod from its ReplicaSet (the

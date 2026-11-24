@@ -10,7 +10,7 @@ spec:
   url: https://github.com/Niehztog/freshrss-af-readability
   ref:
     # No tags upstream. `vendor/` is committed, so the checkout is complete as is.
-    commit: 7e0dc8fd82d5f13863e5121cbe0f7b1f2d194fd9
+    commit: 082472c34368a564ee7efdde29124ff68b021903
 ---
 apiVersion: oci.lhns.de/v1alpha1
 kind: ImageComposition
@@ -24,7 +24,7 @@ spec:
       sourceRef:
         kind: GitRepository
         name: freshrss-ext-af-readability
-        revision: sha1:7e0dc8fd82d5f13863e5121cbe0f7b1f2d194fd9
+        revision: sha1:082472c34368a564ee7efdde29124ff68b021903
       to: /
       owner: {uid: 33, gid: 33}
   push:

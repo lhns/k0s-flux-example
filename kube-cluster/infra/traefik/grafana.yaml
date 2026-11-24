@@ -19,6 +19,7 @@ spec:
       title: Edge certificate expires within 21 days
       condition: C
       for: 1h
+      keepFiringFor: 15m
       noDataState: OK
       execErrState: KeepLast
       data:
@@ -29,7 +30,7 @@ spec:
             refId: A
             instant: true
             expr: >-
-              min by (cn, sans) (traefik_tls_certs_not_after) - time()
+              min by (cn, sans) (traefik_tls_certs_not_after{"service.name"="traefik"}) - time()
         - refId: C
           datasourceUid: __expr__
           model:
@@ -41,14 +42,19 @@ spec:
       labels:
         severity: warning
       annotations:
-        summary: 'Certificate {{ $labels.cn }} ({{ $labels.sans }}) expires in {{ with $values.A }}{{ humanizeDuration .Value }}{{ end }}'
+        summary: 'Certificate {{ $labels.cn }} ({{ $labels.sans }}) expires in {{ with $values.A }}{{ humanizeDuration .Value }}{{ else }}n/a{{ end }}'
         description: 'Renewal should have happened by now. A superseded certificate still loaded by Traefik trips this too.'
       notificationSettings:
         receiver: matrix
+        group_by: [grafana_folder, alertname]
+        group_wait: 1m
+        group_interval: 10m
+        repeat_interval: 24h
     - uid: traefik-cert-expiry-7d
       title: Edge certificate expires within 7 days
       condition: C
       for: 1h
+      keepFiringFor: 15m
       noDataState: OK
       execErrState: KeepLast
       data:
@@ -59,7 +65,7 @@ spec:
             refId: A
             instant: true
             expr: >-
-              min by (cn, sans) (traefik_tls_certs_not_after) - time()
+              min by (cn, sans) (traefik_tls_certs_not_after{"service.name"="traefik"}) - time()
         - refId: C
           datasourceUid: __expr__
           model:
@@ -71,14 +77,19 @@ spec:
       labels:
         severity: critical
       annotations:
-        summary: 'Certificate {{ $labels.cn }} ({{ $labels.sans }}) expires in {{ with $values.A }}{{ humanizeDuration .Value }}{{ end }}'
+        summary: 'Certificate {{ $labels.cn }} ({{ $labels.sans }}) expires in {{ with $values.A }}{{ humanizeDuration .Value }}{{ else }}n/a{{ end }}'
         description: 'Renew it now; browsers reject it at expiry.'
       notificationSettings:
         receiver: matrix
+        group_by: [grafana_folder, alertname]
+        group_wait: 1m
+        group_interval: 10m
+        repeat_interval: 24h
     - uid: traefik-5xx
       title: Edge service returns 5xx
       condition: C
       for: 15m
+      keepFiringFor: 15m
       noDataState: OK
       execErrState: KeepLast
       data:
@@ -89,7 +100,7 @@ spec:
             refId: A
             instant: true
             expr: >-
-              sum by (service) (rate(traefik_service_requests_total{code=~"5.."}[15m])) / sum by (service) (rate(traefik_service_requests_total[15m])) and sum by (service) (rate(traefik_service_requests_total[15m])) > 0.2
+              sum by (service) (rate(traefik_service_requests_total{"service.name"="traefik",code=~"5.."}[15m])) / sum by (service) (rate(traefik_service_requests_total{"service.name"="traefik"}[15m])) and sum by (service) (rate(traefik_service_requests_total{"service.name"="traefik"}[15m])) > 0.2
         - refId: C
           datasourceUid: __expr__
           model:
@@ -98,19 +109,25 @@ spec:
             expression: A
             conditions:
               - evaluator: {type: gt, params: [0.1]}
+                unloadEvaluator: {type: lt, params: [0.07]}
       labels:
         severity: warning
       annotations:
-        summary: '{{ $labels.service }}: {{ with $values.A }}{{ humanizePercentage .Value }}{{ end }} of requests fail with 5xx'
+        summary: '{{ $labels.service }}: {{ with $values.A }}{{ humanizePercentage .Value }}{{ else }}n/a{{ end }} of requests fail with 5xx'
         description: 'Over 10% of requests for 15m, at more than 0.2 requests/s (a trickle of traffic would flap). The backend is down or erroring.'
       notificationSettings:
         receiver: matrix
+        group_by: [grafana_folder, alertname]
+        group_wait: 1m
+        group_interval: 10m
+        repeat_interval: 24h
     - uid: traefik-metrics-stalled
       title: No metrics from the edge Traefik
       condition: C
       for: 5m
+      keepFiringFor: 15m
       noDataState: Alerting
-      execErrState: Error
+      execErrState: KeepLast
       data:
         - refId: A
           relativeTimeRange: {from: 86400, to: 0}
@@ -119,7 +136,7 @@ spec:
             refId: A
             instant: true
             expr: >-
-              time() - max(tlast_over_time(traefik_entrypoint_requests_total[1d]))
+              time() - max(tlast_over_time(traefik_entrypoint_requests_total{"service.name"="traefik"}[1d]))
         - refId: C
           datasourceUid: __expr__
           model:
@@ -132,6 +149,10 @@ spec:
         severity: warning
       annotations:
         summary: 'No edge Traefik metrics'
-        description: 'The newest request counter is {{ with $values.A }}{{ humanizeDuration .Value }}{{ end }} old: Traefik is down or its OTLP export is stuck.'
+        description: 'The newest request counter is {{ with $values.A }}{{ humanizeDuration .Value }} old{{ else }}missing{{ end }}: Traefik is down or its OTLP export is stuck.'
       notificationSettings:
         receiver: matrix
+        group_by: [grafana_folder, alertname]
+        group_wait: 1m
+        group_interval: 10m
+        repeat_interval: 24h

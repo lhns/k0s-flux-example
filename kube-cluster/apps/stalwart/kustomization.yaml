@@ -18,6 +18,7 @@ resources:
 - database.yaml
 - db-role-secret.yaml
 - secret-bulwark.yaml
+- migration.yaml
 # The mirror config as a real file. The generator patches this ConfigMap into a Secret
 # (templates/_secret-from-files.tpl), which keeps the ${UMLEITER_*_PASSWORD} placeholders
 # visible to Flux's substitution. In a subdirectory so it is not mistaken for a manifest.
@@ -29,6 +30,18 @@ configMapGenerator:
   namespace: stalwart
   files:
   - config.json=stalwart-config.json
+  literals:
+  - STALWART_RECOVERY_ADMIN=${STALWART_RECOVERY_ADMIN}
+  options:
+    disableNameSuffixHash: true
+    annotations:
+      flux-component-generator/as-secret: "true"
+# The same for Stalwart 1.0, on the stalwart-v1 database. `stalwart` above is the 0.16 config,
+# kept only for rollback (README, "Stalwart 1.0 migration").
+- name: stalwart-v1
+  namespace: stalwart
+  files:
+  - config.json=stalwart-v1-config.json
   literals:
   - STALWART_RECOVERY_ADMIN=${STALWART_RECOVERY_ADMIN}
   options:

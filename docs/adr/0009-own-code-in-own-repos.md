@@ -1,7 +1,7 @@
 # 0009 — Own code lives in its own repos; this repo pins releases
 
 - Status: Accepted
-- Date: 2026-07-07, amended 2026-07-29, 2026-08-18, 2026-09-14, 2026-09-18 and 2026-09-30
+- Date: 2026-07-07, amended 2026-07-29, 2026-08-18, 2026-09-14, 2026-09-18, 2026-09-30, 2026-10-23 and 2026-11-20
 - Current answer: what the owner writes for the cluster lives in a repository of its own with
   its own CI, and publishes an image or OCI chart: the operators kube-vnet, kube-pv-reaper,
   kube-traefik-reflector, ha-surge and kube-oci-composer, the Headlamp app-view plugin,
@@ -32,6 +32,13 @@ and releases. Every later controller followed that shape.
   feature branches on upstream and a build branch. Asterisk's patches, base64-embedded in an
   `ImageBuild`, became a fork with its own CI. Fork work opens no upstream PR unless asked and
   carries no personal data.
+- **Forks build their own images** (2026-10-24): a fork's Dockerfile and image workflow live in
+  the fork, which publishes to ghcr; this repo pins its build-branch tag by digest. `ImageBuild`
+  is for upstreams this repo does not fork (JetKVM moved out).
+- **Exception: the Ceph usage exporter** (2026-10-23) is a stdlib script on the upstream Ceph
+  image, in its component ([0063](0063-ceph-usage-measured-in-the-cluster.md)).
+- **Exception: the CephFS client exporter** (2026-11-20) is a stdlib script on the upstream Python
+  image, in its component ([0071](0071-cephfs-client-metrics-from-debugfs.md)).
 
 ## Consequences
 

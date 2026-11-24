@@ -1,0 +1,29 @@
+{
+ "payload": [
+  {
+   "status": "firing",
+   "labels": {
+    "alertname": "3 rules could not be evaluated",
+    "severity": "critical"
+   },
+   "annotations": {
+    "description": "Error: [sse.dataQueryError] failed to execute query [A]: Post \"http://vmselect:8481/select/0/prometheus/api/v1/query\": context deadline exceeded",
+    "i0000": "Matrix alert relay drops alerts",
+    "i0001": "No Ceph health metrics",
+    "i0002": "Grafana notifications failing"
+   },
+   "generatorURL": ""
+  }
+ ],
+ "messages": [
+  {
+   "body": "admin **FIRING** 3 rules could not be evaluated [critical] \nError: [sse.dataQueryError] failed to execute query [A]: Post \"http://vmselect:8481/select/0/prometheus/api/v1/query\": context deadline exceeded\n \n* Matrix alert relay drops alerts\n* No Ceph health metrics\n* Grafana notifications failing\n \n[Alerts](https://grafana.example.com/alerting/list)",
+   "formatted_body": " <p> <a href=\"https://matrix.to/#/@admin:example.com\">admin</a> <strong><font color=\"red\">FIRING</font></strong> 3 rules could not be evaluated [critical]  <br/>Error: [sse.dataQueryError] failed to execute query [A]: Post &#34;http://vmselect:8481/select/0/prometheus/api/v1/query&#34;: context deadline exceeded </p> <ul> <li>Matrix alert relay drops alerts</li><li>No Ceph health metrics</li><li>Grafana notifications failing</li> </ul> <p> <a href=\"https://grafana.example.com/alerting/list\">Alerts</a> </p>",
+   "m.mentions": {
+    "user_ids": [
+     "@admin:example.com"
+    ]
+   }
+  }
+ ]
+}

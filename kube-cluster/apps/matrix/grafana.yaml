@@ -19,6 +19,7 @@ spec:
       title: SIP bridge not registered
       condition: C
       for: 15m
+      keepFiringFor: 15m
       noDataState: OK
       execErrState: KeepLast
       data:
@@ -45,3 +46,218 @@ spec:
         description: 'Calls cannot be placed or received. Check the bridge log and the trunk.'
       notificationSettings:
         receiver: matrix
+        group_by: [grafana_folder, alertname]
+        group_wait: 1m
+        group_interval: 10m
+        repeat_interval: 24h
+    # Bridge delivery (README.md, "Decisions"). Log lines carry ANSI codes, so match with regexes:
+    # a phrase filter cannot see the first word of a message.
+    - uid: bridge-message-dropped
+      title: Bridge dropped a message
+      condition: C
+      for: 0m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: cens0eitab2m8b # VictoriaLogs
+          model:
+            refId: A
+            queryType: instant
+            expr: >-
+              _time:10m k8s.namespace.name:matrix _msg:~"Failed to (send message part|send part of message) to Matrix|Failed to convert remote message|Failed to handle attachment|Event handling is taking too long, continuing in background|ERR.{0,20}Failed to reupload WhatsApp attachment" | rename k8s.deployment.name as deployment | stats by (deployment) count() hits
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0]}
+      labels:
+        severity: warning
+      annotations:
+        summary: '{{ $labels.deployment }}: bridged message dropped'
+        description: 'The bridge gave up on a message and acked or discarded it. Check its log for the room and message id.'
+      notificationSettings:
+        receiver: matrix-and-email
+        group_by: [grafana_folder, alertname]
+        group_wait: 1m
+        group_interval: 10m
+        repeat_interval: 24h
+    # The bridges' own config loader (mautrix go-util configupgrade) prints these to stderr for a
+    # key in the config that the binary does not know or whose type is wrong; such a key is dropped.
+    - uid: bridge-config-ignored
+      title: Bridge ignores a config key
+      condition: C
+      for: 0m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: cens0eitab2m8b # VictoriaLogs
+          model:
+            refId: A
+            queryType: instant
+            expr: >-
+              _time:10m k8s.namespace.name:matrix _msg:~"Ignoring (incorrect )?config field" | rename k8s.deployment.name as deployment | stats by (deployment) count() hits
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0]}
+      labels:
+        severity: warning
+      annotations:
+        summary: '{{ $labels.deployment }}: config key ignored'
+        description: 'The log line names the key path. The git config has a key the binary does not know or of the wrong type; run scripts/bridge-config-sync.py and fix the config.'
+      notificationSettings:
+        receiver: matrix-and-email
+        group_by: [grafana_folder, alertname]
+        group_wait: 1m
+        group_interval: 10m
+        repeat_interval: 24h
+    - uid: bridge-message-deferred
+      title: Bridge is holding messages
+      condition: C
+      for: 0m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: cens0eitab2m8b # VictoriaLogs
+          model:
+            refId: A
+            queryType: instant
+            expr: >-
+              _time:10m k8s.namespace.name:matrix _msg:~"Handler for .* failed|Not clearing buffered event plaintext due to handler failure|Queue remote event returned non-success status" | rename k8s.deployment.name as deployment | stats by (deployment) count() hits
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0]}
+      labels:
+        severity: warning
+      annotations:
+        summary: '{{ $labels.deployment }}: message held upstream'
+        description: 'The source was not acked and redelivers on reconnect. Restart the bridge once Synapse is healthy.'
+      notificationSettings:
+        receiver: matrix-and-email
+        group_by: [grafana_folder, alertname]
+        group_wait: 1m
+        group_interval: 10m
+        repeat_interval: 24h
+    # SIP bridge durable inbound texts (README.md, "matrix-sip-bridge"). Both depths sit at zero.
+    - uid: sip-bridge-outbox-stuck
+      title: SIP bridge texts waiting for Matrix
+      condition: C
+      for: 30m
+      keepFiringFor: 15m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move(max by ("k8s.namespace.name", "k8s.deployment.name") (sip_bridge_inbound_outbox_depth) > 0, "k8s.namespace.name", "namespace", "k8s.deployment.name", "deployment")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0]}
+      labels:
+        severity: warning
+      annotations:
+        summary: '{{ $labels.namespace }}/{{ $labels.deployment }}: inbound texts not delivered to Matrix'
+        description: 'Stored texts are retried until delivered. Matrix is unreachable or one text cannot be delivered; check the bridge log.'
+      notificationSettings:
+        receiver: matrix-and-email
+        group_by: [grafana_folder, alertname]
+        group_wait: 1m
+        group_interval: 10m
+        repeat_interval: 24h
+    - uid: sip-bridge-spool-stuck
+      title: SIP bridge database unreachable
+      condition: C
+      for: 10m
+      keepFiringFor: 15m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move(max by ("k8s.namespace.name", "k8s.deployment.name") (sip_bridge_inbound_spool_depth) > 0, "k8s.namespace.name", "namespace", "k8s.deployment.name", "deployment")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0]}
+      labels:
+        severity: warning
+      annotations:
+        summary: '{{ $labels.namespace }}/{{ $labels.deployment }}: texts spooled to disk'
+        description: 'The database cannot take texts; they wait in the emptyDir, which a pod deletion loses. Check CNPG.'
+      notificationSettings:
+        receiver: matrix-and-email
+        group_by: [grafana_folder, alertname]
+        group_wait: 1m
+        group_interval: 10m
+        repeat_interval: 24h
+    - uid: sip-bridge-persist-failed
+      title: SIP bridge refused a text
+      condition: C
+      for: 0m
+      noDataState: OK
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 900, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              label_move(sum by ("k8s.namespace.name", "k8s.deployment.name") (increase(sip_bridge_messages_total{outcome="persist_failed"}[10m])) > 0, "k8s.namespace.name", "namespace", "k8s.deployment.name", "deployment")
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0]}
+      labels:
+        severity: warning
+      annotations:
+        summary: '{{ $labels.namespace }}/{{ $labels.deployment }}: inbound text refused'
+        description: 'Neither the database nor the spool took a text, so the SIP server got a 500 and will retry or lose it. Check the bridge log, the database and /spool.'
+      notificationSettings:
+        receiver: matrix-and-email
+        group_by: [grafana_folder, alertname]
+        group_wait: 1m
+        group_interval: 10m
+        repeat_interval: 24h

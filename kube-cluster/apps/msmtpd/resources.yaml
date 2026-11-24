@@ -24,7 +24,7 @@ spec:
     spec:
       containers:
         - name: msmtpd
-          image: crazymax/msmtpd:1.8.34
+          image: crazymax/msmtpd:1.8.34@sha256:b54b5ab07041e3bad22ff41c213e12249324fc33cd35d4ee941a139c4f542563
           env:
             - name: TZ
               value: Europe/Berlin

@@ -1,0 +1,30 @@
+{
+ "alerts": [
+  {
+   "status": "firing",
+   "labels": {
+    "alertname": "Edge service returns 5xx",
+    "grafana_folder": "Ceph",
+    "severity": "warning"
+   },
+   "annotations": {
+    "summary": "a: 12% of requests fail with 5xx",
+    "description": "Over 10% of requests for 15m."
+   },
+   "generatorURL": "https://grafana.example.com/alerting/grafana/traefik-5xx/view?orgId=1"
+  },
+  {
+   "status": "firing",
+   "labels": {
+    "alertname": "Edge service returns 5xx",
+    "grafana_folder": "Ceph",
+    "severity": "warning"
+   },
+   "annotations": {
+    "summary": "b: 20% of requests fail with 5xx",
+    "description": "Over 10% of requests for 15m."
+   },
+   "generatorURL": "https://grafana.example.com/alerting/grafana/traefik-5xx/view?orgId=1"
+  }
+ ]
+}

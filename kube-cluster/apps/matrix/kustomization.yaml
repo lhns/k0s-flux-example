@@ -72,6 +72,11 @@ configMapGenerator:
   namespace: matrix
   files:
   - synapse-keyservers.yaml
+# A sixth --config-path: the complete experimental_features map; see the file.
+- name: synapse-experimental
+  namespace: matrix
+  files:
+  - synapse-experimental.yaml
 # botocore's shared config, for one setting the media provider cannot express:
 # path-style addressing. Not a Secret -- it holds no credentials.
 - name: synapse-aws-config
@@ -110,6 +115,17 @@ configMapGenerator:
     disableNameSuffixHash: true
     annotations:
       flux-component-generator/as-secret: "true"
+# lk-jwt's appservice tokens, the same pair registrations/lk-jwt.yaml carries. Its own Secret,
+# not the livekit one, so livekit-sip never sees them.
+- name: lk-jwt
+  namespace: matrix
+  literals:
+  - LIVEKIT_AS_TOKEN=${MATRIX_LKJWT_AS_TOKEN}
+  - LIVEKIT_HS_TOKEN=${MATRIX_LKJWT_HS_TOKEN}
+  options:
+    disableNameSuffixHash: true
+    annotations:
+      flux-component-generator/as-secret: "true"
 # matrix-sip-bridge's config. A mautrix config is one file with no include mechanism, so
 # the credentials sit among the settings; the as-secret annotation is what lets it be a
 # real file with ${...} in it rather than an encrypted blob nothing can read or diff.
@@ -118,6 +134,51 @@ configMapGenerator:
   namespace: matrix
   files:
   - config.yaml=sip-bridge-config.yaml
+  options:
+    disableNameSuffixHash: true
+    annotations:
+      flux-component-generator/as-secret: "true"
+# signal-bridge's whole config, same shape as matrix-sip-bridge above.
+- name: signal-bridge-config
+  namespace: matrix
+  files:
+  - config.yaml=signal-bridge-config.yaml
+  options:
+    disableNameSuffixHash: true
+    annotations:
+      flux-component-generator/as-secret: "true"
+# instagram-bridge's whole config, same shape as signal-bridge-config above.
+- name: instagram-bridge-config
+  namespace: matrix
+  files:
+  - config.yaml=instagram-bridge-config.yaml
+  options:
+    disableNameSuffixHash: true
+    annotations:
+      flux-component-generator/as-secret: "true"
+# telegram-bridge's whole config, same shape as signal-bridge-config above.
+- name: telegram-bridge-config
+  namespace: matrix
+  files:
+  - config.yaml=telegram-bridge-config.yaml
+  options:
+    disableNameSuffixHash: true
+    annotations:
+      flux-component-generator/as-secret: "true"
+# whatsapp-bridge's whole config, same shape as signal-bridge-config above.
+- name: whatsapp-bridge-config
+  namespace: matrix
+  files:
+  - config.yaml=whatsapp-bridge-config.yaml
+  options:
+    disableNameSuffixHash: true
+    annotations:
+      flux-component-generator/as-secret: "true"
+# discord-bridge's whole config, same shape as signal-bridge-config above.
+- name: discord-bridge-config
+  namespace: matrix
+  files:
+  - config.yaml=discord-bridge-config.yaml
   options:
     disableNameSuffixHash: true
     annotations:
@@ -152,6 +213,13 @@ configMapGenerator:
   - signal.yaml=registrations/signal.yaml
   - instagram.yaml=registrations/instagram.yaml
   - sip.yaml=registrations/sip.yaml
+  - doublepuppet-telegram.yaml=registrations/doublepuppet-telegram.yaml
+  - doublepuppet-whatsapp.yaml=registrations/doublepuppet-whatsapp.yaml
+  - doublepuppet-discord.yaml=registrations/doublepuppet-discord.yaml
+  - doublepuppet-signal.yaml=registrations/doublepuppet-signal.yaml
+  - doublepuppet-instagram.yaml=registrations/doublepuppet-instagram.yaml
+  - doublepuppet-sip.yaml=registrations/doublepuppet-sip.yaml
+  - lk-jwt.yaml=registrations/lk-jwt.yaml
   options:
     disableNameSuffixHash: true
     annotations:

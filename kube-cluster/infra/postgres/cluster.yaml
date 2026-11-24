@@ -4,6 +4,10 @@ metadata:
   name: postgres
   namespace: postgres
 spec:
+  # Pinned: the operator's default image moves with the operator. Archiving is the barman plugin's, so
+  # the standard flavour needs no barman tools (the system flavour, which ships them, is deprecated).
+  # renovate: datasource=docker depName=ghcr.io/cloudnative-pg/postgresql
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.7-standard-trixie@sha256:1abcfd1cac6d53cda5185706819aab36d66a4ed88e99fc2ae44ab0826aa99f00
   # The only way to annotate instance pods (no pod template); the operator patches them in place,
   # no restart. Also lands on the PVCs, Services and Secrets, harmlessly.
   inheritedMetadata:
@@ -41,7 +45,7 @@ spec:
     # In-place expansion: ceph-rbd has allowVolumeExpansion=true, so CNPG grows each
     # PVC + the filesystem online (no recreate, no data loss). Growing only — shrinking
     # is not supported.
-    size: 20Gi
+    size: 30Gi
   # Connection ceiling. Postgres forks a backend *process* per connection, so this is
   # deliberately a ceiling, not a target — most apps go through the pgbouncer Pooler
   # (pooler.yaml), which serves ~1000 clients on a few dozen real backends. 500 leaves

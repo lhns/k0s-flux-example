@@ -50,6 +50,49 @@ spec:
     requests:
       storage: 1Gi
 ---
+# The same library with 64 MiB readahead (default 8 MiB): it reads ~16 objects ahead across the
+# archive's HDD OSDs, so one slow OSD no longer stalls a stream. A PV's csi block is immutable,
+# hence a new PV; jellyfin-media above is the rollback.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  name: jellyfin-media-stream
+spec:
+  accessModes: [ReadOnlyMany]
+  capacity:
+    storage: 1Gi # ignored for static cephfs, required by the API
+  storageClassName: ""
+  persistentVolumeReclaimPolicy: Retain
+  csi:
+    driver: cephfs.csi.ceph.com
+    nodeStageSecretRef:
+      name: csi-cephfs-secret
+      namespace: ceph-csi-cephfs
+    volumeHandle: jellyfin-media-stream
+    volumeAttributes:
+      clusterID: ceph-cluster
+      fsName: archive
+      staticVolume: "true"
+      rootPath: /media
+      # Added to the driver's cluster-wide options (mount_timeout), not instead of them.
+      kernelMountOptions: rasize=67108864
+    readOnly: true
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jellyfin-media-stream
+  namespace: jellyfin
+spec:
+  accessModes: [ReadOnlyMany]
+  storageClassName: ""
+  volumeName: jellyfin-media-stream
+  resources:
+    requests:
+      storage: 1Gi
+---
 # Metadata (appdata fs). RW so Jellyfin can write downloaded artwork/metadata, as
 # in Swarm. Mounted directly off the appdata CephFS (RWX) — no copy needed; the
 # Swarm Jellyfin is decommissioned so there's no concurrent writer.
@@ -241,6 +284,12 @@ spec:
       app.kubernetes.io/name: jellyfin
   template:
     metadata:
+      # Scraped by the otel `cluster` collector (EnableMetrics in system.xml, README); /metrics
+      # is kept off the public routes (routing.yaml).
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8096"
+        prometheus.io/path: /metrics
       labels:
         app.kubernetes.io/name: jellyfin
         app.kubernetes.io/instance: jellyfin
@@ -252,6 +301,7 @@ spec:
         kube-vnet/net.lldap.lldap: egress
         # API callers from arr and seerr -- see vnet.yaml.
         kube-vnet/net.jellyfin-api: ingress
+        kube-vnet/net.opentelemetry.otel-scrape: ingress
     spec:
       # Swarm ran as root (owner of the volumes); match it so the RBD config
       # volume and the read-only CephFS shares are all accessible.
@@ -271,7 +321,7 @@ spec:
       # mirrors in the path of transcoding and left the ssh version unrecorded anywhere in git.
       containers:
         - name: jellyfin
-          image: ghcr.io/jpvenson/jellyfin.pgsql:10.11.11-1
+          image: ghcr.io/jpvenson/jellyfin.pgsql:10.11.11-1@sha256:ead82a994eaa3d80ad9df618b71e3a84348e3c3aec059951ac53c1e67873fa51
           env:
             - name: TZ
               value: Europe/Berlin
@@ -398,7 +448,7 @@ spec:
             name: jellyfin-web-config
         - name: media
           persistentVolumeClaim:
-            claimName: jellyfin-media
+            claimName: jellyfin-media-stream
             readOnly: true
         # Debian trixie, matching the Jellyfin image's glibc family, and one of the few
         # OFFICIAL images that ships an ssh client — which is why it is this rather than a
@@ -406,7 +456,7 @@ spec:
         - name: ssh-img
           image:
             # renovate: datasource=docker
-            reference: buildpack-deps:trixie-scm@sha256:6e8ba98ab91672906401f95bda24888b4c791fff806fc3da979a227cd72a7dbf
+            reference: buildpack-deps:trixie-scm@sha256:4f34e1d673fdb65371de9f88bdd32c4e30152fe692b35604aef5c0b3c0e6da10
             pullPolicy: IfNotPresent
         - name: ssh-ffmpeg-wrapper
           configMap:

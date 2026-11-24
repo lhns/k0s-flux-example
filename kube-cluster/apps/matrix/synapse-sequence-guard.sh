@@ -24,6 +24,14 @@ un_partial_stated_room_stream_sequence:un_partial_stated_room_stream"
 
 VALUES=$(echo "$PAIRS" | sed "s/^\([^:]*\):\(.*\)$/('\1','\2')/" | paste -sd, -)
 
+# A stream Synapse added since the list was written is not guarded: say so instead of passing.
+unknown=$(psql -X -v ON_ERROR_STOP=1 -At -c "
+  SELECT DISTINCT p.stream_name FROM stream_positions p
+  WHERE p.stream_name <> 'backfill'
+    AND p.stream_name NOT IN (SELECT stream FROM (VALUES $VALUES) AS m(seq, stream))
+  ORDER BY 1")
+for s in $unknown; do echo "WARN sequence-guard: stream $s is not in the pair list, not guarded"; done
+
 # pg_sequences.last_value is NULL until the first nextval; sequences that do not exist yet
 # (newer Synapse streams) drop out of the join.
 rows=$(psql -X -v ON_ERROR_STOP=1 -At -F ' ' -c "

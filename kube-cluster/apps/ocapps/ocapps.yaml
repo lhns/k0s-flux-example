@@ -1,0 +1,91 @@
+# The only copy of every note (README). Deleting the PV destroys it (AGENTS.md).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ocapps-data
+  namespace: ocapps
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ocapps
+  namespace: ocapps
+spec:
+  selector:
+    app.kubernetes.io/name: ocapps
+  ports:
+    - {name: http, port: 8096, targetPort: http}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ocapps
+  namespace: ocapps
+spec:
+  replicas: 1
+  serviceName: ocapps
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ocapps
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ocapps
+        app.kubernetes.io/instance: ocapps
+        kube-vnet/net.traefik.traefik: ingress
+    spec:
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      # OpenCloud by Traefik's VIP: its public address would hairpin through the router.
+      hostAliases:
+        - ip: "10.20.176.210"
+          hostnames: [opencloud.example.com]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: ocapps
+          image: ${OCAPPS_REF}
+          ports:
+            - {name: http, containerPort: 8096}
+          resources:
+            requests:
+              memory: 64Mi
+            limits:
+              memory: 512Mi
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 30
+          env:
+            - {name: OCAPPS_LISTEN_ADDR, value: "0.0.0.0:8096"}
+            - {name: OCAPPS_DATA_DIR, value: /var/lib/ocapps}
+            - {name: OCAPPS_LOG_LEVEL, value: warn}
+            # Each request carries the user's own OpenCloud token, checked against Graph here.
+            - {name: OCAPPS_OPENCLOUD_URL, value: "https://opencloud.example.com"}
+            - {name: OCAPPS_AUTH_MODE, value: opencloud}
+            - {name: OCAPPS_NOTES_ENABLED, value: "true"}
+            - {name: OCAPPS_PHOTOS_ENABLED, value: "true"}
+            - {name: OCAPPS_NEWS_ENABLED, value: "false"}
+            # Inside each space; "/" walks the whole space.
+            - {name: OCAPPS_PHOTOS_SCAN_ROOT, value: Fotos}
+            # Unset on purpose: OCAPPS_ADMIN_TOKEN (turns on the extension installer),
+            # OCAPPS_PHOTOS_USERS (app tokens for background scans).
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/ocapps}
+      volumes:
+        # The PVC by name. A volumeClaimTemplate would provision a new, empty volume.
+        - name: data
+          persistentVolumeClaim:
+            claimName: ocapps-data

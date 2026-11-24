@@ -20,3 +20,19 @@ spec:
         # ref.namespace: it is honored, so a wrong one drops the membership.
         name: namespace
       direction: both
+---
+# Lets the otel `cluster` collector scrape :9090 (README, "Metrics").
+apiVersion: kube-vnet.lhns.de/v1alpha1
+kind: VirtualNetworkBinding
+metadata:
+  name: spegel-scrape-ingress
+  namespace: spegel
+spec:
+  virtualNetworkRef:
+    name: otel-scrape
+    namespace: opentelemetry
+  direction: ingress
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: spegel
+      app.kubernetes.io/component: spegel

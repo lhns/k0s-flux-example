@@ -1,7 +1,7 @@
 # 0056 — A fourth group, `external`, for systems outside the cluster
 
 - Status: Accepted
-- Date: 2026-10-20, amended 2026-10-20 and 2026-10-21
+- Date: 2026-10-20, amended 2026-10-20, 2026-10-21 and 2026-10-23
 - Current answer: a component that describes a system outside the cluster (scrape targets, routes
   to external backends) lives in `kube-cluster/external/<name>/`, Flux name `ext-<name>`. It holds
   selectorless Services, static EndpointSlices and what points at them; its only workload is a
@@ -32,6 +32,8 @@ that network changes, not when the cluster does.
 - Amended 2026-10-21: the cluster collector has only a `kubernetes-pods` job, so annotating a
   Service scrapes nothing. An external system is scraped by a collector it or its component runs;
   Service and EndpointSlice are for routes.
+- Amended 2026-10-23: collection that joins the system with cluster state runs in the cluster as an
+  app: Ceph usage per owner ([0063](0063-ceph-usage-measured-in-the-cluster.md)).
 
 ## Consequences
 

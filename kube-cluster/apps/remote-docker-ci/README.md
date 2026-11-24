@@ -20,17 +20,21 @@ It also keeps Renovate's image cache off the graph the accounts of `apps/remote-
 
 - `perUserDind: false`: one account (`k0s-flux`), so the workspace's own dockerd serves it.
 - The account is **ephemeral** (`ephemeral.*` in `release.yaml`, remote-docker 0.9.0+): the
-  scale set's pods all present one key, and each client process still gets its own tunnel port,
+  scale sets' pods all present one key, and each client process still gets its own tunnel port,
   exports and volumes, removed `grace` (2m) after it ends, together with its containers
-  (`cleanupContainers`, fine for throwaway CI). `maxClients: 6` is the scale set's 4 runners, the warm
+  (`cleanupContainers`, fine for throwaway CI). `maxClients: 14` is the three scale sets' 4 runners each, the warm
   pod's slot and runs in their grace period; the next client is refused. Older clients are refused too.
 - **Two replicas**, each a workspace of its own on a different node: own host key, volumes,
   cache and ephemeral runs, so `maxClients` counts per replica. A run must stay on one replica.
   Runners use the one Service name, whose `sessionAffinity: ClientIP` pins a pod's IP to the
   replica kube-proxy picked first, for 24h after its last connection; a pod sent to the other
   replica refuses its host key.
-- The graph is a cache: Renovate's image, kept between runs; `renovate.yml` removes superseded
-  tags before each run. The agent also prunes images unused for 7 days.
+- The graph is a cache: Renovate's image, kept between runs, and the scale sets' build layers;
+  `renovate.yml` removes superseded tags before each run. The agent also prunes images, build
+  cache, stopped containers and dangling anonymous volumes unused for 3 days, sooner above 70%
+  usage (runs that skip `-v` leak volumes).
+- **Growing the graph:** `persistence.graph.size` only shapes a new claim. Patch the two
+  `graph-remote-docker-ci-*` PVCs instead (`ceph-rbd` expands online); they are 30Gi.
 
 ## Residual risk
 

@@ -1,5 +1,5 @@
 ---
-apiVersion: notification.toolkit.fluxcd.io/v1beta3
+apiVersion: notification.toolkit.fluxcd.io/v1
 kind: Alert
 metadata:
   name: flux-errors
@@ -20,16 +20,8 @@ spec:
   - { kind: HelmRepository, name: "*", namespace: flux-system }
   - { kind: ArtifactGenerator, name: "*", namespace: flux-system }
   - { kind: ExternalArtifact, name: "*", namespace: flux-system }
-  - { kind: Kustomization, name: "*", namespace: gen-app-annotated }
   - { kind: Kustomization, name: "*", namespace: gen-app-based }
-  - { kind: Kustomization, name: "*", namespace: gen-app-controlled }
-  - { kind: Kustomization, name: "*", namespace: gen-app-dependent }
-  - { kind: Kustomization, name: "*", namespace: gen-app-exported }
-  - { kind: Kustomization, name: "*", namespace: gen-app-external }
-  - { kind: Kustomization, name: "*", namespace: gen-app-namespaced }
   - { kind: Kustomization, name: "*", namespace: gen-app-plain }
-  - { kind: Kustomization, name: "*", namespace: gen-app-suspended }
-  - { kind: Kustomization, name: "*", namespace: gen-app-with-secrets }
 ---
 apiVersion: source.extensions.fluxcd.io/v1beta1
 kind: ArtifactGenerator

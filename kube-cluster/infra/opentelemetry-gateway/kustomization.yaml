@@ -18,6 +18,7 @@ resources:
 - kafka.yaml
 - topics.yaml
 - vnet.yaml
+- routing.yaml
 - grafana.yaml
 # Content-hashed names: editing a collector config renames the ConfigMap and rolls the
 # Deployment atomically. No Reloader needed for these.

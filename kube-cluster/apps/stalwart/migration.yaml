@@ -1,0 +1,27 @@
+# State of the Stalwart 1.0 migration (answers, progress, report). `stalwart-migrate rollback`
+# reads it, so keep it until 0.16 is retired. README, "Stalwart 1.0 migration".
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: stalwart-migrate-state
+  namespace: stalwart
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 1Gi
+---
+# Copy of the `stalwart` bucket taken before the 1.0 cutover: v1 deletes blobs it no longer
+# references, and nothing else backs the bucket up. Keep until 0.16 is retired.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: stalwart-blobs-premigrate
+  namespace: stalwart
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: ceph-rbd
+  resources:
+    requests:
+      storage: 10Gi

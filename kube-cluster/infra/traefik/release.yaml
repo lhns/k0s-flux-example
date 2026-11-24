@@ -20,7 +20,7 @@ spec:
   chart:
     spec:
       chart: traefik
-      version: "42.1.2"
+      version: "42.4.1"
       interval: 1h0m0s
       sourceRef:
         kind: HelmRepository
@@ -29,6 +29,8 @@ spec:
     # The subsonic-basicauth plugin converts Subsonic auth query params into a
     # Basic Authorization header (used by navidrome's /rest router).
     experimental:
+      # Required for OTLP logs and access logs.
+      otlpLogs: true
       plugins:
         subsonic-basicauth:
           moduleName: github.com/crazygolem/traefik-subsonic-basicauth
@@ -39,17 +41,54 @@ spec:
     # providers.kubernetesCRD.allowCrossNamespace.)
     deployment:
       kind: DaemonSet
+      podLabels:
+        # OTLP to the gateway's ClusterIP; the gateway vnet must list this namespace
+        # (infra/opentelemetry-gateway/vnet.yaml), else the exporters fail silently.
+        kube-vnet/net.opentelemetry-gateway.otel-gateway: egress
     resources:
       requests:
         memory: 256Mi
       limits:
         memory: 768Mi
     service:
-      type: LoadBalancer
       annotations:
         metallb.io/loadBalancerIPs: 10.20.176.210
       spec:
+        type: LoadBalancer
         externalTrafficPolicy: Local
+    # The Swarm edge Traefik's OTLP signals, to the in-cluster gateway. Exporters fail
+    # soft, so Traefik starts without the gateway. Prometheus metrics stay on.
+    # serviceName keeps these apart from the edge's `service.name=traefik`; the alerts in
+    # grafana.yaml select the edge by it.
+    metrics:
+      otlp:
+        enabled: true
+        serviceName: &otlp-name traefik-cluster
+        grpc: &otlp-grpc
+          enabled: true
+          endpoint: opentelemetry-gateway.opentelemetry-gateway.svc.cluster.local:4317
+          insecure: true
+    tracing:
+      serviceName: *otlp-name
+      otlp:
+        enabled: true
+        grpc: *otlp-grpc
+    log:
+      otlp:
+        enabled: true
+        serviceName: *otlp-name
+        grpc: *otlp-grpc
+    # Every request, no filters. Headers are dropped by default; query strings are dropped
+    # too because RequestPath would carry them (subsonic-basicauth takes credentials there).
+    accessLog:
+      enabled: true
+      fields:
+        queryParameters:
+          defaultMode: drop
+      otlp:
+        enabled: true
+        serviceName: *otlp-name
+        grpc: *otlp-grpc
     ingressRoute:
       dashboard:
         enabled: true

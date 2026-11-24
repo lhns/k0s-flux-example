@@ -1,0 +1,38 @@
+{
+ "alerts": [
+  {
+   "status": "firing",
+   "labels": {
+    "alertname": "DatasourceError",
+    "grafana_folder": "Ceph",
+    "severity": "critical",
+    "datasource_uid": "bfz43q0alv6kgc",
+    "ref_id": "A",
+    "rulename": "Matrix alert relay drops alerts"
+   },
+   "annotations": {
+    "summary": "The matrix-alerts relay dropped  alert(s) in 30m",
+    "description": "d",
+    "Error": "[sse.dataQueryError] failed to execute query [A]: Post \"http://vmselect:8481/select/0/prometheus/api/v1/query\": context deadline exceeded"
+   },
+   "generatorURL": "https://grafana.example.com/alerting/grafana/matrix-alerts-dropping/view?orgId=1"
+  },
+  {
+   "status": "resolved",
+   "labels": {
+    "alertname": "DatasourceError",
+    "grafana_folder": "Ceph",
+    "severity": "warning",
+    "datasource_uid": "bfz43q0alv6kgc",
+    "ref_id": "A",
+    "rulename": "No Ceph health metrics"
+   },
+   "annotations": {
+    "summary": "No Ceph health metrics",
+    "description": "The newest sample is  old.",
+    "Error": "[sse.dataQueryError] failed to execute query [A]: Post \"http://vmselect:8481/select/0/prometheus/api/v1/query\": context deadline exceeded"
+   },
+   "generatorURL": "https://grafana.example.com/alerting/grafana/ceph-metrics-stale/view?orgId=1"
+  }
+ ]
+}

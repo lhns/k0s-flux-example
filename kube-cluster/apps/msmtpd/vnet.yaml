@@ -13,11 +13,12 @@ spec:
     names:
       - authelia
       - notesnook
-      # Gitea sends notification mail. Replaces the per-stack mwader/postfix-relay
-      # the Swarm compose carried — see apps/gitea.
-      - gitea
-      # Forgejo, likewise. Coexists with gitea until the repositories move.
+      # Forgejo sends notification mail.
       - forgejo
       # spliit-cloud. Mail is not a nicety there: it carries the sign-in links and the group
       # invitations that are the only way anyone past the first account gets an account at all.
       - spliit
+      # Vaultwarden: email 2FA codes and account mail.
+      - bitwarden
+      # OpenCloud: share and activity notifications.
+      - opencloud

@@ -1,0 +1,17 @@
+# Grafana Operator objects of this component (README.md, "Playback dashboard"). Each opts out of
+# Flux substitution: dashboard JSON is full of ${...}.
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: app-jellyfin-playback
+  namespace: grafana
+spec:
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: ag1airdsjen7kc # Cluster
+  configMapRef:
+    name: app-jellyfin-dashboards
+    key: jellyfin-playback.json

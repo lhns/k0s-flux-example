@@ -13,20 +13,20 @@ spec:
     - name: core
       fetch:
         # renovate: datasource=github-releases depName=Aiven-Open/tiered-storage-for-apache-kafka
-        url: https://github.com/Aiven-Open/tiered-storage-for-apache-kafka/releases/download/v1.1.1/core-1.1.1.tgz
-        digest: sha256:053480aa4ea5d3b667df824b4c4425f469243df3c89fa8c50edbf9ec88300e4f
+        url: https://github.com/Aiven-Open/tiered-storage-for-apache-kafka/releases/download/v1.2.0/core-1.2.0.tgz
+        digest: sha256:14fb636d3a5c781ae9ae961012bf7b0881b09629859dbc784dc49356faeaa747
         unpack: tar.gz
-        subpath: core-1.1.1
+        subpath: core-1.2.0
       to: /core
       # The Strimzi Kafka container's user.
       owner: {uid: 1001, gid: 0}
     - name: s3
       fetch:
         # renovate: datasource=github-releases depName=Aiven-Open/tiered-storage-for-apache-kafka
-        url: https://github.com/Aiven-Open/tiered-storage-for-apache-kafka/releases/download/v1.1.1/s3-1.1.1.tgz
-        digest: sha256:3e0ea6ce17033c1fcf74e0f6f292411cb3e2afcc1798b51125bb15e5b7500017
+        url: https://github.com/Aiven-Open/tiered-storage-for-apache-kafka/releases/download/v1.2.0/s3-1.2.0.tgz
+        digest: sha256:1fd89dea84988b857e546fcfa88504f5b4e45d7712e3eddeb506f11a394ef010
         unpack: tar.gz
-        subpath: s3-1.1.1
+        subpath: s3-1.2.0
       to: /s3
       owner: {uid: 1001, gid: 0}
   push:

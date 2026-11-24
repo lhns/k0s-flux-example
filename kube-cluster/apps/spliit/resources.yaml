@@ -48,7 +48,7 @@ spec:
         # every image bump). The worker runs the same initContainer; whichever wins, the other
         # applies nothing.
         - name: migrate
-          image: ghcr.io/antonio-ivanovski/spliit-cloud-migrate:v2.10.0@sha256:65baf2dfb16e33b43b963ba912e9d59c70dfbb58f21dc87a84cfea9d368b1d3e
+          image: ghcr.io/antonio-ivanovski/spliit-cloud-migrate:v2.10.2@sha256:840327d36208c07177e75d822cb87079f82003d9b608b7c081d2c6570b208b29
           resources:
             requests:
               memory: 192Mi
@@ -61,7 +61,7 @@ spec:
               value: postgresql://spliit:$(SPLIIT_DB_PASSWORD)@postgres-rw.postgres.svc.cluster.local:5432/spliit?sslmode=disable
       containers:
         - name: api
-          image: ghcr.io/antonio-ivanovski/spliit-cloud-api:v2.10.0@sha256:129a4de9f045dbf2ee2c6d08d282cd704c2597e45a6c2399889a5ef3e7c88369
+          image: ghcr.io/antonio-ivanovski/spliit-cloud-api:v2.10.2@sha256:b3ac854eac9142009f20cdc792ff442cd778e51121943937056ff97ea5a1fd1f
           env:
             - {name: PORT, value: "3001"}
             - name: SPLIIT_DB_PASSWORD
@@ -192,7 +192,7 @@ spec:
       enableServiceLinks: false
       initContainers:
         - name: migrate
-          image: ghcr.io/antonio-ivanovski/spliit-cloud-migrate:v2.10.0@sha256:65baf2dfb16e33b43b963ba912e9d59c70dfbb58f21dc87a84cfea9d368b1d3e
+          image: ghcr.io/antonio-ivanovski/spliit-cloud-migrate:v2.10.2@sha256:840327d36208c07177e75d822cb87079f82003d9b608b7c081d2c6570b208b29
           resources:
             requests:
               memory: 192Mi
@@ -205,7 +205,7 @@ spec:
               value: postgresql://spliit:$(SPLIIT_DB_PASSWORD)@postgres-rw.postgres.svc.cluster.local:5432/spliit?sslmode=disable
       containers:
         - name: worker
-          image: ghcr.io/antonio-ivanovski/spliit-cloud-worker:v2.10.0@sha256:c8a77fe05ee8eab849678b92bb3d0558264cff8bab2a86382b54f5e81f2fc19a
+          image: ghcr.io/antonio-ivanovski/spliit-cloud-worker:v2.10.2@sha256:abb60de55fde1efa9301049a7ede86c9c7e2b58b22e724a4e415feead6d187c5
           env:
             - name: SPLIIT_DB_PASSWORD
               valueFrom: {secretKeyRef: {name: spliit-db, key: password}}
@@ -268,7 +268,7 @@ spec:
       enableServiceLinks: false
       containers:
         - name: web
-          image: ghcr.io/antonio-ivanovski/spliit-cloud-web:v2.10.0@sha256:52104473940943aa018d25825f7514b8a3972f652e32f902eaf38cb22524257a
+          image: ghcr.io/antonio-ivanovski/spliit-cloud-web:v2.10.2@sha256:7cb14c568d059f1434a0abbece77fce60fad8058ebbd8e939d8f0fa3d4b6add6
           ports:
             - {name: http, containerPort: 80}
           readinessProbe:

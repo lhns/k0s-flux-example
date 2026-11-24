@@ -32,10 +32,10 @@ spec:
     spec:
       initContainers:
         # Migrations do NOT run at startup. Upstream's compose has a separate app-migrate
-        # service and gates the app on it, so that gate becomes this. Same image: its final
-        # stage inherits node_modules from the packages stage, so the Prisma CLI is present.
+        # service and gates the app on it, so that gate becomes this. Same image: `prisma` is a
+        # production dependency, so the CLI is present.
         - name: migrate
-          image: ${JETKVM_CLOUD_API_REF}
+          image: ghcr.io/lhns/jetkvm-cloud-api:lhns-build@sha256:cff42ec319be7419274d987d1611dd9637c90ed674495ed768c471b913fa7094
           resources:
             requests:
               memory: 128Mi
@@ -52,8 +52,8 @@ spec:
               value: postgresql://jetkvm:$(JETKVM_DB_PASSWORD)@postgres-rw.postgres.svc.cluster.local:5432/jetkvm?sslmode=disable&schema=public
       containers:
         - name: cloud-api
-          # Built in artifacts/images.yaml.
-          image: ${JETKVM_CLOUD_API_REF}
+          # Built by the fork's CI (README).
+          image: ghcr.io/lhns/jetkvm-cloud-api:lhns-build@sha256:cff42ec319be7419274d987d1611dd9637c90ed674495ed768c471b913fa7094
           env:
             # $(VAR) interpolation requires the referenced variable to be declared FIRST.
             - name: JETKVM_DB_PASSWORD
@@ -75,7 +75,7 @@ spec:
               value: https://jetkvm-api.example.com
             - name: APP_HOSTNAME
               value: https://jetkvm.example.com
-            # Must be set explicitly: see the .env note in artifacts/images.yaml. Left unset it is not
+            # Must be set explicitly: see the .env note in README.md. Left unset it is not
             # empty, it is upstream's app.jetkvm.com default, which blocks our own SPA.
             - name: CORS_ORIGINS
               value: https://jetkvm.example.com
@@ -184,7 +184,8 @@ spec:
     spec:
       containers:
         - name: ui
-          image: ${JETKVM_UI_REF}
+          # Built by the fork's CI (README).
+          image: ghcr.io/lhns/jetkvm-ui:lhns-build@sha256:c2989f7ede0831b48c9c7ae00ad41008b0a5752059dd99183917bdc1af453fc6
           ports:
             - name: http
               containerPort: 8080

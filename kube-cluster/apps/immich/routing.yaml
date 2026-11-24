@@ -1,7 +1,7 @@
 ---
 # immich — public, its own login (+ OIDC via Authelia, whose client + settings already
 # exist; settings live in the DB). No auth middleware. TLS via the default *.example.com
-# wildcard. (local/mirror/lolhens hosts are left out for now.)
+# wildcard. (local/mirror/example-net hosts are left out for now.)
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:

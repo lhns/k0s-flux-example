@@ -94,7 +94,7 @@ spec:
               app.kubernetes.io/name: valkey
       containers:
         - name: valkey
-          image: valkey/valkey:9.1.2
+          image: valkey/valkey:9.2.0@sha256:1c2b25b09f354c66fe994733acdf12fcfd4bdf6f3bd92b88a93a70378d884056
           command: ["sh", "/scripts/start-valkey.sh"]
           ports:
             - {name: valkey, containerPort: 6379}
@@ -133,7 +133,7 @@ spec:
             - {name: data, mountPath: /data}
             - {name: scripts, mountPath: /scripts, readOnly: true}
         - name: sentinel
-          image: valkey/valkey:9.1.2
+          image: valkey/valkey:9.2.0@sha256:1c2b25b09f354c66fe994733acdf12fcfd4bdf6f3bd92b88a93a70378d884056
           command: ["sh", "/scripts/start-sentinel.sh"]
           ports:
             - {name: sentinel, containerPort: 26379}

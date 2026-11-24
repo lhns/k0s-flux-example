@@ -1,7 +1,7 @@
 # 0032 — Files a workload needs come from images, never fetched at pod start
 
 - Status: Accepted
-- Date: 2026-08-05, amended 2026-08-24 and 2026-10-07
+- Date: 2026-08-05, amended 2026-08-24, 2026-10-07, 2026-10-28 and 2026-11-16
 - Current answer: plugins, extensions and config bundles are never downloaded or cloned when a
   pod starts. If the content is already an image, mount it as an image volume (read-only, `subPath`
   for layout). If it is not (git paths, jars by URL, Debian packages), compose an OCI artifact
@@ -42,6 +42,10 @@ where it becomes state, and needs ownership fixed by `chown -R`.
 - An image-volume reference needs a `# renovate:` comment, or Renovate stops bumping it.
 - Changing `k0s-files/` takes a `k0sctl apply` and a worker restart; k0sctl does not remove a
   dropped upload.
+- Amendment (2026-10-28): `k0sctl apply` itself drains and restarts a node whose uploaded file
+  changed; no separate worker restart is needed for that.
+- Amendment (2026-11-16): an image volume mounts directories only; a `subPath` must be a
+  directory, as containerd rejects a file. `scripts/validate.sh` fails on a file-like one.
 - How a consumer names a composed image changed: [0033](0033-spec-hash-tags-for-composed-images.md),
   then [0042](0042-composed-images-as-exported-digest-refs.md).
 

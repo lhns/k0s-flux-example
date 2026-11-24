@@ -55,7 +55,7 @@ spec:
               app.kubernetes.io/name: authelia
       containers:
         - name: authelia
-          image: ghcr.io/authelia/authelia:4.39.28
+          image: ghcr.io/authelia/authelia:4.39.28@sha256:bd97cff4fcbf715b5ff1f9ae286afbe6033afce385302520b0368122d43a6f54
           env:
             - name: TZ
               value: Europe/Berlin
@@ -169,7 +169,7 @@ spec:
     spec:
       containers:
         - name: user-info
-          image: php:8.5.12-apache@sha256:e25ab14ef2cfec3bab9dd66c6cf871691146f428fbd72241b1a2c38fcacf92f5
+          image: php:8.5.12-apache@sha256:08af36df144462d84c7f16190557eec06cb9f656882685610b712a15eec54d46
           env:
             - name: ACCESS_MATRIX
               value: |
@@ -179,7 +179,6 @@ spec:
                   "Door": ["door"],
                   "Forgejo": ["admin", "forgejo"],
                   "FreshRSS": ["admin", "freshrss"],
-                  "Gitea": ["admin", "gitea"],
                   "Grafana Viewer": ["admin", "grafana"],
                   "Grafana Editor": ["admin", "grafana_editor"],
                   "Guacamole": ["admin", "guacamole"],

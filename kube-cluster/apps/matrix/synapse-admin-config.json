@@ -3,10 +3,10 @@
     "https://matrix.example.com"
   ],
   "asManagedUsers": [
-    "^@baibot:lhns\\.de$",
-    "^@whatsappbot:lhns\\.de$",
-    "^@whatsapp_[a-zA-Z0-9\\-]+:lhns\\.de$",
-    "^@telegrambot:lhns\\.de$",
-    "^@telegram_[a-zA-Z0-9]+:lhns\\.de$"
+    "^@baibot:example\\.com$",
+    "^@whatsappbot:example\\.com$",
+    "^@whatsapp_[a-zA-Z0-9\\-]+:example\\.com$",
+    "^@telegrambot:example\\.com$",
+    "^@telegram_[a-zA-Z0-9]+:example\\.com$"
   ]
 }

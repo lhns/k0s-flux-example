@@ -33,7 +33,7 @@ Synapse merges every `--config-path` **last-value-wins per top-level key**:
 Every one but `homeserver.yaml` is a plaintext generator source patched to a Secret; the
 credentials in them arrive by substitution, so none is a SOPS file.
 
-**All six appservice registrations live in git** (`registrations/`, mounted at
+**All appservice registrations live in git** (`registrations/`, mounted at
 `/registrations`). Replacement is whole-key, not element-wise, so `synapse-appservices.yaml` must
 always list *every* bridge — a partial list silently unregisters the rest. `homeserver.yaml` still
 holds its original three-entry list; it is **dead config**, kept only as the rollback.
@@ -182,8 +182,9 @@ Not upstream-supported — mautrix says "log in again", which would duplicate 40
 
 ### Porting SQLite → Postgres
 
-Rollback: the SQLite file is still on the PVC; revert the `database` block in `config.yaml` and drop
-the `kube-vnet/net.postgres.postgres` label. `config.yaml.pre-pg.bak` is the exact prior file.
+Rollback: the SQLite file is still on the PVC; revert the `database` block in
+`telegram-bridge-config.yaml`, mount `telegram-bridge-data` writable at `/data` and drop the
+`kube-vnet/net.postgres.postgres` label. `config.yaml.pre-pg.bak` is the exact prior file.
 
 Generate the target schema by running **the same image** against the empty DB, not by hand-writing
 DDL. An empty DB has no `user_login`, so that pod cannot touch Telegram. Two traps:
@@ -206,7 +207,14 @@ message to Matrix, fails to record it, and so re-sends it forever — every mess
 and Matrix-side sends echo back as your ghost. `setval('message_rowid_seq', max(rowid))`. Row-count
 and portal-mapping checks do not catch this; sequence state is invisible to both.
 
-### Config lives on the PVC, not in git
+### Config (`telegram-bridge-config.yaml`)
+
+The config is in git ([Decisions](#bridge-configs-live-in-git)); secrets come from the SOPS Secret
+`telegram-bridge-values`. `network.api_id` must stay **unquoted** in the file so it is an integer:
+a quoted value is silently replaced by the default. The bridge needs no `/data` (database on CNPG,
+logs to stdout): `telegram-bridge-data` is no longer mounted and holds the pre-switch `config.yaml`
+and backups and the SQLite files as the rollback snapshot. Deleting it is a separate, deliberate
+step (AGENTS.md, PV rules).
 
 | setting | value | why |
 | --- | --- | --- |
@@ -279,7 +287,7 @@ the per-portal column is `room_id`.
 ## Double puppeting
 
 Makes messages *you* send on the remote network appear as `@admin:example.com` rather than as your own
-ghost. All five bridges have it; getting there cost two separate incidents, both from the same
+ghost. All six bridges have it; getting there cost two separate incidents, both from the same
 misreading.
 
 **`as_token:` is a prefix carrying the token, not a mode keyword.** There is no bare-keyword form
@@ -310,18 +318,24 @@ stored from 2023. All four were moved to `as_token:` on 2026-08-24.
 
 | bridge | generation | key | value |
 | --- | --- | --- | --- |
-| whatsapp, signal, telegram, instagram | bridgev2 | `double_puppet.secrets` | `example.com: as_token:<that bridge's own as_token>` |
-| discord | legacy mautrix-go | `bridge.login_shared_secret_map` | `example.com: as_token:<its own as_token>` |
+| whatsapp, signal, telegram, instagram, sip | bridgev2 | `double_puppet.secrets` | `example.com: "as_token:${MATRIX_<B>_DOUBLEPUPPET_AS_TOKEN}"` |
+| discord | legacy mautrix-go | `bridge.login_shared_secret_map` | same |
 
-Each bridge reuses **its own** `as_token` from its `registration.yaml`; no dedicated
-double-puppet registration exists. This works because every registration in
-`registrations/` carries the non-exclusive `^@.*:example\.com$` user namespace, which is
-what lets it masquerade via `?user_id=`. That namespace is required — without it the bridge can
-only ever speak as a ghost. It is also why a stale registration is dangerous: it grants
-impersonation over every local account.
+The token is not the bridge's own: each bridge has a second, URL-less registration,
+`registrations/doublepuppet-<bridge>.yaml`, the only one carrying the non-exclusive
+`^@.*:example\.com$` users namespace that lets a token masquerade via `?user_id=`. Its tokens are in
+the SOPS Secret `doublepuppet-values` (`substitution-secrets/doublepuppet.yaml`). The pattern is
+mautrix's ([docs](https://docs.mau.fi/bridges/general/double-puppeting.html)); the reasons are in
+[Decisions](#double-puppeting-has-its-own-registration-per-bridge).
 
-Configs live on the PVCs, so this is **not** a git change. Scope the edit to the
-`double_puppet.secrets:` block — an unanchored `sed` on `appservice` will hit unrelated keys.
+- **`url: null` must stay explicit.** Synapse never pushes to a registration with a null `url`;
+  a missing `url` is a startup error, and a set one would make it a second event feed.
+- **Bridge registrations claim only their own bot and ghosts.** Adding the catch-all back to one
+  makes Synapse push that bridge every event of every room with a local member again.
+- **Revoking one bridge's impersonation** is removing its `doublepuppet-<bridge>` from
+  `synapse-appservices.yaml` (whole-key list: keep every other entry) and restarting Synapse;
+  rotating is a new token pair in `doublepuppet-values`. Either way that bridge falls back to
+  ghost attribution, it keeps bridging.
 
 ### Verifying — the config alone tells you nothing
 
@@ -352,8 +366,11 @@ sent after activation count, so `double_puppeted` stays at `0/N` until you send 
 
 ## whatsapp-bridge
 
-Migrated with a real `pg_dump`, so it has been on CNPG since cutover. Config is a hand-edited copy
-on `whatsapp-data`.
+Migrated with a real `pg_dump`, so it has been on CNPG since cutover. The config is in git,
+`whatsapp-bridge-config.yaml` ([Decisions](#bridge-configs-live-in-git)); it keeps the fork's
+`dm_room_name_template` and `group_room_name_template`. `whatsapp-data` (cephfs) is no longer
+mounted; it holds the pre-switch `config.yaml` and registration as the rollback snapshot. Deleting
+it is a separate, deliberate step (AGENTS.md, PV rules).
 
 **`personal_filtering_spaces` was `false`** until Aug 2026 purely because the Swarm config had it
 off. Enabling it is **retroactive but lazy**: `bridgev2/space.go` only adds a portal when
@@ -381,8 +398,10 @@ done.
 
 ## signal-bridge
 
-Fresh install Aug 2026, mautrix-signal `v0.2608.0`, CNPG from the start. `signal-data` (cephfs)
-holds only config and the generated registration.
+Fresh install Aug 2026, CNPG from the start. The config is in git, `signal-bridge-config.yaml`
+([Decisions](#bridge-configs-live-in-git)). `signal-data` (cephfs) is no longer mounted; it holds the
+pre-switch `config.yaml` and registration as the rollback snapshot. Deleting it is a separate,
+deliberate step (AGENTS.md, PV rules).
 
 ### Backfill is a ONE-SHOT at pairing
 
@@ -397,7 +416,7 @@ The QR rotates every **45 s** (20 refreshes, then it gives up) and each refresh 
 open Signal's camera first, then scan the newest. A stale scan fails silently and reads exactly
 like a broken bridge.
 
-### Config on the PVC
+### Config (`signal-bridge-config.yaml`)
 
 | setting | value |
 | --- | --- |
@@ -407,24 +426,22 @@ like a broken bridge.
 | `permissions` | dropped `"*": relay` |
 | `backfill.enabled` + both limits | `true`, `5000`/`5000` — **before pairing** |
 | `encryption` allow/default/msc4190 | `true`/`false`/`true` |
-| `double_puppet.secrets` | `example.com: as_token:<own as_token>` — was the inert `appservice` until 2026-08-24 |
-| `provisioning.shared_secret` | `disable` (unused API) |
-
-**Double puppeting needed a registration edit**, not just config: the generated registration grants
-only `^@signalbot:…$` and `^@signal_.*:…$`, so the non-exclusive `^@.*:example\.com$` was added by hand
-to match telegram. Without it your own Signal-sent messages appear as a ghost.
+| `double_puppet.secrets` | `example.com: as_token:<doublepuppet-signal's as_token>` ([Double puppeting](#double-puppeting)) |
+| `provisioning.shared_secret` | real value from SOPS (`signal-bridge-values`) |
 
 **Watch unanchored edits**: `sed 's/enabled: false/enabled: true/'` also flips `public_media` and
 `direct_media`, which must stay off. Scope to the `backfill:` block.
 
 Known: old attachments 404 (`attachment not found on server` — Signal's CDN expires media);
 occasional `AuthorizationFailedError` on Matrix membership changes, harmless; `signal-data` is in
-**no Backrest plan** (task #89) yet holds the appservice tokens.
+**no Backrest plan** (task #89); with the config in git it no longer holds anything unrecoverable.
 
 ## instagram-bridge
 
-`mautrix-meta`, Instagram build, added Aug 2026. Fresh install: CNPG from the start, so
-`instagram-data` (cephfs, 1Gi) holds only `config.yaml` and the generated registration.
+`mautrix-meta`, Instagram build, added Aug 2026. Fresh install: CNPG from the start. The config is
+in git, `instagram-bridge-config.yaml` ([Decisions](#bridge-configs-live-in-git)). `instagram-data`
+(cephfs, 1Gi) is no longer mounted; it holds the pre-switch `config.yaml` and registration as the
+rollback snapshot. Deleting it is a separate, deliberate step (AGENTS.md, PV rules).
 
 **The `ig-` tag prefix is load-bearing.** `mautrix/meta` ships *two bridges from one image* —
 plain tags are Facebook Messenger, `ig-` tags are Instagram (upstream README: "this repo contains
@@ -441,13 +458,12 @@ strip it, and the image is digest-pinned here as well.
 | database | `instagram` on the shared CNPG, owner `matrix` |
 | PVC | `instagram-data`, cephfs, 1Gi |
 
-Config on the PVC, same shape as signal: `appservice.hostname: 0.0.0.0` (the default
+Config, same shape as signal: `appservice.hostname: 0.0.0.0` (the default
 `127.0.0.1` is unreachable by Synapse — the usual first failure), `permissions` limited to
 `example.com: user` + `@admin:example.com: admin` with `"*": relay` removed, `double_puppet.secrets:
-example.com: as_token:<own as_token>` (the inert `appservice` until 2026-08-24), encryption
-allow/default/msc4190 `true`/`false`/`true`. The generated
-registration grants only `^@instagrambot:…$` and `^@instagram_.*:…$`; the non-exclusive
-`^@.*:example\.com$` namespace was added by hand for double puppeting, as on telegram and signal.
+example.com: as_token:<doublepuppet-instagram's as_token>`, encryption
+allow/default/msc4190 `true`/`false`/`true`, `provisioning.shared_secret: disable` (a literal, unused
+API).
 
 **Backfill is OFF by default** — `thread_backfill.batch_count: 0` disables it entirely; `-1` is
 unlimited, which is what is set here. `batch_delay: 2s` is the only throttle. Unlike signal's
@@ -463,14 +479,16 @@ runs on the main account by deliberate choice. There is no compliant alternative
 Discord, a bot account cannot see them). Unlimited backfill immediately after a fresh login is the
 heaviest possible pattern, which is the main thing that would attract attention.
 
-`instagram-data` is in **no Backrest plan** — same gap as `signal-data` (task #89) — and it holds
-the appservice tokens.
+`instagram-data` is in **no Backrest plan** — same gap as `signal-data` (task #89); with the config
+in git it no longer holds anything unrecoverable.
 
 ## discord-bridge
 
-Deployed 2026-08-21 on a **forked image**, `ghcr.io/lhns/mautrix-discord:v0.7.7-lhns.4` — see
+Deployed 2026-08-21 on a **forked image**, now `ghcr.io/lhns/mautrix-discord:v0.7.7-lhns.5` — see
 [Backfill throttle + retry patch](#backfill-throttle--retry-patch-forked-image) below for what the
-fork changes and why. Port **29334**, appservice id `discord`, DB `discord` on the shared CNPG.
+fork changes and why. Since lhns.5 the bridge exits on a retryable homeserver failure (no
+connection, timeout, 502/503/504/429) instead of dropping the message, and the restart's missed-message
+backfill (`missed: -1` for dm, channel and thread) re-fetches it ([Decisions](#decisions)). Port **29334**, appservice id `discord`, DB `discord` on the shared CNPG.
 
 **mautrix-discord is not bridgev2** (v0.7.7 on mautrix-go v0.16.3). Consequences that bite when
 copying settings from the other four bridges: the database is configured under
@@ -493,12 +511,17 @@ truncated; the only redo is deleting the portal room and letting it be recreated
 This is the single fact that shapes every value below, and it is the opposite of the Instagram
 bridge, whose `thread_backfill` is re-runnable.
 
-### Settings (on the PVC, `/data/config.yaml`)
+### Settings (`discord-bridge-config.yaml`)
+
+The config is in git ([Decisions](#bridge-configs-live-in-git)); secrets come from the SOPS Secret
+`discord-bridge-values`. `discord-data` (cephfs) is no longer mounted; it holds the pre-switch
+`config.yaml` and registration as the rollback snapshot. Deleting it is a separate, deliberate step
+(AGENTS.md, PV rules).
 
 | key | value | why |
 | --- | --- | --- |
 | `backfill.forward_limits.initial.dm` | `1000000000` | effectively unlimited. There is no `-1` for *initial* backfill — upstream: *"a special unlimited value is not supported, you must set a limit"* |
-| `backfill.forward_limits.initial.channel` / `.thread` | `0` | guilds are opt-in anyway |
+| `backfill.forward_limits.initial.channel` / `.thread` | `1000000000` | same as `dm`: initial backfill is one-shot, so it is not throttled |
 | `backfill.forward_limits.missed.dm` | `-1` | everything since the last bridged message. `-1` **is** supported here, and unlike initial it streams as it fetches instead of collecting first |
 | `backfill.fetch_delay_ms` | `1000` | **patch.** Paces one request per second *per portal* |
 | `backfill.retry_interval_ms` | `60000` | **patch.** |
@@ -506,7 +529,7 @@ bridge, whose `thread_backfill` is re-runnable.
 | `startup_private_channel_create_limit` | `1000` | see below — the default of 5 would have bridged five DMs and silently skipped the rest |
 | `permissions` | `example.com: user`, `@admin:example.com: admin` | the shipped `"*": relay` is removed |
 | `encryption.allow` / `.msc4190` | `true` / `true` | as signal |
-| `login_shared_secret_map` | `example.com: as_token` | double puppeting. Needs the non-exclusive `^@.*:example\.com$` namespace in the registration |
+| `login_shared_secret_map` | `example.com: as_token:<doublepuppet-discord's as_token>` | [double puppeting](#double-puppeting) |
 | `logging.min_level` | `info` | at `debug` it logs every one-time-key upload payload in full — tens of KB per restart |
 
 ### `startup_private_channel_create_limit` is positional, not incremental
@@ -700,6 +723,22 @@ Error collecting messages to forward backfill ... invalid character '<' looking 
 
 If that never shows up at the configured limit, upstream images are fine and the fork can be dropped.
 
+## lk-jwt as an appservice
+
+lk-jwt runs as an appservice (`registrations/lk-jwt.yaml`); standalone mode is deprecated
+upstream. Synapse proxies `/_matrix/client/*/rtc/livekit/…` and the federation equivalent to it
+(MSC4512, `proxy_url`), and lk-jwt asks Synapse whether a user is in a room (MSC4502, the
+`rooms:is_joined` scope). The legacy endpoints under `matrix-rtc.example.com/livekit/jwt` stay for
+older clients; with `LIVEKIT_FULL_ACCESS_HOMESERVERS` naming only `example.com` they check membership
+too.
+
+- **Both MSCs are experimental** in Synapse, enabled in `synapse-experimental.yaml`.
+- **The tokens** are `MATRIX_LKJWT_AS_TOKEN`/`_HS_TOKEN` (`substitution-secrets/lk-jwt.yaml`),
+  rendered into the registration and into the `lk-jwt` Secret.
+- **Remote publishing:** `LIVEKIT_REMOTE_CAN_PUBLISH_HOMESERVERS` is unset, so its default `*`
+  lets users of any homeserver publish on our SFU when their token request is relayed over
+  federation.
+
 ## matrix-sip-bridge
 
 Bridges phone numbers to Matrix: text as SIP MESSAGE in a portal room per number, calls as media
@@ -725,7 +764,8 @@ table.
   is silent. `encryption.allow/default/require` are all explicitly `false`.
 - **One login per Matrix user**, created on the first call or text whose `X-Matrix-Recipient`
   names them, if `bridge.permissions` gives them `user`. A request without the header goes to the
-  default recipient (@admin:example.com). Relay mode is off. See the bridge's ADR-0016.
+  default recipient (@admin:example.com). Relay mode is off, and the shipped `"*": relay` permission is
+  dropped like on the other bridges: only example.com users interact with it. See the bridge's ADR-0016.
 - **`network.line_members`** is not in `sip-bridge-config.yaml`: an initContainer merges it in from
   the reflected `sip-line-members` ConfigMap, which the cheogram-sip routing chart derives from its
   routing table. The mount is optional; without it the base config runs unchanged.
@@ -749,17 +789,131 @@ the peer name must equal `sip.username` in the bridge config and why the endpoin
 
 ### Alerts
 
-The SIP bridge's rule is in `grafana.yaml`: rule group `app-matrix`, folder *Cluster*; backtested over 7 days before it was added.
+The SIP bridge's rules are in `grafana.yaml`: rule group `app-matrix`, folder *Cluster*; `sip-bridge-unregistered` was backtested over 7 days before it was added. The three 0.3.0 rules are not backtested: their metrics did not exist before.
 
 | Rule | Fires when | For | Severity |
 | --- | --- | --- | --- |
 | `sip-bridge-unregistered` | `sip_bridge_sip_registered` is 0 | 15m | warning |
+| `sip-bridge-outbox-stuck` | `sip_bridge_inbound_outbox_depth` > 0: stored texts not delivered to Matrix | 30m | warning |
+| `sip-bridge-spool-stuck` | `sip_bridge_inbound_spool_depth` > 0: database unreachable | 10m | warning |
+| `sip-bridge-persist-failed` | `messages_total{outcome="persist_failed"}` increased in 10m | 0m | warning |
 
 Backtest over 7 days:
 
 | Rule | Result | Decision |
 | --- | --- | --- |
 | `sip-bridge-unregistered` | one 4h outage | as specified; aggregated per Deployment, since the metric carries pod labels |
+
+## Decisions
+
+### Bridges ack the source only after Matrix accepted the message
+
+A transient failure (Synapse down, timeouts, 5xx/429) must hold the message upstream and be retried
+or redelivered. Only a permanent failure (expired media 403/404/410, too large, unconvertible) may
+drop it, and then it is logged and alerted. The defaults break this: bridgev2 queues remote events
+in a 64-slot in-memory buffer and acks the network at once, so every later failure is a silent loss.
+
+The bridgev2 mautrix bridges (whatsapp, signal, instagram, telegram) get these settings inline in
+`<bridge>-bridge-config.yaml` ([below](#bridge-configs-live-in-git)); `MAUTRIX_EVENT_HANDLING_TIMEOUT_TICKS`
+is an env var in `resources.yaml`. The `MXCFG_` env overrides used while the configs were on PVCs
+are gone.
+
+| setting | value | why |
+| --- | --- | --- |
+| `bridge.portal_event_buffer` | `0` | the handler runs inline and the network is acked only on success; on failure it redelivers (whatsmeow skips the receipt, signalmeow sends no 200, gotd does not advance `pts`, meta does not advance its cursor) |
+| `homeserver.retry_limit` | `150` | Matrix requests back off 4 s, doubling, capped at 10 min: about 24 h |
+| `bridge.send_reconnect_wait` | `1m` | Matrix→remote waits for the account to reconnect instead of failing |
+| `MAUTRIX_EVENT_HANDLING_TIMEOUT_TICKS` | `8640` | inline handling is still assumed successful after ticks × 30 s (default 10 = 5 min); 72 h exceeds two retry windows, since a media upload and then its fallback notice can each take one |
+
+`MAUTRIX_PANIC_ON_STUCK_EVENT` was rejected: whatsmeow recovers handler panics and acks, which is a
+loss.
+
+matrix-sip-bridge (0.3.0) takes the same settings, set in `sip-bridge-config.yaml` and `resources.yaml`.
+It stores each inbound text in its database before answering the SIP server and delivers it from
+there; if the database is down, the text goes to an `emptyDir` at `/spool` (survives a container
+restart, not pod deletion). Alerts: `sip-bridge-outbox-stuck`, `sip-bridge-spool-stuck`,
+`sip-bridge-persist-failed`.
+
+Planned, in its own repo: discord (lhns fork) exits on a retryable send failure, so the restart
+backfills the missed messages.
+
+#### Residual risks
+
+- Matrix→remote events wait in the 64-slot in-memory buffer; a crash loses them.
+- A multi-part message can arrive partly when a later part fails.
+- If the bridge database write fails after Matrix accepted the event, the redelivery duplicates it.
+- An outage longer than 24 h turns media into a "Failed to bridge" notice; text stays un-acked until
+  the connection recovers.
+- Runbook: after Synapse recovers, restart the bridge. Events whose handler gave up are redelivered
+  on reconnect.
+
+#### Alerts
+
+Both rules are in `grafana.yaml` (group `app-matrix`), look at the last 10 minutes of VictoriaLogs
+and route to `matrix-and-email`, since a Matrix outage is the usual cause.
+
+| Rule | Fires when | Severity |
+| --- | --- | --- |
+| `bridge-message-dropped` | a bridge logged a drop: `Failed to send message part to Matrix`, `Failed to send part of message to Matrix`, `Failed to convert remote message`, `Failed to handle attachment`, `Event handling is taking too long, continuing in background`, or an error `Failed to reupload WhatsApp attachment` | warning |
+| `bridge-message-deferred` | a message is held upstream: whatsmeow `Handler for … failed`, signal `Not clearing buffered event plaintext due to handler failure`, meta `Queue remote event returned non-success status` | warning |
+
+The log lines carry ANSI colour codes, so the first word of a phrase is glued to the code and a
+phrase filter misses it: the rules use `_msg:~"…"` regexes. The dropped rule also catches discord's
+and telegram's own drop messages.
+
+Backtest of the dropped rule over a 15-day window and the Synapse outage in it: 16 hits in the
+8 minutes of the outage, all whatsapp-bridge; the other days show only discord's daily
+`Failed to send part of message to Matrix` (403, bot not in room). Deferred: no hits, as expected
+while events are still buffered.
+
+### Bridge configs live in git
+
+All mautrix bridges run on a git config (signal was the pilot). The Secret `<bridge>-bridge-config`
+is rendered from `<bridge>-bridge-config.yaml`; secrets are `${...}` placeholders filled from the
+SOPS Secrets `<bridge>-bridge-values` and `matrix-db-values`. It is the **full** config, not a minimal one, so a
+new upstream default never changes behaviour unseen. The bridge runs read-only, started directly as
+`<binary> -c /config/config.yaml -n`; Reloader restarts it on a change. With `-n` the binary does not
+rewrite the file, so a key a new release adds is absent from it until git has it.
+
+**Keeping the config in step with the image.** `scripts/bridge-config-sync.py` runs the bridge's own
+upgrader (`<binary> -g`) over the git config in the image the Deployment names, then: a key only the
+upgrader has is added (its default, or a moved value), a key only git has is removed, and a key in
+both keeps git's value, comments and formatting. Maps are merged key by key; a list is a leaf.
+Only key paths are printed. Credentials survive by marker: before the run each `${VAR}` becomes a
+unique `SUBST_<hex>_<VAR>` (a random integer where the placeholder is bare, as telegram's `api_id`),
+and each marker must appear exactly once afterwards, so a secret that moves with a renamed key lands
+under the new key and one that is dropped, regenerated or duplicated stops the script (exit 2,
+nothing written). `appservice.as_token`/`hs_token` are never taken from the copy.
+
+- **Renovate** runs it as a `postUpgradeTask` on a bump of a bridge image (`renovate.json`; the
+  Docker socket is mounted into the Renovate container, `renovate.yml`) and commits the config with the
+  image. Patch bumps still automerge when the config changed; minor and major wait for review.
+- **Lint** runs `--check` when a PR touches a bridge config or a mautrix image (`lint.yml`) and fails
+  when the config is not what the script would produce, so a hand edit of an image or a config is caught.
+  The merge logic itself is tested offline (`tests/bridge-config-sync.py`).
+- **Hand bumps** (the whatsapp and discord forks, which Renovate does not track): change the image in
+  `resources.yaml`, run `python3 scripts/bridge-config-sync.py <bridge>` (needs Docker), review the diff.
+- **Alert** `bridge-config-ignored`: the bridge's config loader logs `Ignoring config field` /
+  `Ignoring incorrect config field type` for a key it does not know or of the wrong type.
+
+Traps:
+- The four `generate` sentinel keys (pickle key, provisioning secret, public and direct media keys)
+  must be real values in SOPS: left as `generate`, the upgrader replaces them on every start.
+- `resend_bridge_info` must stay `false`, or every start re-sends bridge info to all portals.
+- A literal `$` must be written `$$` (envsubst).
+- Comments in the file are shipped config: editing one changes the Secret and restarts the bridge.
+- `-g` together with `-n` exits 5; the script runs `-g` without `-n`, on a copy.
+- The bridges no longer mount their PVCs; the objects stay as the pre-switch snapshot.
+- discord is the legacy framework: its keys differ (`appservice.database`, `bridge.*`), it has no
+  `env_config_prefix` or delivery settings, and `-g` works on it the same way.
+
+### Double puppeting has its own registration per bridge
+
+Each bridge double-puppets with the token of its own `doublepuppet-<bridge>` registration
+(`url: null`), and its main registration claims only its bot and ghosts
+([ADR 0064](../../../docs/adr/0064-appservice-impersonation-from-url-less-registrations.md)). Before,
+the catch-all in the main registrations made every bridge receive every room with a local member:
+it tried to decrypt foreign events and post notices there, and saw every unencrypted room.
 
 ## Databases — shared CNPG (`postgres` ns)
 
@@ -785,7 +939,9 @@ the guard stays until upstream fixes it.
 (`synapse-sequence-guard.sh`) compares each stream sequence of Synapse's `id_generators` with
 `max(stream_positions.stream_id)` of its stream and `setval`s it forward when behind, logging
 `WARN sequence-guard: <seq> <old> -> <new>`. It only moves forward. `events_backfill_stream_seq`
-is excluded (stored negative). Update the pair list when a Synapse upgrade adds a stream.
+is excluded (stored negative). A stream missing from the pair list (one a Synapse upgrade added) logs
+`WARN sequence-guard: stream <name> is not in the pair list`; add it then. The image is the CNPG
+cluster's, so Renovate bumps both together and never to a new major.
 `GUARD_DRY_RUN=1` reports without writing.
 
 **Manual fix** (guard missing or failing), with Synapse scaled to 0, in `psql` on the CNPG primary,
@@ -810,7 +966,7 @@ harmless.
 - `https://matrix.example.com/_matrix/client/versions` → 200; login via MAS works.
 - `https://federationtester.matrix.org/?server_name=example.com` green.
 - `element.example.com` loads and sends; Element Call connects over `10.20.176.222`.
-- Synapse logs **six** `Loaded application service` lines on startup.
+- Synapse logs **twelve** `Loaded application service` lines on startup: six bridges, six `doublepuppet-<bridge>`.
 - `application_services_state` is currently **empty** — Synapse has no state row for any of
   them. Rows appear only once Synapse has recorded a transaction outcome, so absence is not
   itself a failure, but it means this check cannot confirm anything as written.
@@ -825,5 +981,5 @@ copied, not moved; CNPG uses fresh databases). Restart the Swarm stack to restor
 the CNPG databases to retry.
 
 Per-bridge rollbacks are noted in their sections: telegram keeps its SQLite file, the registrations
-overlay can be dropped to fall back to `homeserver.yaml`'s list, and every hand-edited config has a
-`.bak` beside it on its PVC.
+overlay can be dropped to fall back to `homeserver.yaml`'s list. The bridge configs are in git; the
+pre-switch ones remain on the bridges' PVCs.

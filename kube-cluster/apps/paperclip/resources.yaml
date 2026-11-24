@@ -67,7 +67,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: paperclip
-          image: ghcr.io/paperclipai/paperclip:2026.1012.0@sha256:1661b3dd3fdf7a9b59542d1ced464c3faf9dc8309798b4d15a9923ed32795307
+          image: ghcr.io/paperclipai/paperclip:2026.1117.0@sha256:bdf38d10544dc6c831e16dc027f23ad586353ef3be1a1b2c6979e63b956aceb1
           env:
             - {name: PAPERCLIP_DEPLOYMENT_MODE, value: authenticated}
             # `private`, not `public`: public disables the browser first-admin claim and
@@ -135,7 +135,7 @@ spec:
         # any non-loopback host and its UI cannot set the override, so apiBaseUrl is
         # http://127.0.0.1:8642. The traffic stays in-cluster, fenced by kube-vnet.
         - name: hermes-forward
-          image: alpine/socat:1.8.1.3@sha256:22d77becaeeea8ef56b8c4bb2312323acafe85354be6a85714ff5050e3537842
+          image: alpine/socat:1.8.1.3@sha256:5aa280c6fc5bee94dbd2bbdf2a58d30f50396eaa110be84b03636945b157ae68
           args: ["TCP-LISTEN:8642,bind=127.0.0.1,fork,reuseaddr", "TCP:hermes-worker.hermes.svc.cluster.local:8642"]
           securityContext:
             allowPrivilegeEscalation: false

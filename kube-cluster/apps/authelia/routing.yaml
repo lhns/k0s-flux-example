@@ -14,6 +14,8 @@ spec:
   forwardAuth:
     address: http://authelia.authelia.svc.cluster.local:9091/api/authz/forward-auth
     trustForwardHeader: true
+    # Caps only the auth service's answer that Traefik buffers (a redirect or a page), not app traffic.
+    maxResponseBodySize: 1048576
     authResponseHeaders:
       - Remote-User
       - Remote-Groups
@@ -26,9 +28,8 @@ spec:
 # ever arrive. This one only looks at the session cookie. See the forward-auth-session
 # endpoint in configuration.yml.
 #
-# Used by kasmvnc, and note it is still needed there even though a sidecar now supplies
-# KasmVNC's credentials so nothing challenges the browser any more. Once a browser has
-# answered a basic-auth prompt for a host it keeps sending `Authorization: Basic` on every
+# Used by external/services. Once a browser has answered a basic-auth prompt for a host it
+# keeps sending `Authorization: Basic` on every
 # later request to it — the default endpoint would consume that stale header, fail the
 # lookup, and 401 with `WWW-Authenticate`, prompting again forever. Reverting a route from
 # this middleware to plain `authelia` therefore looks harmless and tests clean in a fresh
@@ -44,11 +45,30 @@ spec:
   forwardAuth:
     address: http://authelia.authelia.svc.cluster.local:9091/api/authz/forward-auth-session
     trustForwardHeader: true
+    maxResponseBodySize: 1048576
     authResponseHeaders:
       - Remote-User
       - Remote-Groups
       - Remote-Email
       - Remote-Name
+---
+# Basic-only variant for machine clients: always 401 without valid credentials, never a
+# redirect (configuration.yml, forward-auth-basic).
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: authelia-basic-only
+  namespace: authelia
+  annotations:
+    traefik-reflector/namespaces: "*"
+spec:
+  forwardAuth:
+    address: http://authelia.authelia.svc.cluster.local:9091/api/authz/forward-auth-basic
+    trustForwardHeader: true
+    maxResponseBodySize: 1048576
+    authResponseHeaders:
+      - Remote-User
+      - Remote-Groups
 ---
 # Basic-auth variant (?auth=basic) for API/CLI clients.
 apiVersion: traefik.io/v1alpha1
@@ -62,6 +82,7 @@ spec:
   forwardAuth:
     address: http://authelia.authelia.svc.cluster.local:9091/api/authz/forward-auth?auth=basic
     trustForwardHeader: true
+    maxResponseBodySize: 1048576
     authResponseHeaders:
       - Remote-User
       - Remote-Groups

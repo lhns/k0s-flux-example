@@ -1,0 +1,45 @@
+# The desktop image with the site's NixOS module (system.nix below) in its system: kube-webtop-workspaces'
+# image plus one layer, built from its builder with webtop-nix's image/system/Dockerfile (webtop-nix ADR
+# 0020). `{ }` publishes the image unchanged. README, "System module".
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageBuild
+metadata:
+  name: desktop
+  namespace: webtop
+spec:
+  interval: 1h
+  platforms: [linux/amd64]
+  # Evaluating the system peaks at about 1 GiB; pulling the image and its builder (2 GB) dominates the time.
+  timeout: 60m
+  resources:
+    requests:
+      cpu: "2"
+      memory: 4Gi
+    limits:
+      memory: 8Gi
+  # The cache would export the build stage (the store the build fetched, several GB) into the registry,
+  # and nothing is rebuilt often enough to gain from it.
+  cache:
+    mode: Disabled
+  dockerfile:
+    inline: |
+      # Both FROMs are one kube-webtop-workspaces build (<tag>-builder and <tag>): bump them together.
+      # The installer refuses a builder from another build.
+      FROM ghcr.io/lhns/kube-webtop-workspaces-desktop:0.0.0-dev.477b832-builder@sha256:ce573511993d977cc9e146d59cc1be4b21101e9942c6a29cb4c4e9a3a835bd7d AS build
+      COPY <<'EOF' /system.nix
+      # NixOS module for every desktop's system (environment.systemPackages, services, ...).
+      { pkgs, ... }:
+      {
+      }
+      EOF
+      RUN ["/webtop-builder/bin/webtop-system-build", "/system.nix"]
+
+      FROM ghcr.io/lhns/kube-webtop-workspaces-desktop:0.0.0-dev.477b832@sha256:4a6f921c1f8174c3b71bdbf4aad758c79616588573d320902dd17e80962ee807
+      RUN --mount=type=bind,from=build,source=/webtop-system,target=/webtop-system ["/webtop-system/bin/sh", "/webtop-system/install"]
+  push:
+    # A new desktop version pushes its changed base layers into the registry (README, "System module").
+    history: 3
+    writeRefTo:
+      namespace: gen-app-webtop
+      keys:
+        ref: WEBTOP_DESKTOP_IMAGE

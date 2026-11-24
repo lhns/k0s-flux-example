@@ -1,0 +1,26 @@
+{
+ "payload": [
+  {
+   "status": "firing",
+   "labels": {
+    "alertname": "Rule without text",
+    "severity": "warning",
+    "count": "2"
+   },
+   "annotations": {
+    "summary": "",
+    "description": "",
+    "i0000": "Rule without text",
+    "i0001": "Rule without text"
+   },
+   "generatorURL": "https://grafana.example.com/alerting/grafana/no-text/view?orgId=1"
+  }
+ ],
+ "messages": [
+  {
+   "body": "**FIRING** Rule without text [warning] — 2 instances\n \n* Rule without text\n* Rule without text\n \n[Rule](https://grafana.example.com/alerting/grafana/no-text/view?orgId=1)",
+   "formatted_body": " <p>  <strong><font color=\"orange\">FIRING</font></strong> Rule without text [warning] &mdash; 2 instances  </p> <ul> <li>Rule without text</li><li>Rule without text</li> </ul> <p> <a href=\"https://grafana.example.com/alerting/grafana/no-text/view?orgId=1\">Rule</a> </p>",
+   "m.mentions": {}
+  }
+ ]
+}

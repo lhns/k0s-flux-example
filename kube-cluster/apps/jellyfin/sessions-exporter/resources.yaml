@@ -1,0 +1,89 @@
+# Polls each Jellyfin instance's /Sessions for playback state (README.md, "Sessions exporter").
+# Not in the component's kustomization until the API keys exist.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jellyfin-sessions-exporter
+  namespace: jellyfin
+  labels:
+    app.kubernetes.io/name: jellyfin-sessions-exporter
+    app.kubernetes.io/instance: jellyfin-sessions-exporter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: jellyfin-sessions-exporter
+  template:
+    metadata:
+      # Scraped by the otel `cluster` collector (namespace jellyfin is in its `namespaces.names`).
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9924"
+        prometheus.io/path: /metrics
+      labels:
+        app.kubernetes.io/name: jellyfin-sessions-exporter
+        app.kubernetes.io/instance: jellyfin-sessions-exporter
+        kube-vnet/net.opentelemetry.otel-scrape: ingress
+        # Reaches both Jellyfin pods, which carry the ingress side (vnet.yaml).
+        kube-vnet/net.jellyfin-api: egress
+    spec:
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: exporter
+          image: python:3.14.9-slim-trixie@sha256:35caba83af2fe6da9a5d922f9b0156f21d1246a48278c58a08bd253303ba42e8
+          command: [python3, -I, /opt/jellyfin-sessions/jellyfin_sessions.py]
+          ports:
+            - name: metrics
+              containerPort: 9924
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            periodSeconds: 60
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: exporter
+              mountPath: /opt/jellyfin-sessions
+              readOnly: true
+            - name: keys
+              mountPath: /etc/jellyfin-sessions
+              readOnly: true
+      volumes:
+        - name: exporter
+          configMap:
+            name: jellyfin-sessions-exporter
+        # One key per instance (each has its own database). Optional so the keys can be added one
+        # at a time; a missing one reads as up 0.
+        - name: keys
+          projected:
+            sources:
+              - secret:
+                  name: jellyfin-sessions-key-jellyfin
+                  optional: true
+                  items:
+                    - key: API_KEY
+                      path: jellyfin
+              - secret:
+                  name: jellyfin-sessions-key-jellyfin-sqlite
+                  optional: true
+                  items:
+                    - key: API_KEY
+                      path: jellyfin-sqlite

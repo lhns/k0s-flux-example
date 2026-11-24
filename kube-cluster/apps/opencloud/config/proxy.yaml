@@ -1,0 +1,10 @@
+# With the oidc role driver a user whose groups match no entry cannot log in. First match wins.
+role_assignment:
+  driver: oidc
+  oidc_role_mapper:
+    role_claim: groups
+    role_mapping:
+      - role_name: admin
+        claim_value: admin
+      - role_name: user
+        claim_value: opencloud

@@ -35,8 +35,8 @@ metadata:
   name: matrix-bridges
   namespace: matrix
 spec:
-  description: "synapse -> bridge appservice ports (whatsapp :29318, telegram :29317,
-    signal :29328, instagram :29330, discord :29334, sip :29337), intra-namespace."
+  description: "synapse -> appservice ports (whatsapp :29318, telegram :29317,
+    signal :29328, instagram :29330, discord :29334, sip :29337, lk-jwt :8080), intra-namespace."
 ---
 apiVersion: kube-vnet.lhns.de/v1alpha1
 kind: VirtualNetwork

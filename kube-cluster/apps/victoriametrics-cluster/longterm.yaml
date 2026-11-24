@@ -79,7 +79,8 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: vmstorage
-          image: victoriametrics/vmstorage:v1.154.1-cluster
+          # Same fork, flag and GOMEMLIMIT as vmstorage; see resources.yaml.
+          image: ghcr.io/lhns/vmstorage:metaindex-chunked-ci-c9441af@sha256:7b228c2014792c3e2a0d8303fd18d0dd0d825dbb691e16a95750d1c6e188f7c3
           args:
             - -retentionPeriod=5y
             # Downsampling: one sample per series per minute. May be raised later (old
@@ -90,6 +91,10 @@ spec:
             # Fewer, larger part and indexdb writes; an unclean stop loses up to 1m of ingest.
             - -inmemoryDataFlushInterval=1m
             - -storageDataPath=/storage
+            - -storage.metaindexChunkRows=64
+          env:
+            - name: GOMEMLIMIT
+              value: 10GiB
           ports:
             - {name: vminsert-rpc, containerPort: 8400}
             - {name: vmselect-rpc, containerPort: 8401}
@@ -176,7 +181,7 @@ spec:
                 topologyKey: kubernetes.io/hostname
       containers:
         - name: vminsert
-          image: victoriametrics/vminsert:v1.154.1-cluster
+          image: victoriametrics/vminsert:v1.156.0-cluster@sha256:3f3fa42ae5b447792da9a14538296b4463a7787f1702d1b69fa168052fdf4efb
           args:
             - -storageNode=vmstorage-longterm:8400
             # Must match vminsert, or the two tiers store different series.

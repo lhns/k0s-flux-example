@@ -36,12 +36,37 @@ and the same annotation on each CR, and add `grafana.yaml` to `resources:`; no `
 `victoriametrics-metrics-datasource`, since the metrics have dotted names (MetricsQL).
 
 **Alerting.**
+- *Severity*: `critical` means the owner must act today: something users rely on is down, data is at
+  risk, or the alerting or monitoring pipeline is blind; only critical alerts mention the owner
+  ([ADR 0072](../../../docs/adr/0072-only-critical-alerts-mention.md)). Anything
+  that can wait for the next look at the room is `warning`.
 - *Contact points* `matrix` (a webhook to the `matrix-alerts` relay) and `matrix-and-email` (the same
   webhook plus email via the SMTP config) are file-provisioned (`alerting-contactpoints.yaml`, read-only
   in the UI). The file holds no secret, and moving one to a CR would mean deleting a receiver the
   routes use.
 - The *notification policy tree* stays in the UI; rules route straight to a contact point through
   `notificationSettings`, so they need no policy.
+- *Grouping*: every rule sets `notificationSettings` `group_by: [grafana_folder, alertname]`, `group_wait: 1m`,
+  `group_interval: 10m`, `repeat_interval: 24h`, so one rule firing for many instances is one notification.
+  Copy the four lines into new rules (the policy tree's defaults do not apply to them).
+- *Flapping*: a rule on a state (a level or threshold that holds) sets `keepFiringFor: 15m`, so a condition that
+  clears for a few minutes does not resolve and re-fire; an event rule (`for: 0s` on a counter's increase) sets none.
+  A threshold rule whose history flapped around its line adds a recovery threshold, `unloadEvaluator` on the
+  threshold condition (`traefik-5xx`: fires above 10%, recovers below 7%).
+- The webhook contact points use the file-provisioned template `matrix-payload` (`alerting-contactpoints.yaml`):
+  it folds a group into one pseudo-alert per status, because the `matrix-alerts` relay renders one Matrix message
+  per alert. See [matrix-alerts](../matrix-alerts/README.md).
+  - A rule that fails to query (`execErrState: Error`) arrives as alertname `DatasourceError`, one alert per
+    rule (labels `rulename`, `datasource_uid`, `ref_id`, the rule's own labels; annotation `Error`), carrying
+    its summary rendered without values, so it reads as true. The template reports "<rule> could not be
+    evaluated" or "N rules could not be evaluated" with the rule names and the error once, no per-rule text.
+  - A no-data alert (`noDataState: Alerting`) keeps the rule's alertname and summary
+    (`grafana_state_reason: NoData`, no series labels, no values), so annotations that interpolate a value or
+    label use `{{ with $values.A }}...{{ else }}fallback{{ end }}`.
+  - A normal group sends `description` and the Rule link only when all its alerts share them.
+  - `tests/` renders fixtures through the pinned Grafana and relay images (`bash tests/run.sh`, docker;
+    `UPDATE_GOLDEN=1 python3 tests/check.py .` after an intended change). A template that is not valid JSON
+    drops every alert.
 - *Rules* are `GrafanaAlertRuleGroup` CRs in the `grafana.yaml` of the component that produces
   their metrics (tables and backtests in its README), and the CRs reach Grafana through its API, so the
   UI shows them as provisioned. Rules made in the UI stay.
@@ -52,12 +77,30 @@ To add a rule group, in that component's `grafana.yaml`, copy a group from
   [Operator](#operator); `interval`; a unique rule `uid`;
 - `notificationSettings.receiver`: `matrix`, or `matrix-and-email` for rules the alerting pipeline itself
   depends on;
-- `execErrState: KeepLast` on per-object rules keeps their state through a datasource outage, so only
-  the pipeline-health rules (`Error`) report it; `noDataState: OK` unless NoData is the failure;
+- `execErrState: KeepLast`, so a datasource outage is one message, not one per rule: only the rules that report
+  the alerting and metrics pipeline itself keep `Error` (`grafana-rule-evaluations-failing`,
+  `grafana-notifications-failed`, `matrix-alerts-dropping`, `victoriametrics-component-down`,
+  `kafka-exporter-members`); `noDataState: OK` unless NoData is the failure;
 - backtest the query over 7 days in Explore before adding it, and record the result in the README table.
 
-Not added: log-based rules for mautrix bridge states and selected Kubernetes Warning events. They need the
-VictoriaLogs datasource uid, which lives in Grafana's database and is not in the repo.
+Log-based rules query the VictoriaLogs datasource (uid `cens0eitab2m8b`; `queryType: instant` with a
+`stats` pipe), as in [apps/matrix](../matrix/grafana.yaml). Not added: rules for mautrix bridge connection
+states and selected Kubernetes Warning events.
+
+Rules on Grafana itself (`grafana.yaml`, group `app-grafana`, emailed too; Grafana's `/metrics` is scraped
+by the otel `cluster` collector):
+
+| Rule | Fires when | For | Severity |
+| --- | --- | --- | --- |
+| `grafana-notifications-failed` | `grafana_alerting_notifications_failed_total` rose in 30m, per integration | 0 | critical |
+| `grafana-rule-evaluations-failing` | over 20% of rule evaluations failed in 15m | 10m | critical |
+
+Not backtested: Grafana was not scraped before these rules. About 4-5% of evaluations fail all the time
+(the counter has no rule label and the log does not name the rules), hence the ratio.
+
+Backtest of `execErrState` (14 days of state history): 32 ten-minute buckets saw a rule enter `Error`; with `Error` on
+the five pipeline rules only, 5 of them would have sent no message and the two datasource outages would have named
+2-3 rules instead of 9.
 
 Grafana's state lives in **Postgres** (`GF_DATABASE_*` → `postgres-rw`, dedicated
 `grafana` role/db) rather than SQLite. The pod joins the `postgres` vnet (egress) to

@@ -1,7 +1,7 @@
 # 0016 — `validate.sh`: one offline gate for people and CI
 
 - Status: Accepted
-- Date: 2026-07-09, amended 2026-09-02, 2026-09-04, 2026-09-17, 2026-09-27, 2026-09-30 and 2026-10-16
+- Date: 2026-07-09, amended 2026-09-02, 2026-09-04, 2026-09-17, 2026-09-27, 2026-09-30, 2026-10-16 and 2026-10-30
 - Current answer: `scripts/validate.sh` is the single entry point, run identically on a
   workstation and in the Lint workflow, with no cluster access. It runs yamllint, a
   `kustomize build` + `kubeconform -strict` sweep over every component of every cluster and the
@@ -37,6 +37,10 @@ the size cap, a Secret applied as a ConfigMap.
   validation. SOPS metadata is stripped first, line by line.
 - **A one-minute budget** (2026-10-16): the checks run concurrently and each component is built
   once. CI takes kustomize and helm from the runner image when they match the pins.
+- **Charts rendered with our values** (2026-10-30): `check-helm-values.py` runs `helm template` on
+  every HelmRelease whose `chartRef` is an OCIRepository, at the pinned digest and the cluster's
+  Kubernetes version, and kubeconform-checks the output; helm-controller validates nothing up
+  front. The charts are pulled, so a cold cache needs the network, as the schemas do.
 - **Per-component tests** in `<component>/tests/run.sh`: no cluster, deterministic, a missing tool
   fails unless `ALLOW_SKIP=1`, and every skip is listed at the end.
 

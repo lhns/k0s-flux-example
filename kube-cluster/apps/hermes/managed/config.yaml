@@ -14,3 +14,7 @@ approvals:
     - "flux *"
     - "git push --force*"
     - "sops -d*"
+platforms:
+  matrix:
+    # Every deploy restarts the pod; the shutdown and "Gateway online" pings woke the owner.
+    gateway_restart_notification: false

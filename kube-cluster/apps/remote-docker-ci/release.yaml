@@ -8,7 +8,8 @@ spec:
   interval: 1h0m0s
   url: oci://ghcr.io/lhns/charts/remote-docker-workspace
   ref:
-    tag: "0.14.0"
+    tag: "0.16.9"
+    digest: sha256:198d772852925f0ab799492b6d10b15eef7b3f4ee422d97e8e6c6b45a777b501
 ---
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
@@ -33,7 +34,8 @@ spec:
     # overlay2 refuses Ceph-backed volumes; see apps/remote-docker/README.md.
     dockerdArgs: "--storage-driver=fuse-overlayfs"
     persistence:
-      # Renovate's image cache. `size` only applies to a claim that does not exist yet.
+      # Renovate's image cache and the scale sets' builds. `size` only applies to a claim that does
+      # not exist yet (volumeClaimTemplates are immutable): the two claims were grown to 30Gi by hand.
       graph:
         size: 20Gi
         storageClass: ceph-rbd
@@ -55,18 +57,25 @@ spec:
     commonLabels:
       # Joins vnet.yaml's network, which is what lets the k0s-flux scale set's pods reach :2280.
       kube-vnet/net.remote-docker-ci: ingress
-    # Every runner pod of the k0s-flux scale set presents the one key below; the account is
-    # ephemeral, so each client process still gets its own port and volumes (ADR 0050 of
+    # Every runner pod of the k0s-flux scale set presents the one key below; the
+    # account is ephemeral, so each client process still gets its own port and volumes (ADR 0050 of
     # remote-docker). Clients older than 0.9.0 are refused. The private half is in
     # apps/github-runner/secret-k0s-flux-ssh.yaml.
     ephemeral:
       accounts: [k0s-flux]
-      # Per replica (12 in all): the k0s-flux scale set's maxRunners (4), its warm pod's slot and
+      # Per replica (28 in all): the three scale sets' maxRunners (4 + 4 + 4), k0s-flux's warm pod and
       # runs still in their grace period, in case every runner lands on one replica.
-      maxClients: 6
+      maxClients: 14
       grace: 2m
       # Throwaway CI: a finished run's containers and compose networks go with it.
       cleanupContainers: true
+    # Runs that skip `-v` leak anonymous volumes (README.md). 70% keeps ~9 GB free for a build on
+    # the 30Gi graph; 3d because everything but Renovate's image is a throwaway CI layer.
+    prune:
+      after: 3d
+      above: 70%
+      containers: true
+      volumes: true
     # Runtime keys live in enrolled_keys.d on the `state` claim; authorizedKeys is the
     # declarative base. No external route, so no publicURL: add keys with `remote key add`.
     admins: [lhns]

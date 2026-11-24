@@ -14,7 +14,7 @@ spec:
     - name: skill
       image:
         # renovate: datasource=docker
-        ref: ghcr.io/paperclipai/paperclip:2026.1012.0@sha256:1661b3dd3fdf7a9b59542d1ced464c3faf9dc8309798b4d15a9923ed32795307
+        ref: ghcr.io/paperclipai/paperclip:2026.1117.0@sha256:bdf38d10544dc6c831e16dc027f23ad586353ef3be1a1b2c6979e63b956aceb1
         subpath: /app/packages/adapters/hermes/skills/paperclip-task-bridge
       # The mount path supplies the skill directory, so the content goes at the root.
       to: /

@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+metadata:
+  annotations:
+    # ceph-rbd (state PVC) + ceph-csi-cephfs-appdata (files PVC) + traefik (routes) +
+    # oci-composer (web extensions in artifacts/). Read by the root generator; inert to kustomize.
+    flux-component-generator/dependsOn: infra-ceph-csi-rbd,infra-ceph-csi-cephfs-appdata,infra-traefik,infra-oci-composer
+resources:
+- opencloud.yaml
+- euro-office.yaml
+- routing.yaml
+- drawio.yaml
+- yjs.yaml
+- secret-opencloud.yaml
+- secret-euro-office.yaml
+# Mounted at /etc/opencloud; the hash rolls the pod.
+configMapGenerator:
+- name: opencloud-config
+  namespace: opencloud
+  files:
+  - config/opencloud.yaml
+  - config/csp.yaml
+  - config/proxy.yaml
+  - config/apps.yaml

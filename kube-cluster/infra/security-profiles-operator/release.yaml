@@ -1,0 +1,33 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: security-profiles-operator
+  namespace: security-profiles-operator
+spec:
+  interval: 1h0m0s
+  url: oci://registry.k8s.io/security-profiles-operator/charts/security-profiles-operator
+  ref:
+    tag: "1.1.2"
+    digest: sha256:580b4766bfbb3f99c07a001ea52b22d22abea70658ee4a11b0dcbf95c5ee21ac
+---
+# Installs SeccompProfile objects as files on every node (README). Seccomp only: SELinux, AppArmor,
+# the log enricher and the BPF recorder stay off.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: security-profiles-operator
+  namespace: security-profiles-operator
+spec:
+  interval: 10m0s
+  chartRef:
+    kind: OCIRepository
+    name: security-profiles-operator
+  values:
+    # The chart's own operator image, pinned: bump tag and digest together with ref.tag above, or a
+    # new chart's CRDs run under the old operator.
+    spoImage:
+      tag: v1.1.2
+      digest: sha256:f6ee4402e841e7d5a37d4888b612cf333528820d3a2b1e08101557123d7c5e87
+    # k0s keeps the kubelet's root here, not in /var/lib/kubelet; a wrong dir installs profiles
+    # where the kubelet never looks.
+    kubeletDir: /var/lib/k0s/kubelet

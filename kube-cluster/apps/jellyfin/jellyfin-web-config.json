@@ -31,17 +31,12 @@
   ],
   "menuLinks": [
     {
-      "name": "Jellyfin Music",
-      "icon": "music_note",
-      "url": "https://jellyfin-music.example.com"
-    },
-    {
-      "name": "Feishin Music Player",
+      "name": "Feishin",
       "icon": "music_note",
       "url": "https://feishin.example.com/"
     },
     {
-      "name": "Download Jellyfin Desktop",
+      "name": "Desktop App",
       "icon": "play_circle",
       "url": "https://github.com/alchemyyy/jellyfin-desktop/releases/tag/v2.0.0"
     },

@@ -19,6 +19,7 @@ senders ──► gateway (x2)  ──►  Kafka (3 dual-role KRaft nodes)  ─�
 | `topics.yaml` | the four `otlp_*` topics |
 | `artifacts/tiered-storage-plugin.yaml` | the Aiven tiered-storage jars, as an OCI artifact |
 | `vnet.yaml` | the `kafka` and `otel-gateway` VirtualNetworks |
+| `routing.yaml` | public `otlp.example.com` IngressRoute and its rate-limit and buffering Middlewares |
 | `secret.yaml` | SOPS: S3 credentials for tiered storage |
 
 ## Reaching it
@@ -128,6 +129,37 @@ isolates (the old Swarm collector was external, which it leaves alone): a sender
 `kube-vnet/net.opentelemetry-gateway.otel-gateway: egress` label, or a `VirtualNetworkBinding`
 where the pods are operator-managed (`infra/opentelemetry-monitoring/vnet.yaml`). Without it
 the telemetry is blocked, not redirected, and self-monitoring failures stay invisible.
+
+## Public OTLP endpoint
+
+`otlp.example.com` (`routing.yaml`) takes OTLP/HTTP from a cluster that reaches prod only over the
+internet.
+
+- **Paths**: only `/v1/metrics`, `/v1/logs`, `/v1/traces`, routed to the ClusterIP Service's
+  `:4318`. Everything else is a Traefik 404; gRPC (4317), carbon, influx, jaeger, fluent and
+  syslog are not reachable through it.
+- **Auth**: HTTP Basic through the reflected `authelia-basic-only` Middleware (401 without credentials, no login redirect); Authelia checks
+  the credentials against LDAP and allows only the group `otel` (`apps/authelia/configuration.yml`,
+  `otlp.example.com` rules, deny for everyone else).
+- **Limits**: per-IP `rateLimit` (average 50, burst 200), applied before auth, then a 16 MiB request-body cap.
+- **Tagging**: senders set `k8s.cluster.name`, so their series are told apart from prod's.
+  Queries without a cluster filter see them too.
+  Prod's own series carry `k8s.cluster.name="kube"` (kubelet and k8s-node host metrics) or no label
+  at all, so prod's alert rules and dashboards select `"k8s.cluster.name"=~"|kube"` (the
+  `cluster` dashboard variable; its default `prod` is that value). Not `=""`: it drops the
+  `kube` series. A new sending cluster is excluded without a change; select it by adding it
+  to that variable.
+- **kube-vnet**: the gateway pods carry `kube-vnet/net.traefik.traefik: ingress`. That admits
+  Traefik to every pod port at the network level; the IngressRoute is the port and path limit.
+
+### Decisions
+
+- **Authenticated at the edge, not in the collector**: Authelia already holds the LDAP users
+  and group policy and regulates failed logins, so the gateway needs no server-side auth
+  extension and the VIP receivers stay unchanged. The sender's collector uses the `basicauth`
+  client extension.
+- **Rate limit before auth**: it protects Authelia and LDAP from unauthenticated floods; a
+  valid sender stays well under it.
 
 ## Alerts
 

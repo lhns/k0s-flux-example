@@ -90,7 +90,7 @@ spec:
       - name: app-view-plugin
         image:
           # renovate: datasource=docker
-          reference: ghcr.io/lhns/headlamp-app-view:0.3.0
+          reference: ghcr.io/lhns/headlamp-app-view:0.3.1@sha256:d16e2efb87dd2b1b2025e3e0ec8ed7ec40ce13167ac3e95d5e623b31939175fc
           # IfNotPresent: Always would put ghcr.io in the path of every pod start.
           pullPolicy: IfNotPresent
     volumeMounts:

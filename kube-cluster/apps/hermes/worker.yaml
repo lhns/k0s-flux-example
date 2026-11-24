@@ -52,7 +52,7 @@ spec:
       initContainers:
         # As the owner's: Hermes rewrites config.yaml, so it is copied, and reset each start.
         - name: seed-config
-          image: nousresearch/hermes-agent:v0.22.2@sha256:36099926da316742423544e055d4734777105ffe6341873af5459b957d0c2919
+          image: nousresearch/hermes-agent:v0.23.3@sha256:3e9fe4c6ef36490f43aa0d0d80f9df64e9c92a576eee3042f1a97c8813c05355
           resources:
             requests:
               memory: 16Mi
@@ -68,7 +68,7 @@ spec:
             - {name: profile-worker, mountPath: /etc/hermes-profile, readOnly: true}
       containers:
         - name: hermes
-          image: nousresearch/hermes-agent:v0.22.2@sha256:36099926da316742423544e055d4734777105ffe6341873af5459b957d0c2919
+          image: nousresearch/hermes-agent:v0.23.3@sha256:3e9fe4c6ef36490f43aa0d0d80f9df64e9c92a576eee3042f1a97c8813c05355
           args: [gateway, run]
           env:
             - {name: HERMES_MANAGED_DIR, value: /etc/hermes-managed}

@@ -1,86 +1,77 @@
 # NO PASSWORD HERE, EVER. These values render into a plaintext ConfigMap in git.
 
-# res_pjsip transports. Nothing per-trunk: every registration below rides trunk_transport.
-# 5060 on both protocols is what apps/matrix and the cheogram-sip-internal Service point at.
+# res_pjsip transports. Every registration rides trunk_transport; 5060 on both protocols is
+# what apps/matrix and the cheogram-sip-internal Service point at.
 transports:
   - name: transport-udp
     protocol: udp
     bind: 0.0.0.0:5060
-  # matrixbridge and nothing else. SIP MESSAGE has to be TCP: a multi-part text that overflows
-  # a UDP datagram is dropped with no error anywhere.
+  # matrixbridge only: a SIP MESSAGE over UDP fragments and is dropped silently.
   - name: transport-tcp
     protocol: tcp
     bind: 0.0.0.0:5060
 
-# The transport every trunk registers and dials over.
 trunk_transport: transport-udp
 
-# Deployment facts, applied to every transport above: externip and localnet, which pjsip takes
-# per transport. Without them the SDP carries the pod address and audio goes nowhere.
+# Per transport: externip and localnet. Without them the SDP carries the pod address.
+# external_address is also the ice_host_candidates mapping in rtp.conf.
 external_address: 203.0.113.10
 local_nets:
   - 10.20.0.0/16
   - 172.18.0.0/16
   - 172.19.0.0/16
 
-# One REGISTER per entry. The entry name IS the Secret key name under /sip-secrets that
-# holds its password, so a rename that misses one is a pod that does not start.
-registrations:
-  # Each entry's endpoint/aor/auth/registration set is GENERATED from the fields below into
-  # pjsip.conf, under the ENTRY NAME. Three DIDs share sip.example.net and pjsip cannot carry a
-  # per-DID discriminator in one endpoint, so each needs a set of its own; see the README.
-  #
-  # contact_user must be a legal SIP user part: pjsip parses the Contact URI it builds, so
-  # an "@" in that slot makes the registration object fail to load.
+# cheogram-sip-lb forwards exactly these UDP ports (resources.yaml); tests/check-routing.py
+# holds the two together.
+rtp:
+  start: 10000
+  end: 10049
 
-  # The PSTN trunk's own account: SIP_USER at SIP_HOST, which the component also appends to
-  # any bare number, so tests/check-routing.py holds this row against cheogram-sip.env.
-  # `entrypoint: true` means this host's DEFAULT registration -- the inbound fallback, and
-  # the one endpoint the generator gives a type=identify and identify_by=ip, so a call the
-  # carrier does not tag with our ;line= lands here rather than nowhere. A host with one
-  # registration needs no flag: it is its own default.
-  pstn-02012345678:
+# The Matrix bridge's Service. Its [matrixbridge] AOR contact and the dialplan's SMS
+# Request-URI both come from here.
+bridge_host: matrix-sip-bridge.matrix.svc.cluster.local
+
+# One REGISTER per entry. The entry name is the Secret key under /sip-secrets holding the
+# password, the pjsip object name and the peer the dialplan dials and attributes by. Three DIDs share
+# sip.example.net and an endpoint pins one From user, so each needs an object set of its own.
+registrations:
+  # SIP_USER at SIP_HOST (cheogram-sip.env), which the component appends to a bare number.
+  # `entrypoint` marks a host's default registration: the inbound fallback and the one
+  # endpoint that gets a type=identify. A host with one registration needs no flag.
+  home:
     user: "02012345678"
     host: sip.example.net
-    contact_user: "02012345678"
     did: "+492012345678"
     line: home
     entrypoint: true
-    peer_secret_file: pstn-02012345678-secret.conf
 
-  pstn-02012345671:
+  office-1:
     user: "02012345671"
     host: sip.example.net
-    contact_user: "02012345671"
     did: "+492012345671"
     line: office
-    peer_secret_file: pstn-02012345671-secret.conf
 
-  pstn-02012345672:
+  office-2:
     user: "02012345672"
     host: sip.example.net
-    contact_user: "02012345672"
     did: "+492012345672"
     line: office
-    peer_secret_file: pstn-02012345672-secret.conf
 
-  eventpbx-5552:
+  eventpbx:
     user: "5552"
     host: voip.example.org
-    contact_user: "5552"
     did: "5552"
     line: eventpbx
-    peer_secret_file: ev-secret.conf
-    # Off while its REGISTER is refused. This also switches the eventpbx line off, so
-    # short extensions below are refused rather than dialled via another trunk.
+    # Its REGISTER is refused. Also switches the eventpbx line off: short extensions are
+    # refused rather than dialled via another trunk.
     disabled: true
 
-# callers is the outbound gate: it refuses rather than falling through, and absent or empty
-# means nobody. Field meanings are in values.schema.json; the model is in the README.
+# `callers` is the outbound gate: it refuses rather than falling through, and absent or
+# empty means nobody. Field meanings: values.schema.json; the model: README.
 lines:
   home:
     callers: ['xmpp:*@xmpp.example.com', 'matrix:@*:example.com']
-    primary: pstn-02012345678
+    primary: home
     inbound_route:
       - ring: ["matrix:@user:example.com"]
         timeout: 45
@@ -88,7 +79,7 @@ lines:
 
   office:
     callers: ['xmpp:*@xmpp.example.com', 'matrix:@*:example.com']
-    primary: pstn-02012345671
+    primary: office-1
     inbound_route:
       - ring: ["xmpp:admin@xmpp.example.com", "matrix:@admin:example.com"]
         timeout: 45
@@ -96,23 +87,21 @@ lines:
 
   eventpbx:
     callers: ['xmpp:*@xmpp.example.com', 'matrix:@*:example.com']
-    primary: eventpbx-5552
+    primary: eventpbx
     inbound_route:
       - ring: ["xmpp:admin@xmpp.example.com", "matrix:@admin:example.com"]
         timeout: 45
 
-# FIRST MATCH WINS. to_pattern is a LUA PATTERN, not a regex, and is anchored by the
-# renderer, so "11[02]" cannot also match "0112345".
+# FIRST MATCH WINS. to_pattern is a LUA PATTERN, not a regex, anchored by the renderer.
 outbound:
-  # Pins the registration, so it carries no line and no callers list gates it -- which is what
-  # keeps 110/112 reachable from an account permitted nothing else.
-  - {to_pattern: '11[02]', registration: pstn-02012345678, emergency: true}
+  # Pins the registration, so no line and no callers list gates it: 110/112 stay reachable
+  # from an account permitted nothing else.
+  - {to_pattern: '11[02]', registration: home, emergency: true}
 
-  # Short internal extensions, one to five digits. `%d?` four times over rather than a
-  # repetition count, which Lua patterns do not have.
+  # Short internal extensions, one to five digits.
   - {to_pattern: '%d%d?%d?%d?%d?', line: eventpbx}
 
-  # A per-person default: this caller presents the office DID rather than the household one.
+  # A per-person default: this caller presents the office DID.
   - {to_pattern: '.*', from_glob: ['xmpp:office@xmpp.example.com'], line: office}
 
   - {to_pattern: '.*', line: home}

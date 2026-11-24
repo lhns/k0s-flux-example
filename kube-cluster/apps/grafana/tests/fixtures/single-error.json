@@ -1,0 +1,21 @@
+{
+ "alerts": [
+  {
+   "status": "firing",
+   "labels": {
+    "alertname": "DatasourceError",
+    "grafana_folder": "Ceph",
+    "severity": "critical",
+    "datasource_uid": "bfz43q0alv6kgc",
+    "ref_id": "A",
+    "rulename": "Grafana alert rules failing to evaluate"
+   },
+   "annotations": {
+    "summary": "Grafana failed  of rule evaluations",
+    "description": "Usually a datasource is down.",
+    "Error": "[sse.dataQueryError] failed to execute query [A]: Post \"http://vmselect:8481/select/0/prometheus/api/v1/query\": context deadline exceeded"
+   },
+   "generatorURL": "https://grafana.example.com/alerting/grafana/grafana-rule-evaluations-failing/view?orgId=1"
+  }
+ ]
+}

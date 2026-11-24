@@ -26,7 +26,7 @@ to the Ceph monitors — no kube-vnet rule.
 ## Image: x86-64-v2 build
 
 All three ceph-csi drivers run `ghcr.io/lhns/ceph-csi-x86-64-v2`, not `quay.io/cephcsi/cephcsi`. From 3.18
-upstream's image is EL10, which needs x86-64-v3 (AVX2/FMA/BMI); kube-worker-04 (Ivy Bridge) has none of these,
+upstream's image is EL10, which needs x86-64-v3 (AVX2/FMA/BMI); kube-worker-d (Ivy Bridge) has none of these,
 and the 3.18.0 image dies there with `CPU does not support x86-64-v3`. The build is upstream's, on an EL9 base:
 <https://github.com/lhns/ceph-csi-x86-64-v2>. Renovate reads the chart version and the image from that image's
 tags, so a chart bump waits until our build of that release is published.

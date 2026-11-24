@@ -55,7 +55,7 @@ spec:
       containers:
         - name: rdpgw
           # The owner's fork, branch ldap-auth (README, "Decisions").
-          image: ghcr.io/lhns/rdpgw:sha-97efef8eed46f1beb45fb2c6e7541efad83e4724@sha256:8d1049c139a174b4fc7f6cca2d89c09212d7d4dfb85c82b82a1345b6b77fa639
+          image: ghcr.io/lhns/rdpgw:sha-d2338354e00226b17f3592da5881bffa5ebddec2@sha256:cc541e8f68dab1265dfec729589b2dcc05ba30619fc066a0c9f1a2c2a62e795e
           # The image's entrypoint is a run.sh that needs root to `su` to the rdpgw user.
           command: ["/opt/rdpgw/rdpgw"]
           workingDir: /opt/rdpgw

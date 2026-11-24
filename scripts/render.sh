@@ -51,7 +51,7 @@ case "${1:-}" in
     values='{"groups":[{"base":"tests/fixtures/apps","prefix":"app"}],'"$fixture_cn"'}'
     ;;
   fixtures-generate)
-    values='{"groups":[{"base":"tests/fixtures/apps","prefix":"app"}],"generate":{'"$fixture_cn"'},"alerts":{"providerRef":"matrix","cluster":"fixture"}}'
+    values='{"groups":[{"base":"tests/fixtures/apps","prefix":"app"}],"generate":{'"$fixture_cn"'},"alerts":{"providerRef":"matrix","cluster":"fixture","components":["app-plain","app-based"]}}'
     ;;
   real)          values="$(live_values generate)" ;;
   real-generate) values="$(live_values)" ;;

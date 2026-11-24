@@ -10,6 +10,4 @@ namespaces:
           exclusive: true
         - regex: ^@whatsapp_.+:example\.com$
           exclusive: true
-        - regex: ^@.*:example\.com$
-          exclusive: false
 io.element.msc4190: true

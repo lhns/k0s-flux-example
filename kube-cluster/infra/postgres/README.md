@@ -5,7 +5,7 @@ standbys) on the `ceph-rbd` (Ceph RBD block) StorageClass. Requires the operator
 (`infra/cloudnative-pg`), so `kustomization.yaml` carries
 `dependsOn: infra-cloudnative-pg`.
 
-- `cluster.yaml` — the `Cluster` (3 instances, ceph-rbd 20Gi, `initdb` db/owner `app`).
+- `cluster.yaml` — the `Cluster` (3 instances, ceph-rbd 30Gi, `initdb` db/owner `app`).
   CNPG generates the `postgres-app` secret (user + password) in-cluster. Also wires
   backups (`spec.backup.volumeSnapshot` + the Barman Cloud Plugin as WAL archiver) and
   tuning (`max_connections: 500`, `shared_buffers: 512MB`, 1Gi/2Gi memory) — see

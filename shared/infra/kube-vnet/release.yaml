@@ -46,6 +46,15 @@ spec:
       networkWait:
         enabled: true
 
+    # The leader's working set swings 100-240Mi with cluster churn; the chart's 256Mi left no
+    # headroom. No CPU limit (ADR 0028): null drops the chart default.
+    resources:
+      requests:
+        memory: 128Mi
+      limits:
+        cpu: null
+        memory: 512Mi
+
     # Two replicas on different nodes so one is always serving the webhook. Preferred rather
     # than required: a required spread stalls the surge pod of a rollout when a node is down.
     replicaCount: 2

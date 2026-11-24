@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: security-profiles-operator
+---
+# defaultRequest only: a `default` limit would OOMKill every unsized workload.
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: default-requests
+  namespace: security-profiles-operator
+spec:
+  limits:
+    - type: Container
+      defaultRequest:
+        memory: 64Mi
+        cpu: 25m

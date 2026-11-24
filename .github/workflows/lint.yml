@@ -104,6 +104,39 @@ jobs:
         env:
           ALLOW_SKIP: "0"
         run: bash scripts/validate.sh
+      # Needs Docker, which validate.sh (offline, ADR 0016) does not. Only when a PR touches a
+      # bridge config or a mautrix image: it pulls the bridge images.
+      - name: Bridge configs match their images
+        id: bridges
+        if: always() && steps.tools.outcome == 'success' && github.event_name != 'push'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -n "$BASE" ]; then
+            git fetch -q --depth=1 origin "$BASE"
+            m=kube-cluster/apps/matrix
+            if git diff --quiet "$BASE" HEAD -- "$m/*-bridge-config.yaml" &&
+                ! git diff -U0 "$BASE" HEAD -- "$m/resources.yaml" | grep -q '^[-+].*image:.*mautrix'; then
+              echo "no bridge config or image changed"; exit 0
+            fi
+          fi
+          python3 scripts/bridge-config-sync.py --check
+      # Needs the network (flux CLI and release manifests), so only when a PR touches the Flux
+      # files or gen-flux.sh. A hand edit of the generated files fails here.
+      - name: Flux manifests match gen-flux.sh
+        id: flux
+        if: always() && steps.tools.outcome == 'success' && github.event_name != 'push'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -n "$BASE" ]; then
+            git fetch -q --depth=1 origin "$BASE"
+            if git diff --quiet "$BASE" HEAD -- '*/flux-system/gotk-*.yaml' scripts/gen-flux.sh; then
+              echo "no Flux manifest changed"; exit 0
+            fi
+          fi
+          bash scripts/gen-flux.sh
+          git diff --exit-code -- '*/flux-system/gotk-*.yaml'
       # Only when this run added to it: an unchanged upload still costs seconds.
       - name: Save cache
         if: always() && hashFiles('.cache/kubeconform/*', '.cache/fetch-digests', '.cache/debs/*') != steps.tools.outputs.cache
@@ -120,7 +153,7 @@ jobs:
         if: always() && github.event_name == 'pull_request'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          STATE: ${{ steps.validate.outcome == 'success' && 'success' || 'failure' }}
+          STATE: ${{ steps.validate.outcome == 'success' && steps.bridges.outcome != 'failure' && steps.flux.outcome != 'failure' && 'success' || 'failure' }}
           SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           gh api -X POST "repos/${{ github.repository }}/statuses/$SHA" \

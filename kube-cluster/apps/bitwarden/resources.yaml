@@ -45,16 +45,27 @@ spec:
         # (unrestricted under the ingress-only baseline).
         kube-vnet/net.traefik.traefik: ingress
         kube-vnet/net.postgres.postgres: egress
+        kube-vnet/net.msmtpd.msmtpd: egress
     spec:
       containers:
         - name: bitwarden
-          image: ghcr.io/dani-garcia/vaultwarden:1.37.4
+          image: ghcr.io/dani-garcia/vaultwarden:1.37.5@sha256:4fe17f415f90087377d37c755e0ea3cf189dcc6794e49cdd2a9adbb4937d9e1f
           env:
             - name: TZ
               value: Europe/Berlin
             # Canonical host — drives push/WebAuthn origin and generated links.
             - name: DOMAIN
               value: https://bitwarden.example.com
+            # Mail (email 2FA codes) through the in-cluster relay. Settings saved in
+            # /admin (data/config.json) override these, so keep SMTP out of the panel.
+            - name: SMTP_FROM
+              value: admin+bitwarden@example.com
+            - name: SMTP_HOST
+              value: msmtpd.msmtpd.svc.cluster.local
+            - name: SMTP_PORT
+              value: "2500"
+            - name: SMTP_SECURITY
+              value: "off"
             # DB in the shared CNPG cluster (dedicated vaultwarden role + db). The
             # password (reflected CNPG role secret) is interpolated into DATABASE_URL
             # via $(VAR); sslmode=disable (in-cluster, CNPG CA is self-signed).
@@ -97,12 +108,13 @@ spec:
                 secretKeyRef:
                   name: bitwarden-secrets
                   key: sso-client-secret
-            # ADMIN_TOKEN is only needed to bootstrap the /admin panel; normally left
-            # unset — /admin is protected by the reflected Authelia middleware (see
-            # routing.yaml). Uncomment + set (an argon2/plaintext token) if you ever
-            # need the panel without SSO in front.
-            #- name: ADMIN_TOKEN
-            #  value: ""
+            # /admin also sits behind Authelia (routing.yaml). A token saved
+            # in /admin (data/config.json) would override this one.
+            - name: ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: bitwarden-admin-token
+                  key: admin-token
           ports:
             - name: http
               containerPort: 80

@@ -1,0 +1,71 @@
+# Grafana Operator objects of this component (README.md, "Grafana objects"). Each opts out of Flux
+# substitution: rule templates and dashboard JSON are full of ${...}.
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: app-storage-usage-ceph-storage-owners
+  namespace: grafana
+spec:
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: dg1tqkgkqcbnke # Ceph
+  configMapRef:
+    name: app-storage-usage-dashboards
+    key: ceph-storage-owners.json
+---
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaAlertRuleGroup
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+  name: app-storage-usage
+  namespace: grafana
+spec:
+  name: app-storage-usage
+  instanceSelector:
+    matchLabels:
+      grafana.example.com/instance: main
+  folderUID: dg1tqkgkqcbnke # Ceph
+  interval: 1m
+  rules:
+    # Two overdue thresholds: the tasks run every 10 to 60 minutes (2 h of slack), rbd_k8s once a day (26 h).
+    # No series for 3 days (noDataState) means the exporter itself is gone.
+    - uid: storage-usage-stale
+      title: Storage usage task stale
+      condition: C
+      for: 15m
+      keepFiringFor: 15m
+      noDataState: Alerting
+      execErrState: KeepLast
+      data:
+        - refId: A
+          relativeTimeRange: {from: 600, to: 0}
+          datasourceUid: bfz43q0alv6kgc # VictoriaMetrics (Prometheus)
+          model:
+            refId: A
+            instant: true
+            expr: >-
+              (time() - max by (task) (last_over_time(ceph_usage_task_last_success_timestamp_seconds{task!="rbd_k8s"}[3d]))) - 7200
+              or (time() - max by (task) (last_over_time(ceph_usage_task_last_success_timestamp_seconds{task="rbd_k8s"}[3d]))) - 93600
+        - refId: C
+          datasourceUid: __expr__
+          model:
+            refId: C
+            type: threshold
+            expression: A
+            conditions:
+              - evaluator: {type: gt, params: [0]}
+      labels:
+        severity: warning
+      annotations:
+        summary: 'Storage usage task {{ with $labels.task }}{{ . }}{{ else }}unknown{{ end }} is stale'
+        description: 'The task has not succeeded in time, so the numbers on the Ceph storage dashboard are old. `kubectl -n storage-usage logs deploy/storage-usage` and ceph_usage_task_last_run_ok{task="{{ with $labels.task }}{{ . }}{{ else }}unknown{{ end }}"} show why. https://grafana.example.com/d/ceph-storage-owners/ceph-storage-owners'
+      notificationSettings:
+        receiver: matrix
+        group_by: [grafana_folder, alertname]
+        group_wait: 1m
+        group_interval: 10m
+        repeat_interval: 24h

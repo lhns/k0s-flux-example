@@ -1,0 +1,150 @@
+# The auth provider: the image's own mod_auth_ldap with two additions (provider.users() for the
+# portal's user list, an lldap-group -> admin-role hook), patched at build time so the stock part
+# is never copied here. Mounted as /var/lib/prosody/custom_plugins/mod_auth_lldap/ (../resources.yaml).
+apiVersion: oci.lhns.de/v1alpha1
+kind: ImageBuild
+metadata:
+  name: snikket-ldap-module
+  namespace: snikket
+spec:
+  interval: 1h
+  platforms: [linux/amd64]
+  dockerfile:
+    inline: |
+      # Must be the exact image the server container runs, or the patch meets a different
+      # module. scripts/validate.sh enforces it.
+      # renovate: datasource=docker
+      FROM snikket/snikket-server:stable.20260611@sha256:311c076e06ec0fdb182900577a936cdc8d15da50bcc6ccd6707b743a13a162f3 AS stock
+
+      # patch(1) is not in the server image or in alpine's busybox. Debian's, from the same
+      # release as the module (bookworm). A failed hunk fails the build, which holds the
+      # component and leaves the pod on the last good module.
+      FROM stock AS patched
+      USER root
+      RUN apt-get update && apt-get install -y --no-install-recommends patch \
+       && rm -rf /var/lib/apt/lists/* \
+       && mkdir /m && cp /usr/lib/prosody/modules/mod_auth_ldap.lua /m/mod_auth_lldap.lua
+      COPY <<'EOF' /m/lldap.patch
+      --- a/mod_auth_ldap.lua
+      +++ b/mod_auth_lldap.lua
+      @@ -1,3 +1,6 @@
+      +-- prosody's mod_auth_ldap plus two additions marked "LHNS:", applied as a patch to the image's
+      +-- own copy at build time (apps/snikket/artifacts/ldap-module.yaml).
+      +
+       -- mod_auth_ldap
+
+       local new_sasl = require "prosody.util.sasl".new;
+      @@ -92,6 +95,38 @@
+       	return ldap_do("modify", 2, dn, { '=', userPassword = password });
+       end
+
+      +-- LHNS: list accounts, which the portal's user list needs (stock: HTTP 500). Reuses ldap_filter
+      +-- with $user as "*", so the list is exactly who can log in. No paging.
+      +function provider.users()
+      +	if ld == nil then
+      +		local err;
+      +		ld, err = lualdap.open_simple(ldap_server, ldap_rootdn, ldap_password, ldap_tls);
+      +		if not ld then
+      +			module:log("error", "LDAP: cannot connect to list users: %s", tostring(err));
+      +			return function () end;
+      +		end
+      +	end
+      +	local ok, iter, invariant, initial = pcall(ld.search, ld, {
+      +		base = ldap_base;
+      +		scope = ldap_scope;
+      +		filter = ldap_filter:gsub("%$(%a+)", {
+      +			user = "*";
+      +			host = host;
+      +		});
+      +		attrs = { "uid" };
+      +	});
+      +	if not ok then
+      +		module:log("error", "LDAP: user listing failed: %s", tostring(iter));
+      +		ld = nil;
+      +		return function () end;
+      +	end
+      +	return function ()
+      +		local dn, attr = iter(invariant, initial);
+      +		if not dn then return nil; end
+      +		return attr and attr.uid;
+      +	end
+      +end
+      +
+       if ldap_mode == "getpasswd" then
+       	function provider.get_password(username)
+       		local dn, attr = get_user(username);
+      @@ -139,4 +174,61 @@
+       	module:log("error", "Unsupported ldap_mode %s", tostring(ldap_mode));
+       end
+
+      +
+      +-- LHNS: keep the admin role in step with an lldap group, on every successful authentication,
+      +-- so a group change applies at the user's next login. Only the admin bit is managed: roles set
+      +-- deliberately (restricted, operator) are left alone, and demotion goes to prosody:registered,
+      +-- what a plain account has anyway.
+      +local ldap_admin_group = module:get_option_string("ldap_admin_group");
+      +local ldap_admin_default_role = module:get_option_string("ldap_admin_default_role", "prosody:registered");
+      +if ldap_admin_group then
+      +	local usermanager = require "prosody.core.usermanager";
+      +
+      +	-- Roles this hook may move a user off.
+      +	local managed = {
+      +		["prosody:admin"] = true,
+      +		["prosody:member"] = true,
+      +		["prosody:registered"] = true,
+      +		["prosody:guest"] = true,
+      +	};
+      +
+      +	local function is_in_admin_group(username)
+      +		local dn = ldap_do("search", 2, {
+      +			base = ldap_base;
+      +			scope = ldap_scope;
+      +			sizelimit = 1;
+      +			filter = ("(&(uid=%s)(memberOf=%s))"):format(
+      +				ldap_filter_escape(username), ldap_filter_escape(ldap_admin_group));
+      +			attrs = { "uid" };
+      +		});
+      +		return not not dn;
+      +	end
+      +
+      +	module:hook("authentication-success", function (event)
+      +		local session = event.session;
+      +		local username = session and session.username;
+      +		if not username then return; end
+      +
+      +		local current = usermanager.get_user_role(username, module.host);
+      +		local current_name = current and current.name;
+      +		if current_name and not managed[current_name] then return; end
+      +
+      +		local want = is_in_admin_group(username) and "prosody:admin" or nil;
+      +		if not want then
+      +			-- Only a current admin needs demoting; rewriting every login would churn the store.
+      +			if current_name ~= "prosody:admin" then return; end
+      +			want = ldap_admin_default_role;
+      +		end
+      +		if current_name == want then return; end
+      +
+      +		local ok, err = usermanager.set_user_role(username, module.host, want);
+      +		if ok then
+      +			module:log("info", "role for %s: %s -> %s (from lldap group %q)",
+      +				username, tostring(current_name), want, ldap_admin_group);
+      +		else
+      +			module:log("error", "could not set role %s for %s: %s", want, username, tostring(err));
+      +		end
+      +	end);
+      +end
+      +
+       module:provides("auth", provider);
+      EOF
+      # chmod because prosody reads this as a non-root user off a read-only mount.
+      RUN cd /m && patch mod_auth_lldap.lua lldap.patch && grep -q 'provider.users' mod_auth_lldap.lua \
+       && chmod a+r mod_auth_lldap.lua
+
+      FROM scratch
+      COPY --from=patched /m/mod_auth_lldap.lua /mod_auth_lldap.lua
+  push:
+    history: 10
+    writeRefTo:
+      namespace: gen-app-snikket
+      keys:
+        ref: SNIKKET_LDAP_MODULE_REF

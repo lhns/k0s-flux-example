@@ -128,6 +128,9 @@ has to be legible, and a bare digest bump is not.
 - **Readiness is `tcpSocket`, not `httpGet /node/state`.** REST answers long before the node has
   attached to a mesh, and a probe failing while detached would restart the pod exactly when it is
   trying to re-attach.
+- **Liveness is the same `tcpSocket`.** `otbr-agent` exits when it loses the RCP (an SLZB reboot or
+  network blip) and the entrypoint, which only tails syslog, keeps the pod `Running` 0/1 forever.
+  The port is closed only when the process is gone, so the probe restarts exactly that case.
 
 ## Security
 

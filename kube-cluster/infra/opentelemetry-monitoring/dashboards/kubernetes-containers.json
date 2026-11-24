@@ -39,6 +39,27 @@
         "hide": 0
       },
       {
+        "name": "cluster",
+        "label": "Cluster",
+        "type": "custom",
+        "query": "prod : |kube",
+        "options": [
+          {
+            "selected": true,
+            "text": "prod",
+            "value": "|kube"
+          }
+        ],
+        "current": {
+          "selected": true,
+          "text": "prod",
+          "value": "|kube"
+        },
+        "multi": false,
+        "includeAll": false,
+        "hide": 0
+      },
+      {
         "name": "server",
         "label": "Node",
         "type": "query",
@@ -47,10 +68,10 @@
           "uid": "${ds}"
         },
         "query": {
-          "query": "label_values({__name__=\"k8s.node.condition_ready\"}, k8s.node.name)",
+          "query": "label_values({__name__=\"k8s.node.condition_ready\", \"k8s.cluster.name\"=~\"$cluster\"}, k8s.node.name)",
           "refId": "server"
         },
-        "definition": "label_values({__name__=\"k8s.node.condition_ready\"}, k8s.node.name)",
+        "definition": "label_values({__name__=\"k8s.node.condition_ready\", \"k8s.cluster.name\"=~\"$cluster\"}, k8s.node.name)",
         "regex": "",
         "refresh": 2,
         "sort": 1,
@@ -77,10 +98,10 @@
           "uid": "${ds}"
         },
         "query": {
-          "query": "label_values({__name__=\"k8s.pod.phase\", k8s.node.name=~\"$server\"}, k8s.namespace.name)",
+          "query": "label_values({__name__=\"k8s.pod.phase\", k8s.node.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}, k8s.namespace.name)",
           "refId": "namespace"
         },
-        "definition": "label_values({__name__=\"k8s.pod.phase\", k8s.node.name=~\"$server\"}, k8s.namespace.name)",
+        "definition": "label_values({__name__=\"k8s.pod.phase\", k8s.node.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}, k8s.namespace.name)",
         "regex": "",
         "refresh": 2,
         "sort": 1,
@@ -107,10 +128,10 @@
           "uid": "${ds}"
         },
         "query": {
-          "query": "query_result(count by (workload) (label_copy(label_replace(last_over_time({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\"}[$__range]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\")))",
+          "query": "query_result(count by (workload) (label_copy(label_replace(last_over_time({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}[$__range]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\")))",
           "refId": "workload"
         },
-        "definition": "query_result(count by (workload) (label_copy(label_replace(last_over_time({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\"}[$__range]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\")))",
+        "definition": "query_result(count by (workload) (label_copy(label_replace(last_over_time({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}[$__range]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\")))",
         "regex": "/workload=\"([^\"]+)\"/",
         "refresh": 2,
         "sort": 1,
@@ -137,10 +158,10 @@
           "uid": "${ds}"
         },
         "query": {
-          "query": "query_result(count by (\"k8s.pod.name\") (label_match(label_copy(label_replace(last_over_time({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\"}[$__range]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))",
+          "query": "query_result(count by (\"k8s.pod.name\") (label_match(label_copy(label_replace(last_over_time({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}[$__range]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))",
           "refId": "pod"
         },
-        "definition": "query_result(count by (\"k8s.pod.name\") (label_match(label_copy(label_replace(last_over_time({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\"}[$__range]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))",
+        "definition": "query_result(count by (\"k8s.pod.name\") (label_match(label_copy(label_replace(last_over_time({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}[$__range]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))",
         "regex": "/k8s\\.pod\\.name=\"([^\"]+)\"/",
         "refresh": 2,
         "sort": 1,
@@ -211,7 +232,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "count(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.pod.uid\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 2) or vector(0)",
+          "expr": "count(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.pod.uid\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 2) or vector(0)",
           "legendFormat": "",
           "range": true,
           "instant": false,
@@ -279,7 +300,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "count(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.pod.uid\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 1) or vector(0)",
+          "expr": "count(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.pod.uid\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 1) or vector(0)",
           "legendFormat": "",
           "range": true,
           "instant": false,
@@ -347,7 +368,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "count((max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.ready\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 0) and on (\"k8s.namespace.name\", \"k8s.pod.name\") (max by (\"k8s.namespace.name\", \"k8s.pod.name\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 2) unless on (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (count by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (count_over_time({__name__=\"k8s.container.ready\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}[30m])) > 1)) or vector(0)",
+          "expr": "count((max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.ready\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 0) and on (\"k8s.namespace.name\", \"k8s.pod.name\") (max by (\"k8s.namespace.name\", \"k8s.pod.name\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 2) unless on (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (count by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (count_over_time({__name__=\"k8s.container.ready\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}[30m])) > 1)) or vector(0)",
           "legendFormat": "",
           "range": true,
           "instant": false,
@@ -419,7 +440,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "sum(count by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace(count_over_time({__name__=\"k8s.container.ready\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}[$__range]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) - 1) or vector(0)",
+          "expr": "sum(count by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace(count_over_time({__name__=\"k8s.container.ready\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}[$__range]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) - 1) or vector(0)",
           "legendFormat": "",
           "range": true,
           "instant": false,
@@ -487,7 +508,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "count(count by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace(count_over_time({__name__=\"k8s.container.ready\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", k8s.container.status.last_terminated_reason=\"OOMKilled\"}[$__range]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\"))) or vector(0)",
+          "expr": "count(count by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace(count_over_time({__name__=\"k8s.container.ready\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", k8s.container.status.last_terminated_reason=\"OOMKilled\", \"k8s.cluster.name\"=~\"$cluster\"}[$__range]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\"))) or vector(0)",
           "legendFormat": "",
           "range": true,
           "instant": false,
@@ -555,7 +576,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "count(label_set(label_match(label_move(max by (\"k8s.namespace.name\", \"k8s.deployment.name\") ({__name__=\"k8s.deployment.desired\", k8s.namespace.name=~\"$namespace\"}) - max by (\"k8s.namespace.name\", \"k8s.deployment.name\") ({__name__=\"k8s.deployment.available\", k8s.namespace.name=~\"$namespace\"}) > 0, \"k8s.namespace.name\", \"namespace\", \"k8s.deployment.name\", \"name\"), \"name\", \"$workload\"), \"kind\", \"Deployment\") or label_set(label_match(label_move(max by (\"k8s.namespace.name\", \"k8s.statefulset.name\") ({__name__=\"k8s.statefulset.desired_pods\", k8s.namespace.name=~\"$namespace\"}) - max by (\"k8s.namespace.name\", \"k8s.statefulset.name\") ({__name__=\"k8s.statefulset.ready_pods\", k8s.namespace.name=~\"$namespace\"}) > 0, \"k8s.namespace.name\", \"namespace\", \"k8s.statefulset.name\", \"name\"), \"name\", \"$workload\"), \"kind\", \"StatefulSet\") or label_set(label_match(label_move(max by (\"k8s.namespace.name\", \"k8s.daemonset.name\") ({__name__=\"k8s.daemonset.desired_scheduled_nodes\", k8s.namespace.name=~\"$namespace\"}) - max by (\"k8s.namespace.name\", \"k8s.daemonset.name\") ({__name__=\"k8s.daemonset.ready_nodes\", k8s.namespace.name=~\"$namespace\"}) > 0, \"k8s.namespace.name\", \"namespace\", \"k8s.daemonset.name\", \"name\"), \"name\", \"$workload\"), \"kind\", \"DaemonSet\")) or vector(0)",
+          "expr": "count(label_set(label_match(label_move(max by (\"k8s.namespace.name\", \"k8s.deployment.name\") ({__name__=\"k8s.deployment.desired\", k8s.namespace.name=~\"$namespace\", \"k8s.cluster.name\"=~\"$cluster\"}) - max by (\"k8s.namespace.name\", \"k8s.deployment.name\") ({__name__=\"k8s.deployment.available\", k8s.namespace.name=~\"$namespace\", \"k8s.cluster.name\"=~\"$cluster\"}) > 0, \"k8s.namespace.name\", \"namespace\", \"k8s.deployment.name\", \"name\"), \"name\", \"$workload\"), \"kind\", \"Deployment\") or label_set(label_match(label_move(max by (\"k8s.namespace.name\", \"k8s.statefulset.name\") ({__name__=\"k8s.statefulset.desired_pods\", k8s.namespace.name=~\"$namespace\", \"k8s.cluster.name\"=~\"$cluster\"}) - max by (\"k8s.namespace.name\", \"k8s.statefulset.name\") ({__name__=\"k8s.statefulset.ready_pods\", k8s.namespace.name=~\"$namespace\", \"k8s.cluster.name\"=~\"$cluster\"}) > 0, \"k8s.namespace.name\", \"namespace\", \"k8s.statefulset.name\", \"name\"), \"name\", \"$workload\"), \"kind\", \"StatefulSet\") or label_set(label_match(label_move(max by (\"k8s.namespace.name\", \"k8s.daemonset.name\") ({__name__=\"k8s.daemonset.desired_scheduled_nodes\", k8s.namespace.name=~\"$namespace\", \"k8s.cluster.name\"=~\"$cluster\"}) - max by (\"k8s.namespace.name\", \"k8s.daemonset.name\") ({__name__=\"k8s.daemonset.ready_nodes\", k8s.namespace.name=~\"$namespace\", \"k8s.cluster.name\"=~\"$cluster\"}) > 0, \"k8s.namespace.name\", \"namespace\", \"k8s.daemonset.name\", \"name\"), \"name\", \"$workload\"), \"kind\", \"DaemonSet\")) or vector(0)",
           "legendFormat": "",
           "range": true,
           "instant": false,
@@ -623,7 +644,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "count(((max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"}) / -deriv(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"})[6h:5m]) and deriv(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"})[6h:5m]) < 0) or ((1 - max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"}) / max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.capacity\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"})) > 0.97) * 0) < 604800) or vector(0)",
+          "expr": "count(((max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\", \"k8s.cluster.name\"=~\"$cluster\"}) / -deriv(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\", \"k8s.cluster.name\"=~\"$cluster\"})[6h:5m]) and deriv(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\", \"k8s.cluster.name\"=~\"$cluster\"})[6h:5m]) < 0) or ((1 - max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\", \"k8s.cluster.name\"=~\"$cluster\"}) / max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.capacity\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\", \"k8s.cluster.name\"=~\"$cluster\"})) > 0.97) * 0) < 604800) or vector(0)",
           "legendFormat": "",
           "range": true,
           "instant": false,
@@ -1026,7 +1047,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max by (\"k8s.node.name\") ({__name__=\"k8s.node.allocatable_cpu\", k8s.node.name=~\"$server\"}), \"k8s.node.name\", \"server\")",
+          "expr": "label_move(max by (\"k8s.node.name\") ({__name__=\"k8s.node.allocatable_cpu\", k8s.node.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}), \"k8s.node.name\", \"server\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -1038,7 +1059,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(sum by (\"k8s.node.name\") (max by (\"k8s.node.name\", \"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") ({__name__=\"k8s.container.cpu_request\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}) and on (\"k8s.namespace.name\", \"k8s.pod.name\") (max by (\"k8s.namespace.name\", \"k8s.pod.name\") ({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}) == 2)) / max by (\"k8s.node.name\") ({__name__=\"k8s.node.allocatable_cpu\", k8s.node.name=~\"$server\"}), \"k8s.node.name\", \"server\")",
+          "expr": "label_move(sum by (\"k8s.node.name\") (max by (\"k8s.node.name\", \"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") ({__name__=\"k8s.container.cpu_request\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}) and on (\"k8s.namespace.name\", \"k8s.pod.name\") (max by (\"k8s.namespace.name\", \"k8s.pod.name\") ({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}) == 2)) / max by (\"k8s.node.name\") ({__name__=\"k8s.node.allocatable_cpu\", k8s.node.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}), \"k8s.node.name\", \"server\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -1050,7 +1071,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(sum by (\"k8s.node.name\") (rate({__name__=\"container.cpu.time\", k8s.node.name=~\"$server\"}[5m])) / max by (\"k8s.node.name\") ({__name__=\"k8s.node.allocatable_cpu\", k8s.node.name=~\"$server\"}), \"k8s.node.name\", \"server\")",
+          "expr": "label_move(sum by (\"k8s.node.name\") (rate({__name__=\"container.cpu.time\", k8s.node.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}[5m])) / max by (\"k8s.node.name\") ({__name__=\"k8s.node.allocatable_cpu\", k8s.node.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}), \"k8s.node.name\", \"server\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -1062,7 +1083,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max by (\"k8s.node.name\") ({__name__=\"k8s.node.allocatable_memory\", k8s.node.name=~\"$server\"}), \"k8s.node.name\", \"server\")",
+          "expr": "label_move(max by (\"k8s.node.name\") ({__name__=\"k8s.node.allocatable_memory\", k8s.node.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}), \"k8s.node.name\", \"server\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -1074,7 +1095,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(sum by (\"k8s.node.name\") (max by (\"k8s.node.name\", \"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") ({__name__=\"k8s.container.memory_request\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}) and on (\"k8s.namespace.name\", \"k8s.pod.name\") (max by (\"k8s.namespace.name\", \"k8s.pod.name\") ({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}) == 2)) / max by (\"k8s.node.name\") ({__name__=\"k8s.node.allocatable_memory\", k8s.node.name=~\"$server\"}), \"k8s.node.name\", \"server\")",
+          "expr": "label_move(sum by (\"k8s.node.name\") (max by (\"k8s.node.name\", \"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") ({__name__=\"k8s.container.memory_request\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}) and on (\"k8s.namespace.name\", \"k8s.pod.name\") (max by (\"k8s.namespace.name\", \"k8s.pod.name\") ({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}) == 2)) / max by (\"k8s.node.name\") ({__name__=\"k8s.node.allocatable_memory\", k8s.node.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}), \"k8s.node.name\", \"server\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -1086,7 +1107,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(sum by (\"k8s.node.name\") ({__name__=\"container.memory.working_set\", k8s.node.name=~\"$server\"}) / max by (\"k8s.node.name\") ({__name__=\"k8s.node.allocatable_memory\", k8s.node.name=~\"$server\"}), \"k8s.node.name\", \"server\")",
+          "expr": "label_move(sum by (\"k8s.node.name\") ({__name__=\"container.memory.working_set\", k8s.node.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}) / max by (\"k8s.node.name\") ({__name__=\"k8s.node.allocatable_memory\", k8s.node.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}), \"k8s.node.name\", \"server\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -1098,7 +1119,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(count by (\"k8s.node.name\") (max by (\"k8s.node.name\", \"k8s.pod.uid\") ({__name__=\"k8s.pod.phase\", k8s.node.name=~\"$server\"}) == 2), \"k8s.node.name\", \"server\")",
+          "expr": "label_move(count by (\"k8s.node.name\") (max by (\"k8s.node.name\", \"k8s.pod.uid\") ({__name__=\"k8s.pod.phase\", k8s.node.name=~\"$server\", \"k8s.cluster.name\"=~\"$cluster\"}) == 2), \"k8s.node.name\", \"server\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -1176,7 +1197,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(label_set(max by (\"k8s.namespace.name\", \"k8s.pod.name\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 1, \"status\", \"Pending\") or label_set(max by (\"k8s.namespace.name\", \"k8s.pod.name\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 4, \"status\", \"Failed\"), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\")",
+          "expr": "label_move(label_set(max by (\"k8s.namespace.name\", \"k8s.pod.name\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 1, \"status\", \"Pending\") or label_set(max by (\"k8s.namespace.name\", \"k8s.pod.name\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 4, \"status\", \"Failed\"), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -1188,7 +1209,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(label_set((max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.ready\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 0) and on (\"k8s.namespace.name\", \"k8s.pod.name\") (max by (\"k8s.namespace.name\", \"k8s.pod.name\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 2) unless on (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (count by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (count_over_time({__name__=\"k8s.container.ready\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}[30m])) > 1), \"status\", \"Not ready\"), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\")",
+          "expr": "label_move(label_set((max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.ready\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 0) and on (\"k8s.namespace.name\", \"k8s.pod.name\") (max by (\"k8s.namespace.name\", \"k8s.pod.name\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 2) unless on (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (count by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (count_over_time({__name__=\"k8s.container.ready\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}[30m])) > 1), \"status\", \"Not ready\"), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -1327,7 +1348,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_set(label_match(label_move(max by (\"k8s.namespace.name\", \"k8s.deployment.name\") ({__name__=\"k8s.deployment.desired\", k8s.namespace.name=~\"$namespace\"}) - max by (\"k8s.namespace.name\", \"k8s.deployment.name\") ({__name__=\"k8s.deployment.available\", k8s.namespace.name=~\"$namespace\"}) > 0, \"k8s.namespace.name\", \"namespace\", \"k8s.deployment.name\", \"name\"), \"name\", \"$workload\"), \"kind\", \"Deployment\") or label_set(label_match(label_move(max by (\"k8s.namespace.name\", \"k8s.statefulset.name\") ({__name__=\"k8s.statefulset.desired_pods\", k8s.namespace.name=~\"$namespace\"}) - max by (\"k8s.namespace.name\", \"k8s.statefulset.name\") ({__name__=\"k8s.statefulset.ready_pods\", k8s.namespace.name=~\"$namespace\"}) > 0, \"k8s.namespace.name\", \"namespace\", \"k8s.statefulset.name\", \"name\"), \"name\", \"$workload\"), \"kind\", \"StatefulSet\") or label_set(label_match(label_move(max by (\"k8s.namespace.name\", \"k8s.daemonset.name\") ({__name__=\"k8s.daemonset.desired_scheduled_nodes\", k8s.namespace.name=~\"$namespace\"}) - max by (\"k8s.namespace.name\", \"k8s.daemonset.name\") ({__name__=\"k8s.daemonset.ready_nodes\", k8s.namespace.name=~\"$namespace\"}) > 0, \"k8s.namespace.name\", \"namespace\", \"k8s.daemonset.name\", \"name\"), \"name\", \"$workload\"), \"kind\", \"DaemonSet\")",
+          "expr": "label_set(label_match(label_move(max by (\"k8s.namespace.name\", \"k8s.deployment.name\") ({__name__=\"k8s.deployment.desired\", k8s.namespace.name=~\"$namespace\", \"k8s.cluster.name\"=~\"$cluster\"}) - max by (\"k8s.namespace.name\", \"k8s.deployment.name\") ({__name__=\"k8s.deployment.available\", k8s.namespace.name=~\"$namespace\", \"k8s.cluster.name\"=~\"$cluster\"}) > 0, \"k8s.namespace.name\", \"namespace\", \"k8s.deployment.name\", \"name\"), \"name\", \"$workload\"), \"kind\", \"Deployment\") or label_set(label_match(label_move(max by (\"k8s.namespace.name\", \"k8s.statefulset.name\") ({__name__=\"k8s.statefulset.desired_pods\", k8s.namespace.name=~\"$namespace\", \"k8s.cluster.name\"=~\"$cluster\"}) - max by (\"k8s.namespace.name\", \"k8s.statefulset.name\") ({__name__=\"k8s.statefulset.ready_pods\", k8s.namespace.name=~\"$namespace\", \"k8s.cluster.name\"=~\"$cluster\"}) > 0, \"k8s.namespace.name\", \"namespace\", \"k8s.statefulset.name\", \"name\"), \"name\", \"$workload\"), \"kind\", \"StatefulSet\") or label_set(label_match(label_move(max by (\"k8s.namespace.name\", \"k8s.daemonset.name\") ({__name__=\"k8s.daemonset.desired_scheduled_nodes\", k8s.namespace.name=~\"$namespace\", \"k8s.cluster.name\"=~\"$cluster\"}) - max by (\"k8s.namespace.name\", \"k8s.daemonset.name\") ({__name__=\"k8s.daemonset.ready_nodes\", k8s.namespace.name=~\"$namespace\", \"k8s.cluster.name\"=~\"$cluster\"}) > 0, \"k8s.namespace.name\", \"namespace\", \"k8s.daemonset.name\", \"name\"), \"name\", \"$workload\"), \"kind\", \"DaemonSet\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -1481,7 +1502,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "count(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.pod.uid\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 1)",
+          "expr": "count(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.pod.uid\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 1)",
           "legendFormat": "Pending",
           "range": true,
           "instant": false,
@@ -1492,7 +1513,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "count(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.pod.uid\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 2)",
+          "expr": "count(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.pod.uid\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 2)",
           "legendFormat": "Running",
           "range": true,
           "instant": false,
@@ -1503,7 +1524,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "count(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.pod.uid\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 3)",
+          "expr": "count(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.pod.uid\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 3)",
           "legendFormat": "Succeeded",
           "range": true,
           "instant": false,
@@ -1514,7 +1535,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "count(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.pod.uid\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 4)",
+          "expr": "count(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.pod.uid\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) == 4)",
           "legendFormat": "Failed",
           "range": true,
           "instant": false,
@@ -1602,7 +1623,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "topk_max(10, label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.node.name\") (count by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\", \"k8s.node.name\") (label_match(label_copy(label_replace(count_over_time({__name__=\"k8s.container.ready\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}[1h]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) - 1), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.node.name\", \"server\") > 0)",
+          "expr": "topk_max(10, label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.node.name\") (count by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\", \"k8s.node.name\") (label_match(label_copy(label_replace(count_over_time({__name__=\"k8s.container.ready\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}[1h]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) - 1), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.node.name\", \"server\") > 0)",
           "legendFormat": "{{namespace}}/{{pod}}",
           "range": true,
           "instant": false,
@@ -1704,7 +1725,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "topk_max(15, label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.node.name\") (label_match(label_copy(label_replace(rate({__name__=\"container.cpu.time\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}[$__rate_interval]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.node.name\", \"server\"))",
+          "expr": "topk_max(15, label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.node.name\") (label_match(label_copy(label_replace(rate({__name__=\"container.cpu.time\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.node.name\", \"server\"))",
           "legendFormat": "{{namespace}}/{{pod}} ({{server}})",
           "range": true,
           "instant": false,
@@ -1799,7 +1820,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace(rate({__name__=\"container.cpu.time\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}[$__rate_interval]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) / max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.cpu_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\")",
+          "expr": "label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace(rate({__name__=\"container.cpu.time\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) / max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.cpu_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\")",
           "legendFormat": "{{namespace}}/{{pod}}/{{container}}",
           "range": true,
           "instant": false,
@@ -2005,7 +2026,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.cpu_request\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
+          "expr": "label_move(max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.cpu_request\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -2017,7 +2038,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(quantile_over_time(0.95, (max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace(rate({__name__=\"container.cpu.time\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}[5m]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[$__range:5m]), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
+          "expr": "label_move(quantile_over_time(0.95, (max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace(rate({__name__=\"container.cpu.time\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}[5m]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[$__range:5m]), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -2029,7 +2050,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max_over_time((max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace(rate({__name__=\"container.cpu.time\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}[5m]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[$__range:5m]), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
+          "expr": "label_move(max_over_time((max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace(rate({__name__=\"container.cpu.time\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}[5m]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[$__range:5m]), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -2041,7 +2062,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.cpu_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
+          "expr": "label_move(max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.cpu_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -2053,7 +2074,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(quantile_over_time(0.95, (max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace(rate({__name__=\"container.cpu.time\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}[5m]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[$__range:5m]) / max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.cpu_request\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
+          "expr": "label_move(quantile_over_time(0.95, (max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace(rate({__name__=\"container.cpu.time\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}[5m]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[$__range:5m]) / max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.cpu_request\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -2170,7 +2191,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "topk_max(15, label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.node.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.working_set\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.node.name\", \"server\"))",
+          "expr": "topk_max(15, label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.node.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.working_set\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.node.name\", \"server\"))",
           "legendFormat": "{{namespace}}/{{pod}} ({{server}})",
           "range": true,
           "instant": false,
@@ -2265,7 +2286,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.rss\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) / max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\")",
+          "expr": "label_move(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.rss\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) / max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\")",
           "legendFormat": "{{namespace}}/{{pod}}/{{container}}",
           "range": true,
           "instant": false,
@@ -2506,7 +2527,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.rss\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) and max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\")",
+          "expr": "label_move(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.rss\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) and max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -2518,7 +2539,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\")",
+          "expr": "label_move(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -2530,7 +2551,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.rss\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) / max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\")",
+          "expr": "label_move(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.rss\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) / max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -2542,7 +2563,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(((max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) - max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.rss\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\"))) / deriv((max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.rss\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[1h:1m]) and deriv((max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.rss\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[1h:1m]) > 0) or (max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) * 0 + 1e+10), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\")",
+          "expr": "label_move(((max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) - max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.rss\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\"))) / deriv((max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.rss\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[1h:1m]) and deriv((max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.rss\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[1h:1m]) > 0) or (max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) * 0 + 1e+10), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -2646,7 +2667,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\", \"k8s.container.status.last_terminated_reason\") (label_match(label_copy(label_replace({__name__=\"k8s.container.restarts\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", k8s.container.status.last_terminated_reason!=\"\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\", \"k8s.container.status.last_terminated_reason\", \"reason\")",
+          "expr": "label_move(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\", \"k8s.container.status.last_terminated_reason\") (label_match(label_copy(label_replace({__name__=\"k8s.container.restarts\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", k8s.container.status.last_terminated_reason!=\"\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\", \"k8s.container.status.last_terminated_reason\", \"reason\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -2929,7 +2950,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_request\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
+          "expr": "label_move(max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_request\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -2941,7 +2962,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(quantile_over_time(0.95, (max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.working_set\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[$__range:5m]), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
+          "expr": "label_move(quantile_over_time(0.95, (max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.working_set\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[$__range:5m]), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -2953,7 +2974,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max_over_time((max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.working_set\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[$__range:5m]), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
+          "expr": "label_move(max_over_time((max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.working_set\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[$__range:5m]), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -2965,7 +2986,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
+          "expr": "label_move(max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -2977,7 +2998,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(quantile_over_time(0.95, (max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.working_set\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[$__range:5m]) / max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_request\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
+          "expr": "label_move(quantile_over_time(0.95, (max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.working_set\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[$__range:5m]) / max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_request\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -2989,7 +3010,7 @@
             "type": "victoriametrics-metrics-datasource",
             "uid": "${ds}"
           },
-          "expr": "label_move(max_over_time((max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.working_set\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[$__range:5m]) / max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
+          "expr": "label_move(max_over_time((max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.memory.working_set\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")))[$__range:5m]) / max by (\"k8s.namespace.name\", workload, \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"k8s.container.memory_limit\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.container.name\", \"container\")",
           "legendFormat": "",
           "instant": true,
           "range": false,
@@ -3118,7 +3139,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "topk_max(10, label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.node.name\", direction) (label_match(label_copy(label_replace(rate({__name__=\"k8s.pod.network.io\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}[$__rate_interval]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.node.name\", \"server\"))",
+              "expr": "topk_max(10, label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.node.name\", direction) (label_match(label_copy(label_replace(rate({__name__=\"k8s.pod.network.io\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.node.name\", \"server\"))",
               "legendFormat": "{{namespace}}/{{pod}} {{direction}}",
               "range": true,
               "instant": false,
@@ -3209,7 +3230,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\", direction) (label_match(label_copy(label_replace(rate({__name__=\"k8s.pod.network.errors\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}[$__rate_interval]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) > 0, \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\")",
+              "expr": "label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\", direction) (label_match(label_copy(label_replace(rate({__name__=\"k8s.pod.network.errors\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval]), \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) > 0, \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\")",
               "legendFormat": "{{namespace}}/{{pod}} {{direction}}",
               "range": true,
               "instant": false,
@@ -3480,7 +3501,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "label_move(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.capacity\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"}), \"k8s.namespace.name\", \"namespace\", \"k8s.persistentvolumeclaim.name\", \"pvc\")",
+              "expr": "label_move(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.capacity\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\", \"k8s.cluster.name\"=~\"$cluster\"}), \"k8s.namespace.name\", \"namespace\", \"k8s.persistentvolumeclaim.name\", \"pvc\")",
               "legendFormat": "",
               "instant": true,
               "range": false,
@@ -3492,7 +3513,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "label_move((1 - max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"}) / max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.capacity\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"})), \"k8s.namespace.name\", \"namespace\", \"k8s.persistentvolumeclaim.name\", \"pvc\")",
+              "expr": "label_move((1 - max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\", \"k8s.cluster.name\"=~\"$cluster\"}) / max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.capacity\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\", \"k8s.cluster.name\"=~\"$cluster\"})), \"k8s.namespace.name\", \"namespace\", \"k8s.persistentvolumeclaim.name\", \"pvc\")",
               "legendFormat": "",
               "instant": true,
               "range": false,
@@ -3504,7 +3525,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "label_move(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"}), \"k8s.namespace.name\", \"namespace\", \"k8s.persistentvolumeclaim.name\", \"pvc\")",
+              "expr": "label_move(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\", \"k8s.cluster.name\"=~\"$cluster\"}), \"k8s.namespace.name\", \"namespace\", \"k8s.persistentvolumeclaim.name\", \"pvc\")",
               "legendFormat": "",
               "instant": true,
               "range": false,
@@ -3516,7 +3537,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "label_move(-deriv(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"})[6h:5m]) * 86400, \"k8s.namespace.name\", \"namespace\", \"k8s.persistentvolumeclaim.name\", \"pvc\")",
+              "expr": "label_move(-deriv(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\", \"k8s.cluster.name\"=~\"$cluster\"})[6h:5m]) * 86400, \"k8s.namespace.name\", \"namespace\", \"k8s.persistentvolumeclaim.name\", \"pvc\")",
               "legendFormat": "",
               "instant": true,
               "range": false,
@@ -3528,7 +3549,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "label_move(((max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"}) / -deriv(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"})[6h:5m]) and deriv(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"})[6h:5m]) < 0) or ((1 - max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"}) / max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.capacity\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"})) > 0.97) * 0) or (max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.capacity\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"}) * 0 + 1e+10), \"k8s.namespace.name\", \"namespace\", \"k8s.persistentvolumeclaim.name\", \"pvc\")",
+              "expr": "label_move(((max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\", \"k8s.cluster.name\"=~\"$cluster\"}) / -deriv(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\", \"k8s.cluster.name\"=~\"$cluster\"})[6h:5m]) and deriv(max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\", \"k8s.cluster.name\"=~\"$cluster\"})[6h:5m]) < 0) or ((1 - max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\", \"k8s.cluster.name\"=~\"$cluster\"}) / max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.capacity\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\", \"k8s.cluster.name\"=~\"$cluster\"})) > 0.97) * 0) or (max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.capacity\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\", \"k8s.cluster.name\"=~\"$cluster\"}) * 0 + 1e+10), \"k8s.namespace.name\", \"namespace\", \"k8s.persistentvolumeclaim.name\", \"pvc\")",
               "legendFormat": "",
               "instant": true,
               "range": false,
@@ -3622,7 +3643,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "topk_max(15, label_move((1 - max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"}) / max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.capacity\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\"})), \"k8s.namespace.name\", \"namespace\", \"k8s.persistentvolumeclaim.name\", \"pvc\"))",
+              "expr": "topk_max(15, label_move((1 - max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\", \"k8s.cluster.name\"=~\"$cluster\"}) / max by (\"k8s.namespace.name\", \"k8s.persistentvolumeclaim.name\") ({__name__=\"k8s.volume.capacity\", k8s.namespace.name=~\"$namespace\", k8s.volume.type=\"persistentVolumeClaim\", \"k8s.cluster.name\"=~\"$cluster\"})), \"k8s.namespace.name\", \"namespace\", \"k8s.persistentvolumeclaim.name\", \"pvc\"))",
               "legendFormat": "{{namespace}}/{{pvc}}",
               "range": true,
               "instant": false,
@@ -3711,7 +3732,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "topk_max(10, label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\") ((sum by (\"host.name\", device) (rate({__name__=\"system.disk.io\", host.name=~\"$server\", device=~\"rbd[0-9]+\"}[$__rate_interval])) * on (\"host.name\", device) group_right () (max by (\"host.name\", device, \"k8s.pod.uid\") (label_replace(label_replace({__name__=\"system.filesystem.utilization\", host.name=~\"$server\", mountpoint=~\"/var/lib/k0s/kubelet/pods/.*\"}, \"k8s.pod.uid\", \"$1\", \"mountpoint\", \"/var/lib/k0s/kubelet/pods/([^/]+)/.*\"), \"device\", \"$1\", \"device\", \"/dev/(.+)\")) * 0 + 1)) * on (\"k8s.pod.uid\") group_left (\"k8s.namespace.name\", \"k8s.pod.name\") (max by (\"k8s.pod.uid\", \"k8s.namespace.name\", \"k8s.pod.name\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) * 0 + 1)), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\"))",
+              "expr": "topk_max(10, label_move(sum by (\"k8s.namespace.name\", \"k8s.pod.name\") ((sum by (\"host.name\", device) (rate({__name__=\"system.disk.io\", host.name=~\"$server\", device=~\"rbd[0-9]+\", \"k8s.cluster.name\"=~\"$cluster\"}[$__rate_interval])) * on (\"host.name\", device) group_right () (max by (\"host.name\", device, \"k8s.pod.uid\") (label_replace(label_replace({__name__=\"system.filesystem.utilization\", host.name=~\"$server\", mountpoint=~\"/var/lib/k0s/kubelet/pods/.*\", \"k8s.cluster.name\"=~\"$cluster\"}, \"k8s.pod.uid\", \"$1\", \"mountpoint\", \"/var/lib/k0s/kubelet/pods/([^/]+)/.*\"), \"device\", \"$1\", \"device\", \"/dev/(.+)\")) * 0 + 1)) * on (\"k8s.pod.uid\") group_left (\"k8s.namespace.name\", \"k8s.pod.name\") (max by (\"k8s.pod.uid\", \"k8s.namespace.name\", \"k8s.pod.name\") (label_match(label_copy(label_replace({__name__=\"k8s.pod.phase\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) * 0 + 1)), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\"))",
               "legendFormat": "{{namespace}}/{{pod}}",
               "range": true,
               "instant": false,
@@ -3800,7 +3821,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "topk_max(10, label_move(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.filesystem.usage\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\"))",
+              "expr": "topk_max(10, label_move(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.container.name\") (label_match(label_copy(label_replace({__name__=\"container.filesystem.usage\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.container.name\", \"container\"))",
               "legendFormat": "{{namespace}}/{{pod}}/{{container}}",
               "range": true,
               "instant": false,
@@ -3889,7 +3910,7 @@
                 "type": "victoriametrics-metrics-datasource",
                 "uid": "${ds}"
               },
-              "expr": "topk_max(10, label_move(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.volume.name\") (label_match(label_copy(label_replace({__name__=\"k8s.volume.capacity\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", k8s.volume.type=\"emptyDir\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) - max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.volume.name\") (label_match(label_copy(label_replace({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", k8s.volume.type=\"emptyDir\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.volume.name\", \"volume\"))",
+              "expr": "topk_max(10, label_move(max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.volume.name\") (label_match(label_copy(label_replace({__name__=\"k8s.volume.capacity\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", k8s.volume.type=\"emptyDir\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")) - max by (\"k8s.namespace.name\", \"k8s.pod.name\", \"k8s.volume.name\") (label_match(label_copy(label_replace({__name__=\"k8s.volume.available\", k8s.namespace.name=~\"$namespace\", k8s.node.name=~\"$server\", k8s.pod.name=~\"$pod\", k8s.volume.type=\"emptyDir\", \"k8s.cluster.name\"=~\"$cluster\"}, \"workload\", \"$1\", \"k8s.pod.name\", \"(.+?)(-[0-9]+)?\"), \"k8s.job.name\", \"workload\", \"k8s.cronjob.name\", \"workload\", \"k8s.daemonset.name\", \"workload\", \"k8s.statefulset.name\", \"workload\", \"k8s.deployment.name\", \"workload\"), \"workload\", \"$workload\")), \"k8s.namespace.name\", \"namespace\", \"k8s.pod.name\", \"pod\", \"k8s.volume.name\", \"volume\"))",
               "legendFormat": "{{namespace}}/{{pod}} {{volume}}",
               "range": true,
               "instant": false,
